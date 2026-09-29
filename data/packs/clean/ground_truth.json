@@ -1,0 +1,15 @@
+{
+  "pack": "clean",
+  "expected_band": "Low",
+  "expected_readiness": "Complete",
+  "expected_check_ids": [],
+  "expected_compliance_check_ids": [],
+  "tampers": [],
+  "benign": [
+    {
+      "doc": "invoice_INV-1001",
+      "type": "rounding",
+      "detail": "paid 32,699.50 vs invoiced 32,700.00"
+    }
+  ]
+}

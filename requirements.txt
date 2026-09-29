@@ -1,0 +1,8 @@
+﻿pydantic>=2
+pdfplumber
+pypdf
+reportlab
+streamlit
+boto3
+python-dotenv
+pytest

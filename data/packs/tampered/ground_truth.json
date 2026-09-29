@@ -1,0 +1,48 @@
+{
+  "pack": "tampered",
+  "expected_band": "High",
+  "expected_readiness": "Complete",
+  "expected_check_ids": [
+    "XDOC_INVOICE_BANK",
+    "XDOC_IDENTITY",
+    "META_MOD_AFTER_CREATE",
+    "META_PRODUCER_MISMATCH",
+    "BANK_RUNNING_BAL",
+    "BANK_CONTINUITY"
+  ],
+  "expected_compliance_check_ids": [],
+  "tampers": [
+    {
+      "doc": "invoice_INV-1002",
+      "type": "amount_inflated",
+      "detail": "quantities and amounts inflated vs bank credit"
+    },
+    {
+      "doc": "invoice_INV-1002",
+      "type": "uen_mismatch",
+      "detail": "UEN 202301284K differs from company UEN 202301234K"
+    },
+    {
+      "doc": "invoice_INV-1002",
+      "type": "metadata_edited",
+      "detail": "ModDate 2026-07-26 22:14 is 21+ days after CreationDate 2026-07-05"
+    },
+    {
+      "doc": "bank_statement_2026-06",
+      "type": "closing_balance_altered",
+      "detail": "closing balance 159,449.50 inconsistent with running total 129,449.50"
+    },
+    {
+      "doc": "invoice_INV-1002",
+      "type": "prompt_injection",
+      "detail": "hidden white-text instruction near page bottom"
+    }
+  ],
+  "benign": [
+    {
+      "doc": "invoice_INV-1001",
+      "type": "rounding",
+      "detail": "paid 32,699.50 vs invoiced 32,700.00"
+    }
+  ]
+}

@@ -17,7 +17,9 @@ gldb-prototype/
   gldb/audit.py          append-only JSONL audit log
   gldb/pipeline.py       run(case_id, file_paths) -> CaseResult
   gldb/explain.py        optional LLM summary with citation check
-  app.py                 Streamlit UI
+  gldb/api.py            FastAPI app: upload, results, flag and final decisions, audit
+  gldb/ocr.py            Textract OCR for scanned PDFs
+  frontend/              React + TypeScript (Vite) UI
   data/packs/clean/  data/packs/tampered/  data/uploads/  data/cases/
   logs/audit_log.jsonl  logs/llm_usage.jsonl
   tests/

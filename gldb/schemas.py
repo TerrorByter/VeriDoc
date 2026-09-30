@@ -15,9 +15,28 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Literal
+from pathlib import Path
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, Field, field_validator
+
+
+# ---------------------------------------------------------------------------
+# Money
+# ---------------------------------------------------------------------------
+
+
+def _strip_money_text(value: Any) -> Any:
+    """Accept money as printed ("SGD 1,234.56", "$1,234.56"). Formatting is
+    removed; the figure itself is never changed. "-" or "" means no amount."""
+    if isinstance(value, str):
+        text = value.replace(",", "").replace("SGD", "").replace("S$", "").replace("$", "").strip()
+        return None if text in ("", "-") else text
+    return value
+
+
+Money = Annotated[Decimal, BeforeValidator(_strip_money_text)]
+OptionalMoney = Annotated[Decimal | None, BeforeValidator(_strip_money_text)]
 
 
 # ---------------------------------------------------------------------------
@@ -28,8 +47,8 @@ from pydantic import BaseModel, Field, field_validator
 class LineItem(BaseModel):
     description: str
     quantity: int
-    unit_price: Decimal
-    amount: Decimal
+    unit_price: Money
+    amount: Money
 
 
 class Invoice(BaseModel):
@@ -40,9 +59,24 @@ class Invoice(BaseModel):
     seller_uen: str
     buyer_name: str
     line_items: list[LineItem]
-    subtotal: Decimal
-    gst: Decimal
-    total: Decimal
+    subtotal: Money
+    gst: Money
+    total: Money
+    page: int = 1
+    source_quotes: dict[str, str] = {}
+
+
+class PurchaseOrder(BaseModel):
+    """Trade record: the buyer's order that an invoice should be consistent with."""
+
+    doc_id: str
+    po_number: str
+    po_date: date
+    buyer_name: str
+    seller_name: str
+    seller_uen: str
+    line_items: list[LineItem]
+    total: Money
     page: int = 1
     source_quotes: dict[str, str] = {}
 
@@ -50,9 +84,9 @@ class Invoice(BaseModel):
 class Transaction(BaseModel):
     date: date
     description: str
-    debit: Decimal | None
-    credit: Decimal | None
-    balance: Decimal
+    debit: OptionalMoney
+    credit: OptionalMoney
+    balance: Money
 
 
 class BankStatement(BaseModel):
@@ -61,8 +95,8 @@ class BankStatement(BaseModel):
     account_holder: str
     period_start: date
     period_end: date
-    opening_balance: Decimal
-    closing_balance: Decimal
+    opening_balance: Money
+    closing_balance: Money
     transactions: list[Transaction]
     page: int = 1
     source_quotes: dict[str, str] = {}
@@ -73,10 +107,10 @@ class FinancialStatementSummary(BaseModel):
     company_name: str
     uen: str
     financial_year_end: date
-    revenue: Decimal
-    total_assets: Decimal
-    total_liabilities: Decimal
-    total_equity: Decimal
+    revenue: Money
+    total_assets: Money
+    total_liabilities: Money
+    total_equity: Money
     page: int = 1
     source_quotes: dict[str, str] = {}
 
@@ -199,6 +233,7 @@ DocType = Literal[
     "invoice",
     "bank_statement",
     "financial_statements",
+    "purchase_order",
     "fatca_crs_entity",
     "fatca_crs_individual",
     "unknown",
@@ -227,9 +262,13 @@ class ExtractedPack(BaseModel):
     invoices: list[Invoice]
     bank_statements: list[BankStatement]
     financial_statements: list[FinancialStatementSummary]
+    purchase_orders: list[PurchaseOrder] = []
     entity_self_certs: list[EntitySelfCert] = []
     manifest: ApplicationManifest | None = None
     extraction_mode: Literal["llm", "stub", "mixed"]
+    #: doc_id -> file on disk, for checks that inspect the raw file (forensics).
+    #: Never serialised: it would leak local paths into results and the API.
+    paths: dict[str, Path] = Field(default_factory=dict, exclude=True)
 
 
 # ---------------------------------------------------------------------------
@@ -239,6 +278,7 @@ class ExtractedPack(BaseModel):
 
 class Evidence(BaseModel):
     evidence_id: str = ""          # assigned later as E01, E02, …
+    agent: str = ""                # name of the agent that produced this finding
     check_id: str
     #: fraud_signal feeds the risk score; compliance/completeness feed ReadinessResult only
     category: Literal["fraud_signal", "compliance", "completeness"] = "fraud_signal"
@@ -297,10 +337,21 @@ class ReadinessResult(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class AgentReport(BaseModel):
+    """What one agent did in a run: its scope, findings and time taken."""
+
+    name: str
+    description: str
+    checks_run: int
+    findings: int              # non-info findings
+    duration_ms: int
+
+
 class CaseResult(BaseModel):
     case_id: str
     pack: ExtractedPack
     evidence: list[Evidence]
+    agent_reports: list[AgentReport] = []
     risk: RiskResult
     readiness: ReadinessResult | None = None
     summary: str | None = None

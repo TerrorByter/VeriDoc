@@ -20,8 +20,11 @@ from pathlib import Path
 from typing import Any
 
 from gldb.audit import log_event
-from gldb.checks import run_all_checks
-from gldb.extract_stub import parse_pack
+from gldb.checks import run_agents
+from gldb.config import CASES_DIR, EXPLAIN_ENABLED
+from gldb.explain import explain
+from gldb.extract import parse_pack
+from gldb.extract_stub import parse_pack as parse_pack_stub
 from gldb.intake import intake, load_manifest
 from gldb.schemas import (
     ApplicationManifest,
@@ -29,6 +32,7 @@ from gldb.schemas import (
     CaseResult,
     Evidence,
     ExtractedPack,
+    RiskResult,
 )
 from gldb.scoring import readiness, score
 
@@ -58,7 +62,7 @@ def pack_from_folder(folder: str | Path) -> ExtractedPack:
     docs = intake(case_id, pdf_paths)
     manifest = load_manifest(folder)
 
-    return parse_pack(case_id, docs, pdf_paths, manifest)
+    return parse_pack_stub(case_id, docs, pdf_paths, manifest)
 
 
 # ---------------------------------------------------------------------------
@@ -83,12 +87,31 @@ def _intake(
     return pack, stage_evidence
 
 
-def _explain(pack: ExtractedPack, evidence: list[Evidence]) -> str | None:  # noqa: ARG001
-    """explain stage — placeholder; LLM summary not yet enabled.
+def _explain(evidence: list[Evidence], risk: RiskResult) -> str | None:
+    """explain stage — LLM summary when EXPLAIN_ENABLED, otherwise None."""
+    return explain(evidence, risk) if EXPLAIN_ENABLED else None
 
-    Returns None so CaseResult.summary stays None until the LLM stage is wired.
-    """
-    return None
+
+def assess(
+    case_id: str,
+    file_paths: list[Path],
+    manifest: ApplicationManifest | None,
+) -> CaseResult:
+    """Run the stages intake -> classify_and_extract -> run_checks -> score
+    -> readiness -> explain. No audit log, no files written: run() adds those,
+    and the evaluation harness calls this directly."""
+    pack, stage_evidence = _intake(case_id, file_paths, manifest)
+    evidence, agent_reports = run_agents(pack, stage_evidence)
+    risk = score(evidence)
+    return CaseResult(
+        case_id=case_id,
+        pack=pack,
+        evidence=evidence,
+        agent_reports=agent_reports,
+        risk=risk,
+        readiness=readiness(evidence, pack),
+        summary=_explain(evidence, risk),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -112,8 +135,8 @@ def run(
     4. run_checks: collect all Evidence.
     5. score: compute RiskResult (fraud_signal evidence only).
     6. readiness: compute ReadinessResult (compliance/completeness evidence only).
-    7. explain: placeholder — returns None.
-    8. Persist CaseResult JSON to ``data/cases/<case_id>/result.json``.
+    7. explain: LLM summary if EXPLAIN_ENABLED, else None.
+    8. Persist CaseResult JSON to ``<CASES_DIR>/<case_id>/result.json``.
     9. Log ``pipeline_completed`` audit event.
 
     Args:
@@ -146,36 +169,14 @@ def run(
             raw = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest = ApplicationManifest.model_validate(raw)
 
-    # ------------------------------------------------------------------ 3  intake → classify_and_extract
-    pack, stage_evidence = _intake(case_id, resolved, manifest)
-
-    # Now that intake is done we can back-fill sha256s into the first audit event.
-    # The append-only rule means we do NOT edit the first event; sha256s are
-    # available in the pack.docs and will appear in the pipeline_completed event.
-
-    # ------------------------------------------------------------------ 4  run_checks
-    evidence = run_all_checks(pack, stage_evidence)
-
-    # ------------------------------------------------------------------ 5  score
-    risk = score(evidence)
-
-    # ------------------------------------------------------------------ 6  readiness
-    ready = readiness(evidence, pack)
-
-    # ------------------------------------------------------------------ 7  explain (placeholder)
-    summary = _explain(pack, evidence)
-
-    # ------------------------------------------------------------------ 8  persist result
-    result = CaseResult(
-        case_id=case_id,
-        pack=pack,
-        evidence=evidence,
-        risk=risk,
-        readiness=ready,
-        summary=summary,
+    # ------------------------------------------------------------------ 3-7  assess
+    result = assess(case_id, resolved, manifest)
+    pack, evidence, risk, ready = (
+        result.pack, result.evidence, result.risk, result.readiness
     )
 
-    out_dir = Path("data") / "cases" / case_id
+    # ------------------------------------------------------------------ 8  persist result
+    out_dir = Path(CASES_DIR) / case_id
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "result.json").write_text(
         result.model_dump_json(indent=2), encoding="utf-8"

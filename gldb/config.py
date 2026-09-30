@@ -63,6 +63,13 @@ START_UP_MAX_MONTHS: int = 24
 #: Directory containing official blank GLDB form templates (read-only)
 TEMPLATES_DIR: str = "data/templates"
 
+#: Directory containing the synthetic demo packs (one sub-folder per pack)
+PACKS_DIR: str = "data/packs"
+
+#: Runtime directories (gitignored): officer uploads and per-case results
+UPLOADS_DIR: str = "data/uploads"
+CASES_DIR: str = "data/cases"
+
 #: Checklist items for the loan application.
 #: "implemented" indicates whether automated checking is available in this prototype.
 CHECKLIST: list[dict] = [
@@ -95,6 +102,23 @@ MANUAL_CHECKS: list[str] = [
     "Supporting identity / tax residence documents",
     "US IRS Form W-8 or W-9 where the form requires one",
 ]
+
+# ---------------------------------------------------------------------------
+# Forensics
+# ---------------------------------------------------------------------------
+
+#: Text smaller than this (points) is treated as hidden
+HIDDEN_TEXT_MAX_SIZE_PT: float = 2.0
+
+#: A gray/RGB fill with every component at or above this counts as white
+WHITE_FILL_MIN: float = 0.95
+
+#: Two words closer than this (fraction of font size) form one token. Must stay
+#: below a space (about 0.28 em) and above kerning/rounding noise.
+TOKEN_GAP_FRACTION: float = 0.15
+
+#: Longest hidden-text excerpt kept as Evidence quote
+HIDDEN_QUOTE_MAX_CHARS: int = 200
 
 # ---------------------------------------------------------------------------
 # Scoring
@@ -137,6 +161,9 @@ AWS_REGION: str = os.getenv("AWS_REGION", "ap-southeast-1")
 
 #: Bedrock model ID or cross-region inference profile ARN.
 BEDROCK_MODEL_ID: str = os.getenv("BEDROCK_MODEL_ID", "")
+
+#: Whether to OCR pages that have no text layer (scans) with AWS Textract.
+OCR_ENABLED: bool = _bool_env("OCR_ENABLED", False)
 
 #: Whether to run the optional LLM plain-English explanation step.
 EXPLAIN_ENABLED: bool = _bool_env("EXPLAIN_ENABLED", False)

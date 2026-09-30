@@ -22,9 +22,9 @@ from typing import Any
 import pytest
 
 from gldb.checks import (
-    CHECKS,
+    AGENTS,
     normalise_name,
-    run_all_checks,
+    run_agents,
     check_inv_arith,
     check_bank_running_bal,
     check_bank_continuity,
@@ -1288,29 +1288,29 @@ class TestFormEntSignatory:
 # GROUP E — RUNNER + EVIDENCE IDs
 # ===========================================================================
 
-class TestRunAllChecks:
+class TestRunAgents:
     def test_evidence_ids_sequential_no_gaps(self):
         pack = _make_pack(
             invoices=[_make_invoice()],
             bank_statements=[_make_bank_stmt()],
             financial_statements=[_make_fs()],
         )
-        evs = run_all_checks(pack)
+        evs, _ = run_agents(pack)
         for i, e in enumerate(evs, start=1):
             assert e.evidence_id == f"E{i:02d}", f"Expected E{i:02d} got {e.evidence_id}"
 
     def test_crashing_check_produces_system_error(self):
         """Replace one check with a bomb; runner must catch it."""
-        from gldb import checks as _checks_mod
-        original = _checks_mod.CHECKS[:]
+        integrity = AGENTS[0]
+        original = integrity.checks[:]
 
         def _bomb(pack):
             raise RuntimeError("Deliberate boom")
 
-        _checks_mod.CHECKS.insert(0, _bomb)
+        integrity.checks.insert(0, _bomb)
         try:
             pack = _make_pack()
-            evs = run_all_checks(pack)
+            evs, _ = run_agents(pack)
             sys_errs = [e for e in evs if e.check_id == "SYSTEM_CHECK_ERROR"]
             assert sys_errs, "Expected at least one SYSTEM_CHECK_ERROR"
             assert sys_errs[0].category == "compliance"
@@ -1318,18 +1318,18 @@ class TestRunAllChecks:
             assert sys_errs[0].confidence == 1.0
             assert "manual verification required" in sys_errs[0].explanation
         finally:
-            _checks_mod.CHECKS[:] = original
+            integrity.checks[:] = original
 
     def test_extra_evidence_appended(self):
         pack = _make_pack()
         extra = [_ev_stub("EXTRA_TEST")]
-        evs = run_all_checks(pack, extra_evidence=extra)
+        evs, _ = run_agents(pack, extra_evidence=extra)
         assert any(e.check_id == "EXTRA_TEST" for e in evs)
 
     def test_ids_include_extra(self):
         pack = _make_pack()
         extra = [_ev_stub("X1"), _ev_stub("X2")]
-        evs = run_all_checks(pack, extra_evidence=extra)
+        evs, _ = run_agents(pack, extra_evidence=extra)
         for i, e in enumerate(evs, start=1):
             assert e.evidence_id == f"E{i:02d}"
 
@@ -1376,7 +1376,7 @@ class TestPrivacyInEvidence:
         cert = _make_cert()
         manifest = _make_manifest()
         pack = _make_pack(entity_self_certs=[cert], manifest=manifest)
-        evs = run_all_checks(pack)
+        evs, _ = run_agents(pack)
         self._check_evidence_list(evs)
 
 
@@ -1388,7 +1388,7 @@ class TestCleanPack:
     @needs_templates
     def test_fraud_set_has_only_info(self, clean_pack):
         """Clean pack: fraud_signal evidence is either empty or info only."""
-        evs = run_all_checks(clean_pack)
+        evs, _ = run_agents(clean_pack)
         fraud_evs = [
             e for e in evs
             if e.category == "fraud_signal" and e.severity not in ("info",)
@@ -1401,7 +1401,7 @@ class TestCleanPack:
     @needs_templates
     def test_clean_info_invoice_bank(self, clean_pack):
         """Clean pack: exactly one XDOC_INVOICE_BANK info for INV-1001 rounding."""
-        evs = run_all_checks(clean_pack)
+        evs, _ = run_agents(clean_pack)
         info_evs = [
             e for e in evs
             if e.check_id == "XDOC_INVOICE_BANK" and e.severity == "info"
@@ -1411,7 +1411,7 @@ class TestCleanPack:
 
     @needs_templates
     def test_compliance_set_empty(self, clean_pack):
-        evs = run_all_checks(clean_pack)
+        evs, _ = run_agents(clean_pack)
         compliance_evs = [
             e for e in evs
             if e.category in ("compliance", "completeness") and e.severity != "info"
@@ -1423,7 +1423,7 @@ class TestCleanPack:
 
     @needs_templates
     def test_evidence_ids_no_gaps(self, clean_pack):
-        evs = run_all_checks(clean_pack)
+        evs, _ = run_agents(clean_pack)
         for i, e in enumerate(evs, start=1):
             assert e.evidence_id == f"E{i:02d}"
 
@@ -1431,7 +1431,7 @@ class TestCleanPack:
 class TestTamperedPack:
     @needs_templates
     def test_fraud_set_matches_ground_truth(self, tampered_pack, tampered_truth):
-        evs = run_all_checks(tampered_pack)
+        evs, _ = run_agents(tampered_pack)
         fraud_check_ids = {
             e.check_id
             for e in evs
@@ -1452,7 +1452,7 @@ class TestTamperedPack:
 
     @needs_templates
     def test_compliance_set_empty(self, tampered_pack):
-        evs = run_all_checks(tampered_pack)
+        evs, _ = run_agents(tampered_pack)
         compliance_evs = [
             e for e in evs
             if e.category in ("compliance", "completeness") and e.severity != "info"
@@ -1464,7 +1464,7 @@ class TestTamperedPack:
 
     @needs_templates
     def test_no_personal_ids_in_evidence(self, tampered_pack):
-        evs = run_all_checks(tampered_pack)
+        evs, _ = run_agents(tampered_pack)
         for real_id in ["S1234567D", "G7654321L"]:
             for e in evs:
                 for field in (e.explanation, e.expected, e.observed, e.quote, e.document):
@@ -1476,7 +1476,7 @@ class TestTamperedPack:
 class TestIncompletePack:
     @needs_templates
     def test_fraud_set_empty(self, incomplete_pack):
-        evs = run_all_checks(incomplete_pack)
+        evs, _ = run_agents(incomplete_pack)
         fraud_evs = [
             e for e in evs
             if e.category == "fraud_signal" and e.severity not in ("info",)
@@ -1488,7 +1488,7 @@ class TestIncompletePack:
 
     @needs_templates
     def test_compliance_set_matches_ground_truth(self, incomplete_pack, incomplete_truth):
-        evs = run_all_checks(incomplete_pack)
+        evs, _ = run_agents(incomplete_pack)
         compliance_check_ids = {
             e.check_id
             for e in evs
@@ -1512,7 +1512,7 @@ class TestIncompletePack:
 
     @needs_templates
     def test_no_personal_ids_in_evidence(self, incomplete_pack):
-        evs = run_all_checks(incomplete_pack)
+        evs, _ = run_agents(incomplete_pack)
         for real_id in ["S1234567D", "G7654321L"]:
             for e in evs:
                 for field in (e.explanation, e.expected, e.observed, e.quote, e.document):
@@ -1543,3 +1543,24 @@ class TestNormaliseName:
 
     def test_removes_punctuation(self):
         assert normalise_name("Alpha-Beta, Corp.") == "ALPHABETA CORP"
+
+
+class TestAgents:
+    def test_every_check_belongs_to_exactly_one_agent(self):
+        checks = [c for agent in AGENTS for c in agent.checks]
+        assert len(checks) == len(set(checks)) == 28
+
+    def test_evidence_is_tagged_with_its_agent_and_reports_match(self):
+        pack = _make_pack(
+            invoices=[_make_invoice()],
+            bank_statements=[_make_bank_stmt()],
+            financial_statements=[_make_fs()],
+        )
+        evs, reports = run_agents(pack)
+        assert [r.name for r in reports] == [a.name for a in AGENTS]
+        assert all(e.agent in {a.name for a in AGENTS} for e in evs)
+        for r in reports:
+            assert r.checks_run == len(next(a for a in AGENTS if a.name == r.name).checks)
+            assert r.findings == sum(
+                e.agent == r.name and e.severity != "info" for e in evs
+            )

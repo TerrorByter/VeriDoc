@@ -11,6 +11,7 @@ Rules:
 - Mask personal identifiers with gldb.privacy.mask_id(). UENs are not masked.
 - If pack.manifest is None, skip manifest-dependent checks and emit
   MANIFEST_MISSING (completeness, medium, 1.0).
+- Checks are grouped into Agents (section E); run_agents() runs them.
 - FORM_DOC_TYPES docs are skipped for META_MOD_AFTER_CREATE and
   META_PRODUCER_MISMATCH.
 """
@@ -21,12 +22,16 @@ import re
 import string
 from calendar import monthrange
 from datetime import date, timedelta
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from decimal import Decimal
+from time import perf_counter
 from typing import Callable
 
 from gldb.config import (
     BANK_RECENCY_DAYS,
     CHECKLIST,
+    HIDDEN_QUOTE_MAX_CHARS,
     GST_RATE,
     MATCH_WINDOW_DAYS,
     META_MOD_GAP_HOURS,
@@ -35,8 +40,10 @@ from gldb.config import (
     TOLERANCE_SGD,
     money,
 )
+from gldb.forensics import hidden_text, incremental_updates, mixed_font_tokens
 from gldb.privacy import mask_id
 from gldb.schemas import (
+    AgentReport,
     ApplicationManifest,
     EntitySelfCert,
     Evidence,
@@ -70,7 +77,7 @@ def _ev(
     observed: str | None = None,
 ) -> Evidence:
     return Evidence(
-        evidence_id="",   # assigned later by run_all_checks
+        evidence_id="",   # assigned later by run_agents
         check_id=check_id,
         category=category,          # type: ignore[arg-type]
         severity=severity,          # type: ignore[arg-type]
@@ -324,6 +331,26 @@ def check_xdoc_identity(pack: ExtractedPack) -> list[Evidence]:
                 observed=holder_norm,
             ))
 
+    # Purchase orders: seller must be the applicant (high 1.0 / medium 0.9)
+    for po in pack.purchase_orders:
+        if po.seller_uen != ref_uen:
+            results.append(_ev(
+                "XDOC_IDENTITY", "fraud_signal", "high", po.doc_id, po.page, 1.0,
+                f"Purchase order seller UEN '{po.seller_uen}' does not match the "
+                f"FS UEN '{ref_uen}'.",
+                expected=ref_uen,
+                observed=po.seller_uen,
+            ))
+        po_name_norm = normalise_name(po.seller_name)
+        if po_name_norm != ref_name_norm:
+            results.append(_ev(
+                "XDOC_IDENTITY", "fraud_signal", "medium", po.doc_id, po.page, 0.9,
+                f"Purchase order seller name '{po.seller_name}' does not match FS "
+                f"company name '{fs.company_name}'.",
+                expected=ref_name_norm,
+                observed=po_name_norm,
+            ))
+
     return results
 
 
@@ -399,6 +426,56 @@ def check_xdoc_invoice_bank(pack: ExtractedPack) -> list[Evidence]:
                     f"and {window_end}"
                 ),
                 observed=closest_str,
+            ))
+
+    return results
+
+
+# 6b. XDOC_PO_INVOICE ----------------------------------------------------
+
+def check_xdoc_po_invoice(pack: ExtractedPack) -> list[Evidence]:
+    """Each invoice should be backed by a purchase order from the same buyer.
+
+    Only runs when the pack contains purchase orders. Billing less than the
+    order is normal (partial delivery); billing more, billing before the
+    order was placed, or billing a buyer with no order is flagged.
+    """
+    results: list[Evidence] = []
+    if not pack.purchase_orders:
+        return results
+
+    for inv in pack.invoices:
+        buyer = normalise_name(inv.buyer_name)
+        matches = [
+            po for po in pack.purchase_orders if normalise_name(po.buyer_name) == buyer
+        ]
+        if not matches:
+            results.append(_ev(
+                "XDOC_PO_INVOICE", "fraud_signal", "medium", inv.doc_id, inv.page, 0.7,
+                f"Invoice {inv.invoice_number} bills '{inv.buyer_name}' but none of the "
+                f"{len(pack.purchase_orders)} purchase orders in the pack is from that buyer.",
+                expected=f"purchase order from {inv.buyer_name}",
+                observed="none",
+            ))
+            continue
+
+        po = min(matches, key=lambda p: abs(p.total - inv.total))
+        if inv.total - po.total > TOLERANCE_SGD:
+            results.append(_ev(
+                "XDOC_PO_INVOICE", "fraud_signal", "high", inv.doc_id, inv.page, 0.95,
+                f"Invoice {inv.invoice_number} total SGD {inv.total} exceeds purchase "
+                f"order {po.po_number} total SGD {po.total} by SGD {inv.total - po.total}.",
+                quote=inv.source_quotes.get("Total"),
+                expected=f"at most SGD {po.total}",
+                observed=f"SGD {inv.total}",
+            ))
+        if inv.invoice_date < po.po_date:
+            results.append(_ev(
+                "XDOC_PO_INVOICE", "fraud_signal", "medium", inv.doc_id, inv.page, 0.9,
+                f"Invoice {inv.invoice_number} is dated {inv.invoice_date}, before its "
+                f"purchase order {po.po_number} ({po.po_date}).",
+                expected=f"on or after {po.po_date}",
+                observed=str(inv.invoice_date),
             ))
 
     return results
@@ -1078,72 +1155,172 @@ def check_form_ent_signatory(pack: ExtractedPack) -> list[Evidence]:
 
 
 # ---------------------------------------------------------------------------
-# E. RUNNER
+# F. FORENSICS (inspect the raw file, see gldb.forensics)
 # ---------------------------------------------------------------------------
 
-#: All check functions in order.
-CHECKS: list[Callable[[ExtractedPack], list[Evidence]]] = [
-    # A — Fraud signals
-    check_inv_arith,
-    check_bank_running_bal,
-    check_bank_continuity,
-    check_fs_balance,
-    check_xdoc_identity,
-    check_xdoc_invoice_bank,
-    check_meta_mod_after_create,
-    check_meta_producer_mismatch,
-    # B — Completeness / coverage
-    check_bank_coverage,
-    check_checklist_missing_doc,
-    # C — Entity form validity
-    check_form_ent_mandatory,
-    check_form_ent_mailing,
-    check_form_ent_branch,
-    check_form_ent_us_status,
-    check_form_ent_tin_or_reason,
-    check_form_ent_type_selection,
-    check_form_ent_declaration,
-    check_form_template_match,
-    # D — Entity form reasonableness
-    check_form_ent_name_match,
-    check_form_ent_address_match,
-    check_form_ent_incorporation,
-    check_form_ent_sg_tin,
-    check_form_ent_start_up,
-    check_form_ent_signatory,
+def _forensic_docs(pack: ExtractedPack):
+    """(doc_id, path) for files we can inspect. Official form templates are
+    skipped: they legitimately use white headings and mixed fonts."""
+    for doc in pack.docs:
+        path = pack.paths.get(doc.doc_id)
+        if path is not None and doc.doc_type not in FORM_DOC_TYPES:
+            yield doc.doc_id, path
+
+
+def check_forensic_hidden_text(pack: ExtractedPack) -> list[Evidence]:
+    return [
+        _ev(
+            "FORENSIC_HIDDEN_TEXT", "fraud_signal", "high", doc_id, run.page, 0.9,
+            f"{doc_id} page {run.page} contains text a reader cannot see "
+            f"({', '.join(run.reasons)}). Hidden text can carry instructions aimed "
+            "at automated review or conceal edits.",
+            quote=run.text[:HIDDEN_QUOTE_MAX_CHARS],
+            observed=", ".join(run.reasons),
+        )
+        for doc_id, path in _forensic_docs(pack)
+        for run in hidden_text(path)
+    ]
+
+
+def check_forensic_mixed_font(pack: ExtractedPack) -> list[Evidence]:
+    return [
+        _ev(
+            "FORENSIC_MIXED_FONT", "fraud_signal", "medium", doc_id, token.page, 0.7,
+            f"'{token.text}' in {doc_id} page {token.page} mixes fonts or sizes within "
+            "one token, which can mean a figure was edited on top of the original.",
+            quote=token.text,
+        )
+        for doc_id, path in _forensic_docs(pack)
+        for token in mixed_font_tokens(path)
+    ]
+
+
+def check_forensic_incremental_update(pack: ExtractedPack) -> list[Evidence]:
+    results = []
+    for doc_id, path in _forensic_docs(pack):
+        revisions = incremental_updates(path)
+        if revisions:
+            results.append(_ev(
+                "FORENSIC_INCREMENTAL_UPDATE", "fraud_signal", "medium", doc_id, 1, 0.6,
+                f"{doc_id} was saved again after it was created ({revisions} later "
+                "revision(s)), so its content may have been changed.",
+                observed=f"{revisions} later revision(s)",
+            ))
+    return results
+
+
+# ---------------------------------------------------------------------------
+# E. AGENTS AND RUNNER
+# ---------------------------------------------------------------------------
+
+CheckFn = Callable[[ExtractedPack], list[Evidence]]
+
+
+@dataclass(frozen=True)
+class Agent:
+    """A specialist that runs a group of checks and emits Evidence only.
+    Agents never score: gldb.scoring turns their fraud_signal Evidence into
+    the risk score."""
+
+    name: str
+    description: str
+    checks: list[CheckFn]
+
+
+#: Agents in report order. Evidence IDs follow this order.
+AGENTS: list[Agent] = [
+    Agent(
+        "Document Integrity",
+        "Arithmetic, running balances and PDF metadata within each document.",
+        [
+            check_inv_arith,
+            check_bank_running_bal,
+            check_bank_continuity,
+            check_fs_balance,
+            check_meta_mod_after_create,
+            check_meta_producer_mismatch,
+        ],
+    ),
+    Agent(
+        "Forensics",
+        "Hidden text, figures edited over the original, and re-saved PDFs, found in the raw file.",
+        [
+            check_forensic_hidden_text,
+            check_forensic_mixed_font,
+            check_forensic_incremental_update,
+        ],
+    ),
+    Agent(
+        "Cross-Document",
+        "Consistency of identity and amounts across invoices, purchase orders, bank and statements.",
+        [check_xdoc_identity, check_xdoc_invoice_bank, check_xdoc_po_invoice],
+    ),
+    Agent(
+        "Compliance & Completeness",
+        "Required documents, bank coverage, and FATCA/CRS form validity.",
+        [
+            check_bank_coverage,
+            check_checklist_missing_doc,
+            check_form_ent_mandatory,
+            check_form_ent_mailing,
+            check_form_ent_branch,
+            check_form_ent_us_status,
+            check_form_ent_tin_or_reason,
+            check_form_ent_type_selection,
+            check_form_ent_declaration,
+            check_form_template_match,
+            check_form_ent_name_match,
+            check_form_ent_address_match,
+            check_form_ent_incorporation,
+            check_form_ent_sg_tin,
+            check_form_ent_start_up,
+            check_form_ent_signatory,
+        ],
+    ),
 ]
 
 
-def run_all_checks(
-    pack: ExtractedPack,
-    extra_evidence: list[Evidence] | None = None,
-) -> list[Evidence]:
-    """Run every check; assign sequential evidence_ids E01…En.
-
-    A crashing check emits SYSTEM_CHECK_ERROR (compliance, medium, 1.0)
-    rather than propagating the exception.
-
-    Returns all evidence with IDs assigned as E01, E02, … with no gaps.
-    """
-    collected: list[Evidence] = []
-
-    for check_fn in CHECKS:
+def _run_agent(agent: Agent, pack: ExtractedPack) -> tuple[list[Evidence], AgentReport]:
+    """Run one agent's checks. A crashing check emits SYSTEM_CHECK_ERROR
+    (compliance, medium, 1.0) rather than propagating the exception."""
+    start = perf_counter()
+    found: list[Evidence] = []
+    for check_fn in agent.checks:
         try:
-            evs = check_fn(pack)
-            collected.extend(evs)
+            found.extend(check_fn(pack))
         except Exception as exc:  # noqa: BLE001
-            collected.append(_ev(
+            found.append(_ev(
                 "SYSTEM_CHECK_ERROR", "compliance", "medium",
                 _EVIDENCE_DOC_PLACEHOLDER, 1, 1.0,
                 f"{check_fn.__name__} failed to run; manual verification required. "
                 f"Error: {exc}",
             ))
+    for ev in found:
+        ev.agent = agent.name
+    report = AgentReport(
+        name=agent.name,
+        description=agent.description,
+        checks_run=len(agent.checks),
+        findings=sum(ev.severity != "info" for ev in found),
+        duration_ms=round((perf_counter() - start) * 1000),
+    )
+    return found, report
 
-    if extra_evidence:
-        collected.extend(extra_evidence)
 
-    # Assign sequential evidence_ids
+def run_agents(
+    pack: ExtractedPack,
+    extra_evidence: list[Evidence] | None = None,
+) -> tuple[list[Evidence], list[AgentReport]]:
+    """Run every agent in parallel and merge their Evidence.
+
+    Results are merged in AGENTS order (not completion order), so the output
+    is deterministic. Evidence IDs are assigned E01…En with no gaps.
+    """
+    with ThreadPoolExecutor(max_workers=len(AGENTS)) as pool:
+        outcomes = list(pool.map(lambda agent: _run_agent(agent, pack), AGENTS))
+
+    collected = [ev for found, _ in outcomes for ev in found]
+    collected.extend(extra_evidence or [])
     for i, ev in enumerate(collected, start=1):
         ev.evidence_id = f"E{i:02d}"
-
-    return collected
+    return collected, [report for _, report in outcomes]

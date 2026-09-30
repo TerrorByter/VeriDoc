@@ -1,8 +1,11 @@
-﻿pydantic>=2
+pydantic>=2
 pdfplumber
 pypdf
 reportlab
-streamlit
+fastapi
+uvicorn
+python-multipart
+httpx
 boto3
 python-dotenv
 pytest

@@ -10,7 +10,7 @@ Rules:
 - sha256_file returns a 64-char hex digest.
 - parse_pdf_date parses Adobe PDF date strings to timezone-aware datetimes.
   Never raises; returns None on bad/missing input.
-- read_text returns per-page text via pdfplumber.
+- read_text returns per-page text via pdfplumber (Textract OCR for scans).
 - classify inspects the first page only; forms take priority over generic types.
 - intake() orchestrates all of the above and returns a list of DocMeta.
 - load_manifest reads application.json from a folder and parses it as
@@ -28,7 +28,9 @@ from pathlib import Path
 import pdfplumber
 import pypdf
 
-from gldb.config import MAX_FILE_MB
+from gldb.config import MAX_FILE_MB, OCR_ENABLED
+from gldb.forensics import hidden_reasons
+from gldb.ocr import ocr_pages
 from gldb.schemas import ApplicationManifest, DocMeta, DocType
 
 
@@ -156,15 +158,34 @@ def parse_pdf_date(s: "str | None") -> "datetime | None":
 # ---------------------------------------------------------------------------
 
 
-def read_text(path: "Path | str") -> list[str]:
+def _visible(page: pdfplumber.page.Page) -> pdfplumber.page.Page:
+    """*page* without its hidden characters."""
+    return page.filter(
+        lambda obj: obj["object_type"] != "char"
+        or not hidden_reasons(obj, page.width, page.height)
+    )
+
+
+def read_text(path: "Path | str", visible_only: bool = False) -> list[str]:
     """Return per-page text from *path* via pdfplumber.
 
+    With *visible_only*, characters a reader cannot see (white, tiny or
+    off-page text) are dropped. Text bound for an LLM should be read this way
+    so hidden instructions never reach the model.
+
     Returns a list of strings, one per page. Pages with no extractable text
-    return an empty string.
+    return an empty string. When OCR_ENABLED is set and the file has no text
+    layer at all (a scan), the pages are OCR'd with AWS Textract instead.
     """
     p = Path(path)
     with pdfplumber.open(str(p)) as pdf:
-        return [page.extract_text() or "" for page in pdf.pages]
+        pages = [
+            (_visible(page) if visible_only else page).extract_text() or ""
+            for page in pdf.pages
+        ]
+    if OCR_ENABLED and not any(t.strip() for t in pages):
+        return ocr_pages(p)
+    return pages
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +202,7 @@ _DOC_KEYWORDS: list[tuple[str, DocType]] = [
     ("TAX INVOICE", "invoice"),
     ("STATEMENT OF ACCOUNT", "bank_statement"),
     ("FINANCIAL STATEMENTS SUMMARY", "financial_statements"),
+    ("PURCHASE ORDER", "purchase_order"),
 ]
 
 

@@ -180,6 +180,34 @@ def _render_invoice(
     doc.save()
 
 
+def _render_purchase_order(
+    path: Path,
+    *,
+    buyer: str,
+    seller: str,
+    seller_uen: str,
+    number: str,
+    po_date: date,
+    line_items: list[tuple[str, int, Decimal, Decimal]],
+    total: Decimal,
+) -> None:
+    doc = _Doc(path)
+    doc.line("PURCHASE ORDER")
+    doc.blank()
+    doc.line(f"Buyer: {buyer}")
+    doc.line(f"Seller: {seller}")
+    doc.line(f"Seller UEN: {seller_uen}")
+    doc.line(f"PO No: {number}")
+    doc.line(f"PO Date: {po_date.isoformat()}")
+    doc.blank()
+    doc.line("Description | Qty | Unit Price | Amount")
+    for desc, qty, unit_price, amount in line_items:
+        doc.line(f"{desc} | {qty} | {_fmt_money(unit_price)} | {_fmt_money(amount)}")
+    doc.blank()
+    doc.line(f"Total (incl. GST): {_fmt_money_sgd(total)}")
+    doc.save()
+
+
 def _render_bank_statement(
     path: Path,
     *,
@@ -573,6 +601,27 @@ def _write_invoices_and_fs(out_dir: Path, tampered_inv1002: bool = False) -> Non
     _set_metadata(p, PRODUCER_REPORTLAB, _sgt(fs_date), _sgt(fs_date))
 
 
+#: Purchase orders placed by the two buyers, two weeks before each invoice.
+#: (number, buyer, invoice date, items, total incl. GST); identical in every pack.
+PURCHASE_ORDERS = [
+    ("PO-2001", INV1001_BUYER, INV1001_DATE, INV1001_ITEMS, INV1001_TOTAL),
+    ("PO-2002", INV1002_BUYER, INV1002_DATE, INV1002_ITEMS_CLEAN, INV1002_TOTAL_CLEAN),
+]
+PO_LEAD_DAYS = 14
+
+
+def _write_purchase_orders(out_dir: Path) -> None:
+    """Write PO-2001 and PO-2002 into *out_dir*."""
+    for number, buyer, invoice_date, items, total in PURCHASE_ORDERS:
+        po_date = invoice_date - timedelta(days=PO_LEAD_DAYS)
+        path = out_dir / f"purchase_order_{number}.pdf"
+        _render_purchase_order(
+            path, buyer=buyer, seller=SELLER, seller_uen=SELLER_UEN_CLEAN,
+            number=number, po_date=po_date, line_items=items, total=total,
+        )
+        _set_metadata(path, PRODUCER_REPORTLAB, _sgt(po_date), _sgt(po_date))
+
+
 def _write_application_json(out_dir: Path) -> None:
     (out_dir / "application.json").write_text(
         json.dumps(APPLICATION_MANIFEST, indent=2)
@@ -596,6 +645,7 @@ def _write_entity_form(out_dir: Path, values: dict[str, str]) -> None:
 def _generate_clean(out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     _write_invoices_and_fs(out_dir, tampered_inv1002=False)
+    _write_purchase_orders(out_dir)
     _write_bank_statements(out_dir, BS_MONTHS)
     _write_application_json(out_dir)
     _write_entity_form(out_dir, ENTITY_FORM_VALUES_CLEAN)
@@ -620,6 +670,7 @@ def _generate_clean(out_dir: Path) -> None:
 def _generate_tampered(out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     _write_invoices_and_fs(out_dir, tampered_inv1002=True)
+    _write_purchase_orders(out_dir)
     _write_bank_statements(out_dir, BS_MONTHS, tampered_jun_closing=True)
     _write_application_json(out_dir)
     _write_entity_form(out_dir, ENTITY_FORM_VALUES_CLEAN)  # entity form identical to clean
@@ -634,6 +685,8 @@ def _generate_tampered(out_dir: Path) -> None:
             "META_PRODUCER_MISMATCH",
             "BANK_RUNNING_BAL",
             "BANK_CONTINUITY",
+            "FORENSIC_HIDDEN_TEXT",
+            "XDOC_PO_INVOICE",
         ],
         "expected_compliance_check_ids": [],
         "tampers": [
@@ -657,6 +710,7 @@ def _generate_tampered(out_dir: Path) -> None:
 def _generate_incomplete(out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     _write_invoices_and_fs(out_dir, tampered_inv1002=False)
+    _write_purchase_orders(out_dir)
     _write_bank_statements(out_dir, BS_MONTHS, skip_month=4)  # omit April
     _write_application_json(out_dir)
     _write_entity_form(out_dir, ENTITY_FORM_VALUES_INCOMPLETE)
@@ -702,6 +756,8 @@ def _verify_metadata(path: Path, expected_producer: str, creation_eq_mod: bool) 
 def _verify_pack(pack_dir: Path, tampered_inv1002: bool = False) -> None:
     _verify_metadata(pack_dir / "invoice_INV-1001.pdf", PRODUCER_REPORTLAB, True)
     _verify_metadata(pack_dir / "fs_summary.pdf",       PRODUCER_REPORTLAB, True)
+    for number, *_ in PURCHASE_ORDERS:
+        _verify_metadata(pack_dir / f"purchase_order_{number}.pdf", PRODUCER_REPORTLAB, True)
     if tampered_inv1002:
         meta = _read_metadata(pack_dir / "invoice_INV-1002.pdf")
         assert meta.get("/Producer") == PRODUCER_TAMPERED

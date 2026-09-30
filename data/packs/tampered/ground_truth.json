@@ -8,7 +8,9 @@
     "META_MOD_AFTER_CREATE",
     "META_PRODUCER_MISMATCH",
     "BANK_RUNNING_BAL",
-    "BANK_CONTINUITY"
+    "BANK_CONTINUITY",
+    "FORENSIC_HIDDEN_TEXT",
+    "XDOC_PO_INVOICE"
   ],
   "expected_compliance_check_ids": [],
   "tampers": [

@@ -36,6 +36,7 @@ from gldb.schemas import (
     FinancialStatementSummary,
     Invoice,
     LineItem,
+    PurchaseOrder,
     Signatory,
     TaxResidencyRow,
     Transaction,
@@ -54,6 +55,30 @@ def _parse_money(s: str) -> Decimal:
 
 def _parse_date(s: str) -> date:
     return date.fromisoformat(s.strip())
+
+
+def _parse_line_items(lines: list[str], stop_prefix: str) -> list[LineItem]:
+    """Rows of the "Description | Qty | Unit Price | Amount" table, up to the
+    line starting with *stop_prefix*."""
+    items: list[LineItem] = []
+    in_table = False
+    for l in lines:
+        if l.startswith("Description | Qty"):
+            in_table = True
+            continue
+        if in_table:
+            if l.startswith(stop_prefix):
+                break
+            parts = [p.strip() for p in l.split(" | ")]
+            if len(parts) == 4:
+                desc, qty_s, up_s, amt_s = parts
+                items.append(LineItem(
+                    description=desc,
+                    quantity=int(qty_s),
+                    unit_price=_parse_money(up_s),
+                    amount=_parse_money(amt_s),
+                ))
+    return items
 
 
 # ---------------------------------------------------------------------------
@@ -76,26 +101,8 @@ def _parse_invoice(doc_id: str, pages: list[str]) -> Invoice:
     number = _get("Invoice No")
     inv_date = _parse_date(_get("Invoice Date"))
 
-    # Parse line items table
-    line_items: list[LineItem] = []
-    in_table = False
+    line_items = _parse_line_items(lines, stop_prefix="Subtotal:")
     source_quotes: dict[str, str] = {}
-    for l in lines:
-        if l.startswith("Description | Qty"):
-            in_table = True
-            continue
-        if in_table:
-            if l.startswith("Subtotal:"):
-                break
-            parts = [p.strip() for p in l.split(" | ")]
-            if len(parts) == 4:
-                desc, qty_s, up_s, amt_s = parts
-                line_items.append(LineItem(
-                    description=desc,
-                    quantity=int(qty_s),
-                    unit_price=_parse_money(up_s),
-                    amount=_parse_money(amt_s),
-                ))
 
     subtotal = _parse_money(_get("Subtotal"))
     gst = _parse_money(_get("GST (9%)"))
@@ -120,6 +127,36 @@ def _parse_invoice(doc_id: str, pages: list[str]) -> Invoice:
         total=total,
         page=1,
         source_quotes=source_quotes,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Purchase order parser
+# ---------------------------------------------------------------------------
+
+def _parse_purchase_order(doc_id: str, pages: list[str]) -> PurchaseOrder:
+    lines = [l for l in (pages[0] if pages else "").splitlines() if l.strip()]
+
+    def _get(label: str) -> str:
+        for l in lines:
+            if l.startswith(f"{label}:"):
+                return l.split(":", 1)[1].strip()
+        return ""
+
+    total_label = "Total (incl. GST)"
+    return PurchaseOrder(
+        doc_id=doc_id,
+        po_number=_get("PO No"),
+        po_date=_parse_date(_get("PO Date")),
+        buyer_name=_get("Buyer"),
+        seller_name=_get("Seller"),
+        seller_uen=_get("Seller UEN"),
+        line_items=_parse_line_items(lines, stop_prefix=f"{total_label}:"),
+        total=_parse_money(_get(total_label)),
+        page=1,
+        source_quotes={
+            "Total": l.strip() for l in lines if l.startswith(f"{total_label}:")
+        },
     )
 
 
@@ -219,7 +256,7 @@ def _parse_fs_summary(doc_id: str, pages: list[str]) -> FinancialStatementSummar
 # Entity self-cert AcroForm parser
 # ---------------------------------------------------------------------------
 
-def _parse_entity_self_cert(doc_id: str, path: Path) -> EntitySelfCert:
+def parse_entity_self_cert(doc_id: str, path: Path) -> EntitySelfCert:
     """Parse a GLDB FATCA/CRS Entity AcroForm using pypdf get_fields()."""
     reader = pypdf.PdfReader(str(path))
     raw: dict[str, Any] = {}
@@ -467,6 +504,7 @@ def parse_pack(
     invoices = []
     bank_statements = []
     financial_statements = []
+    purchase_orders = []
     entity_self_certs = []
 
     for doc in docs:
@@ -481,8 +519,10 @@ def parse_pack(
             bank_statements.append(_parse_bank_statement(doc.doc_id, pages))
         elif doc.doc_type == "financial_statements":
             financial_statements.append(_parse_fs_summary(doc.doc_id, pages))
+        elif doc.doc_type == "purchase_order":
+            purchase_orders.append(_parse_purchase_order(doc.doc_id, pages))
         elif doc.doc_type == "fatca_crs_entity":
-            entity_self_certs.append(_parse_entity_self_cert(doc.doc_id, p))
+            entity_self_certs.append(parse_entity_self_cert(doc.doc_id, p))
 
     return ExtractedPack(
         case_id=case_id,
@@ -490,7 +530,9 @@ def parse_pack(
         invoices=invoices,
         bank_statements=bank_statements,
         financial_statements=financial_statements,
+        purchase_orders=purchase_orders,
         entity_self_certs=entity_self_certs,
         manifest=manifest,
         extraction_mode="stub",
+        paths=path_map,
     )

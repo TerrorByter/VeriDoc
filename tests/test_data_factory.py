@@ -145,6 +145,8 @@ BASE_FILES = {
     "invoice_INV-1002.pdf",
     "fs_summary.pdf",
     "fatca_crs_entity.pdf",
+    "purchase_order_PO-2001.pdf",
+    "purchase_order_PO-2002.pdf",
     "application.json",
     "ground_truth.json",
 }
@@ -284,6 +286,7 @@ def test_tampered_ground_truth(packs):
     expected_ids = {
         "XDOC_INVOICE_BANK", "XDOC_IDENTITY", "META_MOD_AFTER_CREATE",
         "META_PRODUCER_MISMATCH", "BANK_RUNNING_BAL", "BANK_CONTINUITY",
+        "FORENSIC_HIDDEN_TEXT", "XDOC_PO_INVOICE",
     }
     assert set(gt["expected_check_ids"]) == expected_ids
     assert gt["expected_compliance_check_ids"] == []

@@ -269,6 +269,9 @@ class ExtractedPack(BaseModel):
     #: doc_id -> file on disk, for checks that inspect the raw file (forensics).
     #: Never serialised: it would leak local paths into results and the API.
     paths: dict[str, Path] = Field(default_factory=dict, exclude=True)
+    #: doc_id -> Textract text per page, when the OCR stage ran. Never
+    #: serialised: raw document text would bypass identifier masking.
+    ocr: dict[str, list[str]] = Field(default_factory=dict, exclude=True)
 
 
 # ---------------------------------------------------------------------------

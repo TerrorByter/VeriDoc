@@ -33,3 +33,6 @@ Thumbs.db
 # Frontend
 frontend/node_modules/
 frontend/dist/
+
+# Sponsor brief (local reference only)
+docs/PROJECT_BRIEF.md

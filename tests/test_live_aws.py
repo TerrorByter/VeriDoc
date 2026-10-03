@@ -18,7 +18,7 @@ import pytest
 
 import gldb.config as config  # noqa: F401  (loads .env before RUN_LIVE is read)
 from gldb import llm_client
-from gldb.ocr import ocr_pages
+from gldb.ocr import ocr_files
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("RUN_LIVE") != "1", reason="set RUN_LIVE=1 to call AWS"
@@ -57,5 +57,5 @@ def test_bedrock_forced_tool_schema(
 
 
 def test_textract_reads_an_invoice_page() -> None:
-    pages = ocr_pages(INVOICE)
+    pages = ocr_files([INVOICE])[INVOICE.stem]
     assert "INVOICE" in pages[0].upper()

@@ -3,6 +3,7 @@
   "expected_band": "Low",
   "expected_readiness": "Incomplete",
   "expected_check_ids": [],
+  "expected_check_ids_ocr": [],
   "expected_compliance_check_ids": [
     "BANK_COVERAGE",
     "FORM_ENT_US_STATUS",

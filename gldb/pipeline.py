@@ -4,7 +4,7 @@ gldb/pipeline.py
 Pipeline orchestration for the gldb-prototype.
 
 Stage functions are named after future LangGraph nodes:
-    intake -> classify_and_extract -> run_checks -> score -> explain
+    ocr -> intake -> classify_and_extract -> run_checks -> score -> explain
 
 pack_from_folder is a test helper that builds an ExtractedPack directly
 from a pre-generated data pack directory (no AWS calls).
@@ -21,11 +21,12 @@ from typing import Any
 
 from gldb.audit import log_event
 from gldb.checks import run_agents
-from gldb.config import CASES_DIR, EXPLAIN_ENABLED
+from gldb.config import CASES_DIR, EXPLAIN_ENABLED, OCR_ENABLED
 from gldb.explain import explain
 from gldb.extract import parse_pack
 from gldb.extract_stub import parse_pack as parse_pack_stub
 from gldb.intake import intake, load_manifest
+from gldb.ocr import ocr_files
 from gldb.schemas import (
     ApplicationManifest,
     AuditEvent,
@@ -75,14 +76,16 @@ def _intake(
     file_paths: list[Path],
     manifest: ApplicationManifest | None,
 ) -> tuple[ExtractedPack, list[Evidence]]:
-    """intake → classify_and_extract stage.
+    """ocr → intake → classify_and_extract stage.
 
-    Validates, hashes, classifies all files and stub-parses their content.
-    Returns the populated ExtractedPack and an empty stage_evidence list
-    (reserved for intake-level findings in future stages).
+    OCRs every page once when OCR_ENABLED, then validates, hashes, classifies
+    all files and parses their content. Returns the populated ExtractedPack
+    and an empty stage_evidence list (reserved for intake-level findings in
+    future stages).
     """
-    docs = intake(case_id, file_paths)
-    pack = parse_pack(case_id, docs, file_paths, manifest)
+    ocr = ocr_files(file_paths) if OCR_ENABLED else {}
+    docs = intake(case_id, file_paths, ocr)
+    pack = parse_pack(case_id, docs, file_paths, manifest, ocr)
     stage_evidence: list[Evidence] = []
     return pack, stage_evidence
 

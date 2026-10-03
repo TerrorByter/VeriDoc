@@ -57,27 +57,50 @@ def _parse_date(s: str) -> date:
     return date.fromisoformat(s.strip())
 
 
-def _parse_line_items(lines: list[str], stop_prefix: str) -> list[LineItem]:
+#: OCR (Textract) reads the " | " cell divider as " I ".
+_OCR_DIVIDER = re.compile(r" [|I] ")
+
+
+def _cells(line: str, n: int) -> list[str] | None:
+    """Split a table row into exactly *n* cells: on " | ", else on the OCR
+    divider. None when neither gives *n* cells (for example a description
+    containing " I " in OCR text), so the caller can refuse the row."""
+    for parts in (line.split(" | "), _OCR_DIVIDER.split(line)):
+        if len(parts) == n:
+            return [p.strip() for p in parts]
+    return None
+
+
+def _row_error(doc_id: str, line: str) -> ValueError:
+    """A table row we cannot read. Raised rather than skipped: a silently
+    dropped row would let balance and arithmetic checks pass on missing data."""
+    return ValueError(f"{doc_id}: cannot parse table row {line!r}")
+
+
+def _parse_line_items(doc_id: str, lines: list[str], stop_prefix: str) -> list[LineItem]:
     """Rows of the "Description | Qty | Unit Price | Amount" table, up to the
     line starting with *stop_prefix*."""
     items: list[LineItem] = []
     in_table = False
     for l in lines:
-        if l.startswith("Description | Qty"):
-            in_table = True
+        if not in_table:
+            in_table = (_cells(l, 4) or [])[:2] == ["Description", "Qty"]
             continue
-        if in_table:
-            if l.startswith(stop_prefix):
-                break
-            parts = [p.strip() for p in l.split(" | ")]
-            if len(parts) == 4:
-                desc, qty_s, up_s, amt_s = parts
-                items.append(LineItem(
-                    description=desc,
-                    quantity=int(qty_s),
-                    unit_price=_parse_money(up_s),
-                    amount=_parse_money(amt_s),
-                ))
+        if l.startswith(stop_prefix):
+            break
+        parts = _cells(l, 4)
+        try:
+            if parts is None:
+                raise ValueError
+            desc, qty_s, up_s, amt_s = parts
+            items.append(LineItem(
+                description=desc,
+                quantity=int(qty_s),
+                unit_price=_parse_money(up_s),
+                amount=_parse_money(amt_s),
+            ))
+        except (ValueError, ArithmeticError):
+            raise _row_error(doc_id, l) from None
     return items
 
 
@@ -101,7 +124,7 @@ def _parse_invoice(doc_id: str, pages: list[str]) -> Invoice:
     number = _get("Invoice No")
     inv_date = _parse_date(_get("Invoice Date"))
 
-    line_items = _parse_line_items(lines, stop_prefix="Subtotal:")
+    line_items = _parse_line_items(doc_id, lines, stop_prefix="Subtotal:")
     source_quotes: dict[str, str] = {}
 
     subtotal = _parse_money(_get("Subtotal"))
@@ -151,7 +174,7 @@ def _parse_purchase_order(doc_id: str, pages: list[str]) -> PurchaseOrder:
         buyer_name=_get("Buyer"),
         seller_name=_get("Seller"),
         seller_uen=_get("Seller UEN"),
-        line_items=_parse_line_items(lines, stop_prefix=f"{total_label}:"),
+        line_items=_parse_line_items(doc_id, lines, stop_prefix=f"{total_label}:"),
         total=_parse_money(_get(total_label)),
         page=1,
         source_quotes={
@@ -189,27 +212,27 @@ def _parse_bank_statement(doc_id: str, pages: list[str]) -> BankStatement:
     source_quotes: dict[str, str] = {}
     in_table = False
     for l in lines:
-        if l.startswith("Date | Description"):
-            in_table = True
+        if not in_table:
+            in_table = (_cells(l, 5) or [])[:2] == ["Date", "Description"]
             continue
-        if in_table:
-            if l.startswith("Closing Balance:"):
-                break
-            parts = [p.strip() for p in l.split(" | ")]
-            if len(parts) == 5:
-                d_s, desc, debit_s, credit_s, bal_s = parts
-                debit = _parse_money(debit_s) if debit_s != "-" else None
-                credit = _parse_money(credit_s) if credit_s != "-" else None
-                balance = _parse_money(bal_s)
-                t = Transaction(
-                    date=_parse_date(d_s),
-                    description=desc,
-                    debit=debit,
-                    credit=credit,
-                    balance=balance,
-                )
-                transactions.append(t)
-                source_quotes[desc] = l.strip()
+        if l.startswith("Closing Balance:"):
+            break
+        parts = _cells(l, 5)
+        try:
+            if parts is None:
+                raise ValueError
+            d_s, desc, debit_s, credit_s, bal_s = parts
+            t = Transaction(
+                date=_parse_date(d_s),
+                description=desc,
+                debit=_parse_money(debit_s) if debit_s != "-" else None,
+                credit=_parse_money(credit_s) if credit_s != "-" else None,
+                balance=_parse_money(bal_s),
+            )
+        except (ValueError, ArithmeticError):
+            raise _row_error(doc_id, l) from None
+        transactions.append(t)
+        source_quotes[desc] = l.strip()
 
     return BankStatement(
         doc_id=doc_id,
@@ -495,10 +518,16 @@ def parse_pack(
     docs: list[DocMeta],
     pdf_paths: list[Path],
     manifest: ApplicationManifest | None,
+    ocr: dict[str, list[str]] | None = None,
 ) -> "ExtractedPack":
-    """Parse all documents in a pack and return a populated ExtractedPack."""
+    """Parse all documents in a pack and return a populated ExtractedPack.
+
+    *ocr* (doc_id -> page text from the OCR stage) fills pages that have no
+    text layer and is kept on the pack for the Forensics agent.
+    """
     from gldb.schemas import ExtractedPack
 
+    ocr = ocr or {}
     path_map: dict[str, Path] = {p.stem: p for p in pdf_paths}
 
     invoices = []
@@ -511,7 +540,7 @@ def parse_pack(
         p = path_map.get(doc.doc_id)
         if p is None:
             continue
-        pages = read_text(p)
+        pages = read_text(p, ocr=ocr.get(doc.doc_id))
 
         if doc.doc_type == "invoice":
             invoices.append(_parse_invoice(doc.doc_id, pages))
@@ -535,4 +564,5 @@ def parse_pack(
         manifest=manifest,
         extraction_mode="stub",
         paths=path_map,
+        ocr=ocr,
     )

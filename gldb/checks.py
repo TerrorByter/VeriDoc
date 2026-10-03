@@ -40,7 +40,13 @@ from gldb.config import (
     TOLERANCE_SGD,
     money,
 )
-from gldb.forensics import hidden_text, incremental_updates, mixed_font_tokens
+from gldb.forensics import (
+    amount_mismatches,
+    hidden_text,
+    incremental_updates,
+    mixed_font_tokens,
+)
+from gldb.intake import read_text
 from gldb.privacy import mask_id
 from gldb.schemas import (
     AgentReport,
@@ -1209,6 +1215,36 @@ def check_forensic_incremental_update(pack: ExtractedPack) -> list[Evidence]:
     return results
 
 
+def check_forensic_ocr_mismatch(pack: ExtractedPack) -> list[Evidence]:
+    """Amounts in the visible text layer vs amounts Textract sees on the page.
+
+    Hidden (white, tiny, off-page) text is excluded from the text layer here;
+    FORENSIC_HIDDEN_TEXT already reports it. Without OCR the comparison cannot
+    run, which is reported as an info finding rather than passed silently.
+    """
+    if not pack.ocr:
+        return [_ev(
+            "FORENSIC_OCR_SKIPPED", "fraud_signal", "info", _EVIDENCE_DOC_PLACEHOLDER, 1, 1.0,
+            "The text layer vs OCR comparison did not run because OCR is turned off. "
+            "Figures covered or pasted over as images would not be detected.",
+        )]
+    results = []
+    for doc_id, path in _forensic_docs(pack):
+        seen = pack.ocr.get(doc_id)
+        if seen is None:
+            continue
+        for m in amount_mismatches(read_text(path, visible_only=True), seen):
+            results.append(_ev(
+                "FORENSIC_OCR_MISMATCH", "fraud_signal", "medium", doc_id, m.page, 0.6,
+                f"On {doc_id} page {m.page}, the amounts a reader sees differ from the "
+                "amounts stored in the file. A figure may be covered, or pasted over the "
+                "original as an image. OCR can misread, so compare with the source.",
+                expected=", ".join(m.covered) or None,
+                observed=", ".join(m.pasted) or None,
+            ))
+    return results
+
+
 # ---------------------------------------------------------------------------
 # E. AGENTS AND RUNNER
 # ---------------------------------------------------------------------------
@@ -1243,11 +1279,13 @@ AGENTS: list[Agent] = [
     ),
     Agent(
         "Forensics",
-        "Hidden text, figures edited over the original, and re-saved PDFs, found in the raw file.",
+        "Hidden text, figures edited or pasted over the original, and re-saved PDFs, "
+        "found in the raw file and by comparing it with what OCR sees.",
         [
             check_forensic_hidden_text,
             check_forensic_mixed_font,
             check_forensic_incremental_update,
+            check_forensic_ocr_mismatch,
         ],
     ),
     Agent(

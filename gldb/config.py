@@ -162,8 +162,13 @@ AWS_REGION: str = os.getenv("AWS_REGION", "ap-southeast-1")
 #: Bedrock model ID or cross-region inference profile ARN.
 BEDROCK_MODEL_ID: str = os.getenv("BEDROCK_MODEL_ID", "")
 
-#: Whether to OCR pages that have no text layer (scans) with AWS Textract.
+#: Whether to run the OCR stage: Textract reads every page, so scans can be
+#: parsed and the text layer can be compared with what a reader sees.
 OCR_ENABLED: bool = _bool_env("OCR_ENABLED", False)
+
+#: Concurrent Textract calls. Match the account's DetectDocumentText quota
+#: (transactions per second; 1 on a new account).
+OCR_MAX_WORKERS: int = int(os.getenv("OCR_MAX_WORKERS", "1"))
 
 #: Whether to run the optional LLM plain-English explanation step.
 EXPLAIN_ENABLED: bool = _bool_env("EXPLAIN_ENABLED", False)

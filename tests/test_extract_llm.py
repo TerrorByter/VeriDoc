@@ -17,7 +17,7 @@ from gldb import extract, extract_llm, extract_stub
 from gldb.extract_stub import parse_pack as stub_parse_pack
 from gldb.intake import intake, load_manifest
 from gldb.llm_client import LLMResult
-from gldb.ocr import ocr_pages
+from gldb.ocr import ocr_files
 
 CLEAN = Path(__file__).parent.parent / "data" / "packs" / "clean"
 
@@ -127,12 +127,12 @@ class FakeTextract:
         ]}
 
 
-def test_ocr_pages_one_call_per_page() -> None:
+def test_ocr_files_one_call_per_page() -> None:
     pdf = next(CLEAN.glob("bank_statement_*.pdf"))
     fake = FakeTextract()
-    pages = ocr_pages(pdf, client=fake)
+    pages = ocr_files([pdf], client=fake)[pdf.stem]
     assert len(pages) == fake.calls >= 1
-    assert pages[0] == "TAX INVOICE\ncall 1"
+    assert pages[0].startswith("TAX INVOICE\ncall ")
 
 
 def test_hidden_text_never_reaches_the_llm(monkeypatch: pytest.MonkeyPatch) -> None:

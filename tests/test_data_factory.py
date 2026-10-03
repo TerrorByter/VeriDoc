@@ -293,7 +293,7 @@ def test_tampered_ground_truth(packs):
     tamper_types = {t["type"] for t in gt["tampers"]}
     assert tamper_types == {
         "amount_inflated", "uen_mismatch", "metadata_edited",
-        "closing_balance_altered", "prompt_injection",
+        "closing_balance_altered", "prompt_injection", "figure_pasted_as_image",
     }
     # New tamper references bank_statement_2026-06, not bank_statement
     docs = {t["doc"] for t in gt["tampers"] if t["type"] == "closing_balance_altered"}

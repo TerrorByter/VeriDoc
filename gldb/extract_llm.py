@@ -122,8 +122,10 @@ def parse_pack(
     docs: list[DocMeta],
     pdf_paths: list[Path],
     manifest: ApplicationManifest | None,
+    ocr: dict[str, list[str]] | None = None,
 ) -> ExtractedPack:
     """LLM counterpart of extract_stub.parse_pack (same signature)."""
+    ocr = ocr or {}
     path_map = {p.stem: p for p in pdf_paths}
     extracted: dict[str, list[Any]] = {
         "invoice": [],
@@ -138,7 +140,8 @@ def parse_pack(
         if path is None:
             continue
         if doc.doc_type in _MODELS:
-            extracted[doc.doc_type].append(_extract_doc(doc, read_text(path, visible_only=True)))
+            pages = read_text(path, visible_only=True, ocr=ocr.get(doc.doc_id))
+            extracted[doc.doc_type].append(_extract_doc(doc, pages))
         elif doc.doc_type == "fatca_crs_entity":
             entity_self_certs.append(parse_entity_self_cert(doc.doc_id, path))
 
@@ -153,4 +156,5 @@ def parse_pack(
         manifest=manifest,
         extraction_mode="llm",
         paths=path_map,
+        ocr=ocr,
     )

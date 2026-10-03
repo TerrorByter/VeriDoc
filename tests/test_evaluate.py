@@ -49,6 +49,29 @@ def test_wrong_ground_truth_is_reported_and_fails_exit_code(
     assert evaluate.main([]) == 1
 
 
+def test_crashing_pack_is_reported_and_counted_as_missed(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    real_assess = evaluate.assess
+
+    def flaky(case_id: str, *args: object) -> object:
+        if case_id == "tampered":
+            raise RuntimeError("model returned junk")
+        return real_assess(case_id, *args)
+
+    monkeypatch.setattr(evaluate, "assess", flaky)
+    report = evaluate.evaluate(PACKS)
+    clean, incomplete, tampered = report.packs
+    assert clean.ok and incomplete.ok
+    assert not tampered.ok
+    assert tampered.error == "RuntimeError: model returned junk"
+    assert len(tampered.missed) == 8  # every expected tampered finding
+    assert report.recall < 1.0 and report.precision == 1.0
+
+    assert evaluate.main([]) == 1
+    assert "ERROR RuntimeError: model returned junk" in capsys.readouterr().out
+
+
 def test_main_passes_on_real_packs(capsys: pytest.CaptureFixture[str]) -> None:
     assert evaluate.main([]) == 0
     assert "precision 1.00  recall 1.00" in capsys.readouterr().out

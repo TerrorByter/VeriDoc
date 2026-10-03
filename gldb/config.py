@@ -204,6 +204,9 @@ OCR_ENABLED: bool = _bool_env("OCR_ENABLED", False)
 #: (transactions per second; 1 on a new account).
 OCR_MAX_WORKERS: int = int(os.getenv("OCR_MAX_WORKERS", "1"))
 
+#: Resolution of document pages rendered for the evidence viewer (gldb.viewer)
+VIEWER_DPI: int = 110
+
 #: Whether to run the optional LLM plain-English explanation step.
 EXPLAIN_ENABLED: bool = _bool_env("EXPLAIN_ENABLED", False)
 

@@ -67,6 +67,41 @@ def test_case_has_timeline_and_investigation_queue(client: TestClient) -> None:
     assert {e["kind"] for e in flagged} == {"invoice", "shipped"}
 
 
+def test_document_pages_are_served_only_for_documents_in_the_case(client: TestClient) -> None:
+    cid = _case(client)["case_id"]
+    base = f"/api/cases/{cid}/documents"
+    ok = client.get(f"{base}/invoice_INV-1002/pages/1")
+    assert ok.status_code == 200 and ok.headers["content-type"] == "image/png"
+    for bad in ("invoice_INV-1002/pages/0", "invoice_INV-1002/pages/2",
+                "nope/pages/1", "..%2F..%2Fgldb%2Fapi/pages/1"):
+        assert client.get(f"{base}/{bad}").status_code == 404, bad
+    assert client.get("/api/cases/nope/documents/invoice_INV-1002/pages/1").status_code == 404
+
+
+def test_evidence_location_highlights_its_quote(client: TestClient) -> None:
+    case = _case(client)
+    cid = case["case_id"]
+    hidden = next(e for e in case["evidence"] if e["check_id"] == "FORENSIC_HIDDEN_TEXT")
+    loc = client.get(f"/api/cases/{cid}/evidence/{hidden['evidence_id']}/location").json()
+    assert (loc["doc_id"], loc["page"], loc["page_count"]) == ("invoice_INV-1002", 1, 1)
+    assert loc["boxes"] and loc["highlighted"] == hidden["quote"]
+
+    identity = next(e for e in case["evidence"] if e["check_id"] == "XDOC_IDENTITY")
+    loc = client.get(f"/api/cases/{cid}/evidence/{identity['evidence_id']}/location").json()
+    assert loc["highlighted"] == identity["observed"] and loc["boxes"]  # no quote: observed value
+    assert client.get(f"/api/cases/{cid}/evidence/E99/location").status_code == 404
+
+
+def test_findings_on_the_application_have_no_page(client: TestClient) -> None:
+    case = _case(client, "incomplete")
+    cid = case["case_id"]
+    applicant = [e for e in case["evidence"] if e["document"] == "pack"]
+    assert applicant  # BANK_COVERAGE
+    for ev in applicant:
+        loc = client.get(f"/api/cases/{cid}/evidence/{ev['evidence_id']}/location").json()
+        assert (loc["doc_id"], loc["page_count"], loc["boxes"]) == ("pack", 0, [])
+
+
 def test_unknown_pack_and_bad_case_ids_are_404(client: TestClient) -> None:
     assert client.post("/api/cases/from-pack/nope").status_code == 404
     assert client.get("/api/cases/does-not-exist").status_code == 404

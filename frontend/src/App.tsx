@@ -13,20 +13,23 @@ import { AgentPanel } from "./components/AgentPanel";
 import { AuditTrail } from "./components/AuditTrail";
 import { ChainPanel } from "./components/ChainPanel";
 import { DecisionPanel } from "./components/DecisionPanel";
+import { DocumentViewer } from "./components/DocumentViewer";
 import { DocumentsPanel } from "./components/DocumentsPanel";
 import { EvidenceList } from "./components/EvidenceList";
 import { InvestigationQueue } from "./components/InvestigationQueue";
 import { ReadinessPanel } from "./components/ReadinessPanel";
 import { RoutingBanner } from "./components/RoutingBanner";
 import { ScoreDial } from "./components/ScoreDial";
+import { TimelinePanel } from "./components/TimelinePanel";
 import { UploadPanel } from "./components/UploadPanel";
-import type { AuditEvent, CaseView } from "./types";
+import type { AuditEvent, CaseView, ViewTarget } from "./types";
 
 export function App() {
   const [kase, setKase] = useState<CaseView | null>(null);
   const [audit, setAudit] = useState<AuditEvent[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<ViewTarget | null>(null);
 
   const guard = useCallback(async (work: () => Promise<void>) => {
     setError(null);
@@ -98,7 +101,7 @@ export function App() {
                   {kase.docs.length} documents · extraction: {kase.extraction_mode}
                 </p>
               </div>
-              <button type="button" className="btn ghost" onClick={() => setKase(null)}>
+              <button type="button" className="btn ghost" onClick={() => { setKase(null); setViewing(null); }}>
                 New case
               </button>
             </div>
@@ -129,10 +132,13 @@ export function App() {
                 risk={kase.risk}
                 path={kase.routing.path}
                 openFlags={kase.open_flags}
+                onView={setViewing}
+                pageOf={(id) => kase.evidence.find((e) => e.evidence_id === id)?.page ?? 1}
               />
             )}
 
-            <ChainPanel chains={kase.chains} />
+            <ChainPanel chains={kase.chains} onView={setViewing} />
+            <TimelinePanel events={kase.timeline} onView={setViewing} />
 
             <EvidenceList
               evidence={kase.evidence}
@@ -141,6 +147,7 @@ export function App() {
               onDecide={(id, decision, reasonCode, note) =>
                 record(() => decideFlag(kase.case_id, id, decision, reasonCode, note, "analyst"))
               }
+              onView={setViewing}
             />
             <DocumentsPanel docs={kase.docs} />
             <DecisionPanel
@@ -156,6 +163,15 @@ export function App() {
               onDocuments={(files) => record(() => addDocuments(kase.case_id, files))}
             />
             <AuditTrail audit={audit} />
+            {viewing && (
+              <DocumentViewer
+                key={`${viewing.docId}-${viewing.page}-${viewing.evidenceId ?? ""}`}
+                caseId={kase.case_id}
+                docs={kase.docs}
+                target={viewing}
+                onClose={() => setViewing(null)}
+              />
+            )}
           </>
         )}
       </main>

@@ -2,6 +2,7 @@ import type {
   AnalystDecision,
   AuditEvent,
   CaseView,
+  EvidenceLocation,
   FlagDecision,
   MlroDecision,
   ReasonCode,
@@ -80,3 +81,9 @@ export const addDocuments = (caseId: string, files: File[]) => {
   files.forEach((file) => form.append("files", file));
   return request<CaseView>(`/api/cases/${caseId}/documents`, { method: "POST", body: form });
 };
+
+export const pageUrl = (caseId: string, docId: string, page: number) =>
+  `/api/cases/${caseId}/documents/${encodeURIComponent(docId)}/pages/${page}`;
+
+export const getEvidenceLocation = (caseId: string, evidenceId: string) =>
+  request<EvidenceLocation>(`/api/cases/${caseId}/evidence/${evidenceId}/location`);

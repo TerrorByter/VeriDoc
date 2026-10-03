@@ -141,6 +141,33 @@ export interface InvestigationTask {
   path_if_resolved: ReviewPath;
 }
 
+/** A highlight, as fractions of the page width and height */
+export interface Box {
+  x0: number;
+  top: number;
+  x1: number;
+  bottom: number;
+}
+
+export interface EvidenceLocation {
+  evidence_id: string;
+  doc_id: string;
+  page: number;
+  page_count: number;
+  highlighted: string | null;
+  boxes: Box[];
+}
+
+/** What the document viewer should open: a page, optionally for a finding */
+export interface ViewTarget {
+  docId: string;
+  page: number;
+  evidenceId?: string;
+}
+
+/** Findings about the application data have no document page */
+export const APPLICATION_DOC = "pack";
+
 export type CaseStatus =
   | "assessed"
   | "info_requested"

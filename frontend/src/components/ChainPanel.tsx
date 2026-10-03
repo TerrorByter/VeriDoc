@@ -1,4 +1,14 @@
-import type { ChainStatus, ChainStep, TransactionChain } from "../types";
+import type { ChainStatus, ChainStep, ClaimRef, TransactionChain, ViewTarget } from "../types";
+
+type OnView = (target: ViewTarget) => void;
+
+function Source({ claim, onView }: { claim: ClaimRef; onView: OnView }) {
+  return (
+    <button type="button" className="link" onClick={() => onView({ docId: claim.doc_id, page: claim.page })}>
+      {claim.doc_id} p.{claim.page}
+    </button>
+  );
+}
 
 const STEP_LABEL: Record<ChainStep["step"], string> = {
   purchase_order: "Purchase order",
@@ -13,7 +23,7 @@ const STATUS_MARK: Record<ChainStatus, { mark: string; label: string }> = {
   not_provided: { mark: "–", label: "not provided" },
 };
 
-function Step({ step }: { step: ChainStep }) {
+function Step({ step, onView }: { step: ChainStep; onView: OnView }) {
   const { mark, label } = STATUS_MARK[step.status];
   return (
     <li className={`chain-step chain-${step.status}`}>
@@ -30,14 +40,14 @@ function Step({ step }: { step: ChainStep }) {
           <dt>{step.invoice_claim.label}</dt>
           <dd>
             {step.invoice_claim.value}
-            <span className="muted"> ({step.invoice_claim.doc_id} p.{step.invoice_claim.page})</span>
+            {" "}<Source claim={step.invoice_claim} onView={onView} />
           </dd>
           {step.counterpart && (
             <>
               <dt>{step.counterpart.label}</dt>
               <dd>
                 {step.counterpart.value}
-                <span className="muted"> ({step.counterpart.doc_id} p.{step.counterpart.page})</span>
+                {" "}<Source claim={step.counterpart} onView={onView} />
               </dd>
             </>
           )}
@@ -48,7 +58,7 @@ function Step({ step }: { step: ChainStep }) {
   );
 }
 
-export function ChainPanel({ chains }: { chains: TransactionChain[] }) {
+export function ChainPanel({ chains, onView }: { chains: TransactionChain[]; onView: OnView }) {
   if (chains.length === 0) return null;
   return (
     <section className="card" aria-labelledby="chain-title">
@@ -67,7 +77,7 @@ export function ChainPanel({ chains }: { chains: TransactionChain[] }) {
           </h3>
           <ol className="chain-steps">
             {chain.steps.map((step) => (
-              <Step key={step.step} step={step} />
+              <Step key={step.step} step={step} onView={onView} />
             ))}
           </ol>
         </div>

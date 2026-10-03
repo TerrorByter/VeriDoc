@@ -1,4 +1,5 @@
-import type { InvestigationTask, Risk, ReviewPath, TaskPriority } from "../types";
+import { APPLICATION_DOC } from "../types";
+import type { InvestigationTask, Risk, ReviewPath, TaskPriority, ViewTarget } from "../types";
 import { PATH_LABEL } from "./RoutingBanner";
 
 const PRIORITY_LABEL: Record<TaskPriority, string> = {
@@ -30,11 +31,16 @@ export function InvestigationQueue({
   risk,
   path,
   openFlags,
+  onView,
+  pageOf,
 }: {
   tasks: InvestigationTask[];
   risk: Risk;
   path: ReviewPath;
   openFlags: string[];
+  onView: (target: ViewTarget) => void;
+  /** Page of a finding, by evidence ID */
+  pageOf: (evidenceId: string) => number;
 }) {
   if (tasks.length === 0) return null;
   const open = new Set(openFlags);
@@ -68,6 +74,17 @@ export function InvestigationQueue({
             </div>
             <p className="task-remedy">{t.remedy}</p>
             <Change task={t} risk={risk} path={path} />
+            {t.document !== APPLICATION_DOC && (
+              <button
+                type="button"
+                className="link"
+                onClick={() =>
+                  onView({ docId: t.document, page: pageOf(t.evidence_ids[0]), evidenceId: t.evidence_ids[0] })
+                }
+              >
+                View in document →
+              </button>
+            )}
           </li>
         ))}
       </ol>

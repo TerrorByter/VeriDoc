@@ -309,3 +309,82 @@ select:hover, select:focus-visible { border-color: var(--accent); outline: none;
 }
 .task-remedy { margin: 0 0 0.35rem; font-size: 0.9rem; }
 .task-change { margin: 0; font-size: 0.83rem; }
+
+/* Links to the source document */
+.link {
+  font: 500 0.82rem var(--font-body); color: var(--accent-2); background: none; border: 0; padding: 0;
+  cursor: pointer; margin-top: 0.35rem; text-underline-offset: 3px;
+  transition: color 0.15s;
+}
+.link:hover { color: var(--text); text-decoration: underline; }
+.source { font-size: 0.8rem; margin: 0.35rem 0 0; }
+
+/* Document viewer */
+.viewer {
+  width: min(920px, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); padding: 0;
+  color: var(--text); background: var(--surface-strong);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: 0 30px 80px hsl(232 60% 3% / 0.7);
+}
+.viewer[open] { display: flex; flex-direction: column; animation: viewer-in 0.2s ease-out; }
+.viewer::backdrop { background: hsl(232 40% 4% / 0.7); backdrop-filter: blur(4px); }
+@keyframes viewer-in { from { opacity: 0; transform: translateY(8px) scale(0.98); } }
+.viewer-head {
+  display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem;
+  padding: 1rem 1.25rem; border-bottom: 1px solid var(--border);
+}
+.viewer-head h2 { font-size: 1.05rem; }
+.viewer-head p { margin: 0.15rem 0 0; font-size: 0.82rem; text-transform: capitalize; }
+.viewer-head .row { margin-top: 0; }
+.viewer-status {
+  margin: 0; padding: 0.55rem 1.25rem; font-size: 0.83rem;
+  color: var(--warn); background: hsl(38 92% 60% / 0.08); border-bottom: 1px solid var(--border);
+}
+.viewer-status.found { color: var(--accent-2); background: hsl(190 90% 58% / 0.08); }
+.page-frame {
+  position: relative; margin: 1rem auto 1.25rem; width: calc(100% - 2.5rem); overflow: auto;
+  border-radius: 8px; background: white; box-shadow: 0 6px 30px hsl(232 60% 3% / 0.5);
+}
+.page-frame img { display: block; width: 100%; height: auto; }
+.page-frame.loading { min-height: 60vh; background: linear-gradient(100deg, hsl(232 20% 22%) 30%, hsl(232 20% 30%) 50%, hsl(232 20% 22%) 70%) 0 0 / 200% 100%; animation: shimmer 1.2s linear infinite; }
+.page-frame.loading img { opacity: 0; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+.highlight {
+  position: absolute; border-radius: 3px; pointer-events: none;
+  background: hsl(48 100% 55% / 0.35); outline: 2px solid hsl(14 88% 58%);
+  box-shadow: 0 0 0 4px hsl(14 88% 58% / 0.25);
+  animation: highlight-pulse 1.6s ease-in-out 2;
+}
+@keyframes highlight-pulse { 50% { box-shadow: 0 0 0 9px hsl(14 88% 58% / 0); } }
+
+/* Timeline */
+.timeline { list-style: none; margin: 0.75rem 0 0; padding: 0 0 0 0.25rem; position: relative; }
+.timeline::before {
+  content: ""; position: absolute; left: 7.35rem; top: 0.4rem; bottom: 0.4rem; width: 2px;
+  background: linear-gradient(var(--accent), var(--accent-2));  opacity: 0.45;
+}
+.tl-item { display: grid; grid-template-columns: 6.6rem 1fr; gap: 1.4rem; padding: 0.45rem 0; position: relative; }
+.tl-item::before {
+  content: ""; position: absolute; left: calc(7.35rem - 5px); top: 0.85rem; width: 12px; height: 12px;
+  border-radius: 50%; background: var(--surface-strong); border: 2px solid var(--accent);
+  transition: transform 0.15s;
+}
+.tl-item:hover::before { transform: scale(1.3); }
+.tl-item time { font: 600 0.8rem var(--font-display); color: var(--muted); padding-top: 0.45rem; text-align: right; }
+.tl-body { padding: 0.35rem 0.75rem; border-radius: 10px; transition: background 0.15s; }
+.tl-body:hover { background: hsl(232 30% 12% / 0.7); }
+.tl-body p { margin: 0; font-size: 0.88rem; }
+.tl-kind { font: 700 0.68rem var(--font-body); text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); }
+.tl-incorporated::before, .tl-application::before { border-color: var(--accent-2); background: var(--accent-2); }
+.tl-item.flagged::before { border-color: var(--danger); background: var(--danger); box-shadow: 0 0 10px var(--danger); }
+.tl-item.flagged .tl-body { background: hsl(350 82% 64% / 0.08); border: 1px solid hsl(350 82% 64% / 0.35); }
+.tl-flag { font: 600 0.75rem var(--font-body); color: var(--danger); }
+@media (max-width: 600px) {
+  .timeline::before { left: 0.45rem; }
+  .tl-item { grid-template-columns: 1fr; gap: 0.1rem; padding-left: 1.4rem; }
+  .tl-item::before { left: 0; }
+  .tl-item time { text-align: left; padding-top: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .highlight, .page-frame.loading, .viewer[open] { animation: none; }
+}

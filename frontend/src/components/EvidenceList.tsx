@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { REASON_CODES } from "../types";
-import type { AuditEvent, Category, Evidence, FlagDecision, ReasonCode } from "../types";
+import { APPLICATION_DOC, REASON_CODES } from "../types";
+import type { AuditEvent, Category, Evidence, FlagDecision, ReasonCode, ViewTarget } from "../types";
 
 const SEVERITY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
 
@@ -21,6 +21,7 @@ interface Props {
     reasonCode: ReasonCode | null,
     note: string,
   ) => Promise<void>;
+  onView: (target: ViewTarget) => void;
 }
 
 function latestDecision(audit: AuditEvent[], evidenceId: string): string | null {
@@ -35,11 +36,13 @@ function Card({
   decision,
   editable,
   onDecide,
+  onView,
 }: {
   ev: Evidence;
   decision: string | null;
   editable: boolean;
   onDecide: Props["onDecide"];
+  onView: Props["onView"];
 }) {
   const [code, setCode] = useState<ReasonCode | "">("");
   const [note, setNote] = useState("");
@@ -63,6 +66,17 @@ function Card({
         </dl>
       )}
       {ev.quote && <blockquote>{ev.quote}</blockquote>}
+      {ev.document === APPLICATION_DOC ? (
+        <p className="muted source">Source: the application data</p>
+      ) : (
+        <button
+          type="button"
+          className="link"
+          onClick={() => onView({ docId: ev.document, page: ev.page, evidenceId: ev.evidence_id })}
+        >
+          View in document →
+        </button>
+      )}
       {editable && ev.category === "fraud_signal" && (
         <div className="row">
           <button
@@ -106,7 +120,7 @@ function Card({
   );
 }
 
-export function EvidenceList({ evidence, audit, editable, onDecide }: Props) {
+export function EvidenceList({ evidence, audit, editable, onDecide, onView }: Props) {
   const [tab, setTab] = useState<Category>("fraud_signal");
   const [agent, setAgent] = useState<string | null>(null);
   const agents = [...new Set(evidence.map((e) => e.agent).filter(Boolean))];
@@ -160,6 +174,7 @@ export function EvidenceList({ evidence, audit, editable, onDecide }: Props) {
               decision={latestDecision(audit, ev.evidence_id)}
               editable={editable}
               onDecide={onDecide}
+              onView={onView}
             />
           ))}
         </ul>

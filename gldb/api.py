@@ -15,6 +15,9 @@ Rules:
   decides which actions are allowed; an illegal action returns 409.
 - Each case keeps its documents in UPLOADS_DIR/<case_id>/, so documents can
   re-enter the case after a request for information.
+- Document pages are served as images for the evidence viewer: the one
+  place the browser sees unmasked document content. In production this needs
+  access control and an audit entry per document viewed.
 - There is no authentication in this prototype: the actor name is taken from
   the request. In production it comes from single sign-on, and the role
   (analyst, MLRO) from the user's group.
@@ -29,16 +32,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field, model_validator
 
 from gldb import lifecycle
 from gldb.audit import log_event, read_all_events, read_events
+from gldb.checks import PACK_DOC
 from gldb.config import CASES_DIR, PACKS_DIR, UPLOADS_DIR
 from gldb.extract_llm import ExtractionError
 from gldb.feedback import CheckFeedback, report
 from gldb.intake import IntakeError
 from gldb.pipeline import run
+from gldb.viewer import Box, locate, render_page
 from gldb.schemas import (
     AgentReport,
     AuditEvent,
@@ -114,6 +119,19 @@ class MlroDecision(BaseModel):
     decision: Literal["str_filed", "no_str"]
     reason: str = Field(min_length=1)
     actor: str = "mlro"
+
+
+class EvidenceLocation(BaseModel):
+    """Where a finding is in its document. doc_id is PACK_DOC (and
+    page_count 0) for a finding about the application data, which has no page."""
+
+    evidence_id: str
+    doc_id: str
+    page: int
+    page_count: int
+    #: The text highlighted: the quote, else the observed value
+    highlighted: str | None
+    boxes: list[Box]
 
 
 def _view(result: CaseResult) -> CaseView:
@@ -318,6 +336,45 @@ def add_documents(case_id: str, files: list[UploadFile] = File(...)) -> CaseView
         case_id=case_id, actor=SYSTEM, action="documents_added", details={"filenames": names},
     ))
     return _run(case_id, new_case=False)
+
+
+def _document(result: CaseResult, doc_id: str, page: int) -> tuple[Path, DocMeta]:
+    """The case's stored file for *doc_id*; 404 unless the document belongs
+    to the case and has *page*."""
+    doc = next((d for d in result.pack.docs if d.doc_id == doc_id), None)
+    if doc is None or not 1 <= page <= doc.page_count:
+        raise HTTPException(404, "Page not found")
+    path = _case_folder(result.case_id) / doc.filename
+    if not path.is_file():
+        raise HTTPException(404, "Page not found")
+    return path, doc
+
+
+@app.get("/api/cases/{case_id}/documents/{doc_id}/pages/{page}")
+def get_page(case_id: str, doc_id: str, page: int) -> Response:
+    """One page of a case document, as PNG."""
+    path, _ = _document(_load(case_id), doc_id, page)
+    return Response(render_page(path, page), media_type="image/png")
+
+
+@app.get("/api/cases/{case_id}/evidence/{evidence_id}/location")
+def get_evidence_location(case_id: str, evidence_id: str) -> EvidenceLocation:
+    """Where a finding is: its document and page, and boxes around its quote
+    (or, without a quote, its observed value) when the page has a text layer."""
+    result = _load(case_id)
+    ev = next((e for e in result.evidence if e.evidence_id == evidence_id), None)
+    if ev is None:
+        raise HTTPException(404, "Evidence not found")
+    if ev.document == PACK_DOC:
+        return EvidenceLocation(evidence_id=evidence_id, doc_id=PACK_DOC, page=0,
+                                page_count=0, highlighted=None, boxes=[])
+    path, doc = _document(result, ev.document, ev.page)
+    for text in (ev.quote, ev.observed):
+        if text and (boxes := locate(path, ev.page, text)):
+            return EvidenceLocation(evidence_id=evidence_id, doc_id=doc.doc_id, page=ev.page,
+                                    page_count=doc.page_count, highlighted=text, boxes=boxes)
+    return EvidenceLocation(evidence_id=evidence_id, doc_id=doc.doc_id, page=ev.page,
+                            page_count=doc.page_count, highlighted=None, boxes=[])
 
 
 @app.get("/api/feedback")

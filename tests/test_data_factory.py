@@ -289,6 +289,7 @@ def test_tampered_ground_truth(packs):
         "XDOC_INVOICE_BANK", "XDOC_IDENTITY", "META_MOD_AFTER_CREATE",
         "META_PRODUCER_MISMATCH", "BANK_RUNNING_BAL", "BANK_CONTINUITY",
         "FORENSIC_HIDDEN_TEXT", "XDOC_PO_INVOICE", "XDOC_BL_INVOICE",
+        "REGISTRY_ENTITY_NOT_FOUND",
     }
     assert set(gt["expected_check_ids"]) == expected_ids
     assert gt["expected_compliance_check_ids"] == []

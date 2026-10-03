@@ -1,0 +1,11 @@
+{
+  "source": "Synthetic sanctions list standing in for the UN and MAS targeted financial sanctions lists (prototype only; all names fictional)",
+  "version": "SANC-SYN-2026.10.01",
+  "as_of": "2026-10-01",
+  "entries": [
+    {"name": "Kestrel Marine Supplies Limited", "kind": "entity", "list": "UN-SYN", "reference": "SYN-E-0042"},
+    {"name": "Red Lantern Shipping Co", "kind": "entity", "list": "MAS-SYN", "reference": "SYN-E-0107"},
+    {"name": "Viktor Aldane", "kind": "individual", "list": "UN-SYN", "reference": "SYN-I-0311"},
+    {"name": "Amira Solenko", "kind": "individual", "list": "MAS-SYN", "reference": "SYN-I-0458"}
+  ]
+}

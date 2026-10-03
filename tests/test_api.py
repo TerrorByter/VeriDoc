@@ -48,11 +48,12 @@ def test_case_reports_each_agent_and_tags_evidence(client: TestClient) -> None:
     case = _case(client)
     names = [a["name"] for a in case["agent_reports"]]
     assert names == [
-        "Document Integrity", "Forensics", "Cross-Document", "Compliance & Completeness"
+        "Document Integrity", "Forensics", "Cross-Document", "Registry & Screening",
+        "Compliance & Completeness",
     ]
     assert {e["agent"] for e in case["evidence"]} <= set(names)
     fraud = [e for e in case["evidence"] if e["category"] == "fraud_signal"]
-    assert all(e["agent"] in names[:3] for e in fraud)
+    assert all(e["agent"] != "Compliance & Completeness" for e in fraud)
 
 
 def test_clean_pack_is_low(client: TestClient) -> None:

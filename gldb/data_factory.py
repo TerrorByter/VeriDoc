@@ -6,8 +6,9 @@ Generates synthetic PDF document packs for the gldb-prototype.
 Usage:
     python -m gldb.data_factory
 
-(Re)creates data/packs/clean/, tampered/, incomplete/ and scanned/ (the clean
-pack as image-only scans), overwriting existing files. All entities are
+(Re)creates data/packs/clean/, tampered/, incomplete/, scanned/ (the clean
+pack as image-only scans) and sanctioned/ (a sanctioned buyer), overwriting
+existing files. All entities are
 fictional.
 
 Rendering contract (stub parser depends on these exactly):
@@ -564,6 +565,7 @@ def _write_bank_statements(
     months: list[dict],
     tampered_jun_closing: bool = False,
     skip_month: int | None = None,
+    payer_rename: tuple[str, str] | None = None,
 ) -> None:
     """Write monthly bank statement PDFs into *out_dir*.
 
@@ -571,6 +573,7 @@ def _write_bank_statements(
         months: BS_MONTHS list.
         tampered_jun_closing: if True, use BS_JUN_CLOSING_TAMPERED for June.
         skip_month: if set, omit that month's file (e.g. 4 = April).
+        payer_rename: (old, new) payer name in transaction descriptions.
     """
     for bs in months:
         year, month = bs["ym"]
@@ -584,7 +587,8 @@ def _write_bank_statements(
 
         # Convert row days to full dates
         rows = [
-            (date(year, month, day), desc, debit, credit, bal)
+            (date(year, month, day), desc.replace(*payer_rename) if payer_rename else desc,
+             debit, credit, bal)
             for day, desc, debit, credit, bal in bs["rows"]
         ]
 
@@ -610,8 +614,10 @@ def _write_bank_statements(
         _set_metadata(p, PRODUCER_REPORTLAB, _sgt(meta_date), _sgt(meta_date))
 
 
-def _write_invoices_and_fs(out_dir: Path, tampered_inv1002: bool = False) -> None:
-    """Write INV-1001, INV-1002 and fs_summary into *out_dir*."""
+def _write_invoices_and_fs(
+    out_dir: Path, tampered_inv1002: bool = False, buyer_1002: str = INV1002_BUYER,
+) -> None:
+    """Write INV-1001, INV-1002 (billed to *buyer_1002*) and fs_summary into *out_dir*."""
     # INV-1001 (same in all packs)
     p = out_dir / "invoice_INV-1001.pdf"
     _render_invoice(
@@ -629,7 +635,7 @@ def _write_invoices_and_fs(out_dir: Path, tampered_inv1002: bool = False) -> Non
         _render_invoice(
             p,
             seller=SELLER, seller_uen=SELLER_UEN_TAMPERED,
-            buyer=INV1002_BUYER, number="INV-1002", inv_date=INV1002_DATE,
+            buyer=buyer_1002, number="INV-1002", inv_date=INV1002_DATE,
             line_items=INV1002_ITEMS_TAMPERED,
             subtotal=INV1002_SUBTOTAL_TAMPERED,
             gst=INV1002_GST_TAMPERED,
@@ -643,7 +649,7 @@ def _write_invoices_and_fs(out_dir: Path, tampered_inv1002: bool = False) -> Non
         _render_invoice(
             p,
             seller=SELLER, seller_uen=SELLER_UEN_CLEAN,
-            buyer=INV1002_BUYER, number="INV-1002", inv_date=INV1002_DATE,
+            buyer=buyer_1002, number="INV-1002", inv_date=INV1002_DATE,
             line_items=INV1002_ITEMS_CLEAN,
             subtotal=INV1002_SUBTOTAL_CLEAN,
             gst=INV1002_GST_CLEAN,
@@ -686,9 +692,10 @@ BILLS_OF_LADING = [
 ]
 
 
-def _write_purchase_orders(out_dir: Path) -> None:
-    """Write PO-2001 and PO-2002 into *out_dir*."""
+def _write_purchase_orders(out_dir: Path, buyer_1002: str = INV1002_BUYER) -> None:
+    """Write PO-2001 and PO-2002 (placed by *buyer_1002*) into *out_dir*."""
     for number, buyer, invoice_date, items, total in PURCHASE_ORDERS:
+        buyer = buyer_1002 if buyer == INV1002_BUYER else buyer
         po_date = invoice_date - timedelta(days=PO_LEAD_DAYS)
         path = out_dir / f"purchase_order_{number}.pdf"
         _render_purchase_order(
@@ -698,9 +705,10 @@ def _write_purchase_orders(out_dir: Path) -> None:
         _set_metadata(path, PRODUCER_REPORTLAB, _sgt(po_date), _sgt(po_date))
 
 
-def _write_bills_of_lading(out_dir: Path) -> None:
-    """Write BL-3001 and BL-3002 into *out_dir*."""
+def _write_bills_of_lading(out_dir: Path, buyer_1002: str = INV1002_BUYER) -> None:
+    """Write BL-3001 and BL-3002 (consigned to *buyer_1002*) into *out_dir*."""
     for number, consignee, invoice_date, invoice_ref, goods in BILLS_OF_LADING:
+        consignee = buyer_1002 if consignee == INV1002_BUYER else consignee
         shipped = invoice_date - timedelta(days=BL_SHIP_DAYS_BEFORE_INVOICE)
         path = out_dir / f"bill_of_lading_{number}.pdf"
         _render_bill_of_lading(
@@ -781,6 +789,7 @@ def _generate_tampered(out_dir: Path) -> None:
             "FORENSIC_HIDDEN_TEXT",
             "XDOC_PO_INVOICE",
             "XDOC_BL_INVOICE",
+            "REGISTRY_ENTITY_NOT_FOUND",
         ],
         # Fire only when the OCR stage runs (OCR_ENABLED)
         "expected_check_ids_ocr": ["FORENSIC_OCR_MISMATCH"],
@@ -833,6 +842,40 @@ def _generate_incomplete(out_dir: Path) -> None:
                 "type": "rounding",
                 "detail": "paid 32,699.50 vs invoiced 32,700.00",
             }
+        ],
+    }
+    (out_dir / "ground_truth.json").write_text(json.dumps(truth, indent=2))
+
+
+#: Sanctioned pack: INV-1002's buyer is a company on the (synthetic) sanctions
+#: list. Every document is otherwise clean, so the score is only Medium; the
+#: sanctions hit is a hard flag that still forces enhanced review.
+SANCTIONED_BUYER = "Kestrel Marine Supplies Pte. Ltd."
+SANCTIONED_PAYER_RENAME = ("BAYVIEW MARINE SUPPLIES", "KESTREL MARINE SUPPLIES")
+
+
+def _generate_sanctioned(out_dir: Path) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    _write_invoices_and_fs(out_dir, buyer_1002=SANCTIONED_BUYER)
+    _write_purchase_orders(out_dir, buyer_1002=SANCTIONED_BUYER)
+    _write_bills_of_lading(out_dir, buyer_1002=SANCTIONED_BUYER)
+    _write_bank_statements(out_dir, BS_MONTHS, payer_rename=SANCTIONED_PAYER_RENAME)
+    _write_application_json(out_dir)
+    _write_entity_form(out_dir, ENTITY_FORM_VALUES_CLEAN)
+    truth = {
+        "pack": "sanctioned",
+        "expected_band": "Medium",
+        "expected_path": "enhanced_review",
+        "expected_readiness": "Complete",
+        "expected_check_ids": ["SANCTIONS_MATCH"],
+        "expected_check_ids_ocr": [],
+        "expected_compliance_check_ids": [],
+        "tampers": [
+            {"doc": "invoice_INV-1002", "type": "sanctioned_counterparty",
+             "detail": f"buyer '{SANCTIONED_BUYER}' resembles a sanctions list entry"},
+        ],
+        "benign": [
+            {"doc": "invoice_INV-1001", "type": "rounding", "detail": "paid 32,699.50 vs invoiced 32,700.00"},
         ],
     }
     (out_dir / "ground_truth.json").write_text(json.dumps(truth, indent=2))
@@ -916,15 +959,18 @@ def generate_packs(base_dir: str | Path = "data/packs") -> None:
     _generate_tampered(base / "tampered")
     _generate_incomplete(base / "incomplete")
     _generate_scanned(base / "clean", base / "scanned")
+    _generate_sanctioned(base / "sanctioned")
     _verify_pack(base / "clean",    tampered_inv1002=False)
     _verify_pack(base / "tampered", tampered_inv1002=True)
     _verify_pack(base / "incomplete", tampered_inv1002=False)
     _verify_pack(base / "scanned", tampered_inv1002=False)
+    _verify_pack(base / "sanctioned", tampered_inv1002=False)
     print("Packs generated and verified.")
     print(f"  clean/      -> {base / 'clean'}")
     print(f"  tampered/   -> {base / 'tampered'}")
     print(f"  incomplete/ -> {base / 'incomplete'}")
     print(f"  scanned/    -> {base / 'scanned'}")
+    print(f"  sanctioned/ -> {base / 'sanctioned'}")
 
 
 if __name__ == "__main__":

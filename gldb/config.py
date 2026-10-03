@@ -161,6 +161,17 @@ QA_SAMPLE_PERCENT: int = 5
 OCR_MIN_CONFIDENCE: float = 80.0
 
 # ---------------------------------------------------------------------------
+# Reference data and screening (gldb/reference.py, gldb/screening.py)
+# ---------------------------------------------------------------------------
+
+#: Versioned reference data: synthetic ACRA register and sanctions list
+REFERENCE_DIR: str = "data/reference"
+
+#: Name similarity (0-1) at or above which a screened name is a sanctions hit.
+#: Tuned for recall: a false hit costs an analyst a look, a miss is a breach.
+SCREENING_MATCH_THRESHOLD: float = 0.90
+
+# ---------------------------------------------------------------------------
 # Environment / runtime settings (with safe defaults)
 # ---------------------------------------------------------------------------
 

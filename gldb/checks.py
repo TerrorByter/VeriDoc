@@ -36,6 +36,7 @@ from gldb.config import (
     MATCH_WINDOW_DAYS,
     META_MOD_GAP_HOURS,
     REQUIRED_BANK_MONTHS,
+    SCREENING_MATCH_THRESHOLD,
     START_UP_MAX_MONTHS,
     TOLERANCE_SGD,
     money,
@@ -48,6 +49,8 @@ from gldb.forensics import (
 )
 from gldb.intake import read_text
 from gldb.privacy import mask_id
+from gldb.reference import registry, watchlist
+from gldb.screening import screen, screening_key, similarity
 from gldb.schemas import (
     AgentReport,
     ApplicationManifest,
@@ -1290,6 +1293,114 @@ def check_forensic_ocr_mismatch(pack: ExtractedPack) -> list[Evidence]:
 
 
 # ---------------------------------------------------------------------------
+# G. REGISTRY & SCREENING (versioned reference data, see gldb.reference)
+# ---------------------------------------------------------------------------
+
+def _registered_entities(pack: ExtractedPack) -> list[tuple[str, int, str, str, str]]:
+    """(doc_id, page, role, UEN, name) for every company identified by UEN."""
+    found = []
+    if pack.manifest is not None:
+        found.append((_EVIDENCE_DOC_PLACEHOLDER, 1, "applicant", pack.manifest.uen,
+                      pack.manifest.company_name))
+    found += [(i.doc_id, i.page, "seller", i.seller_uen, i.seller_name) for i in pack.invoices]
+    found += [(p.doc_id, p.page, "seller", p.seller_uen, p.seller_name) for p in pack.purchase_orders]
+    found += [(f.doc_id, f.page, "company", f.uen, f.company_name) for f in pack.financial_statements]
+    return found
+
+
+def check_registry_entities(pack: ExtractedPack) -> list[Evidence]:
+    """Each UEN should be registered, under the name used, and live."""
+    reg = registry()
+    results = []
+    for doc_id, page, role, uen, name in _registered_entities(pack):
+        entity = reg.entities.get(uen)
+        where = f"the {role} on {doc_id}" if doc_id != _EVIDENCE_DOC_PLACEHOLDER else "the applicant"
+        if entity is None:
+            results.append(_ev(
+                "REGISTRY_ENTITY_NOT_FOUND", "fraud_signal", "high", doc_id, page, 0.95,
+                f"UEN {uen} given for {where} ('{name}') is not in the company register "
+                f"({reg.version}, as of {reg.as_of}).",
+                expected="a registered UEN", observed=f"UEN {uen}",
+            ))
+            continue
+        if similarity(name, entity.name) < SCREENING_MATCH_THRESHOLD:
+            results.append(_ev(
+                "REGISTRY_NAME_MISMATCH", "fraud_signal", "high", doc_id, page, 0.9,
+                f"UEN {uen} is registered to '{entity.name}', but {where} names "
+                f"'{name}' ({reg.version}).",
+                expected=entity.name, observed=name,
+            ))
+        if entity.status != "Live":
+            results.append(_ev(
+                "REGISTRY_ENTITY_INACTIVE", "fraud_signal", "high", doc_id, page, 0.95,
+                f"'{entity.name}' (UEN {uen}) is '{entity.status}' in the company register "
+                f"({reg.version}), so it cannot trade.",
+                expected="Live", observed=entity.status,
+            ))
+    return results
+
+
+def check_registry_signatories(pack: ExtractedPack) -> list[Evidence]:
+    """Authorised signatories should be registered officers of the applicant."""
+    if pack.manifest is None:
+        return []
+    reg = registry()
+    entity = reg.entities.get(pack.manifest.uen)
+    if entity is None:
+        return []  # REGISTRY_ENTITY_NOT_FOUND already reports it
+    return [
+        _ev(
+            "REGISTRY_SIGNATORY_NOT_OFFICER", "fraud_signal", "medium",
+            _EVIDENCE_DOC_PLACEHOLDER, 1, 0.8,
+            f"Authorised signatory '{person}' is not a registered officer of "
+            f"'{entity.name}' ({reg.version}).",
+            expected=", ".join(o.name for o in entity.officers), observed=person,
+        )
+        for person in pack.manifest.authorised_signatories
+        if all(similarity(person, o.name) < SCREENING_MATCH_THRESHOLD for o in entity.officers)
+    ]
+
+
+def _screened_names(pack: ExtractedPack) -> dict[str, tuple[str, str, int, str]]:
+    """screening key -> (name, doc_id, page, role), first mention wins."""
+    mentions: list[tuple[str, str, int, str]] = []
+    if pack.manifest is not None:
+        m = pack.manifest
+        mentions.append((m.company_name, _EVIDENCE_DOC_PLACEHOLDER, 1, "applicant"))
+        mentions += [(n, _EVIDENCE_DOC_PLACEHOLDER, 1, "signatory") for n in m.authorised_signatories]
+        mentions += [(g.name, _EVIDENCE_DOC_PLACEHOLDER, 1, "guarantor") for g in m.guarantors]
+    for i in pack.invoices:
+        mentions += [(i.seller_name, i.doc_id, i.page, "seller"), (i.buyer_name, i.doc_id, i.page, "buyer")]
+    mentions += [(p.buyer_name, p.doc_id, p.page, "buyer") for p in pack.purchase_orders]
+    for b in pack.bills_of_lading:
+        mentions += [(b.shipper_name, b.doc_id, b.page, "shipper"),
+                     (b.consignee_name, b.doc_id, b.page, "consignee")]
+    names: dict[str, tuple[str, str, int, str]] = {}
+    for name, doc_id, page, role in mentions:
+        names.setdefault(screening_key(name), (name, doc_id, page, role))
+    return names
+
+
+def check_sanctions(pack: ExtractedPack) -> list[Evidence]:
+    """Screen the applicant, its people and its counterparties against the
+    sanctions list. A hit is a possible match for a person to dispose of."""
+    wl = watchlist()
+    results = []
+    for name, doc_id, page, role in _screened_names(pack).values():
+        for entry, score in screen(name):
+            results.append(_ev(
+                "SANCTIONS_MATCH", "fraud_signal", "high", doc_id, page, round(score, 2),
+                f"The {role} '{name}' resembles '{entry.name}' on {entry.list} "
+                f"({entry.reference}), similarity {score:.2f}. Sanctions list {wl.version}, "
+                f"as of {wl.as_of}. Confirm or dismiss the match before proceeding.",
+                quote=name,
+                expected="no sanctions match",
+                observed=f"'{name}' ~ '{entry.name}' ({entry.list} {entry.reference})",
+            ))
+    return results
+
+
+# ---------------------------------------------------------------------------
 # E. AGENTS AND RUNNER
 # ---------------------------------------------------------------------------
 
@@ -1337,6 +1448,12 @@ AGENTS: list[Agent] = [
         "Consistency of identity, amounts and quantities across invoices, purchase orders, "
         "bills of lading, bank and statements.",
         [check_xdoc_identity, check_xdoc_invoice_bank, check_xdoc_po_invoice, check_xdoc_bl_invoice],
+    ),
+    Agent(
+        "Registry & Screening",
+        "Companies and people checked against the company register and the sanctions list "
+        "(versioned reference data).",
+        [check_registry_entities, check_registry_signatories, check_sanctions],
     ),
     Agent(
         "Compliance & Completeness",

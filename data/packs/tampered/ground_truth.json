@@ -12,7 +12,8 @@
     "BANK_CONTINUITY",
     "FORENSIC_HIDDEN_TEXT",
     "XDOC_PO_INVOICE",
-    "XDOC_BL_INVOICE"
+    "XDOC_BL_INVOICE",
+    "REGISTRY_ENTITY_NOT_FOUND"
   ],
   "expected_check_ids_ocr": [
     "FORENSIC_OCR_MISMATCH"

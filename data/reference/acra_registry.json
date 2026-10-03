@@ -1,0 +1,40 @@
+{
+  "source": "Synthetic stand-in for the ACRA BizFile register (prototype only; all entities fictional)",
+  "version": "ACRA-SYN-2026.10.01",
+  "as_of": "2026-10-01",
+  "entities": {
+    "202301234K": {
+      "name": "Lumen Harbour Trading Pte. Ltd.",
+      "status": "Live",
+      "incorporated": "2023-01-16",
+      "officers": [
+        {"name": "Tan Wei Ming", "role": "Director"},
+        {"name": "Daniel Brooks", "role": "Director"}
+      ]
+    },
+    "201912345A": {
+      "name": "Orchid Lane Retail Pte. Ltd.",
+      "status": "Live",
+      "incorporated": "2019-04-02",
+      "officers": [{"name": "Grace Lee Hui Min", "role": "Director"}]
+    },
+    "201845678M": {
+      "name": "Bayview Marine Supplies Pte. Ltd.",
+      "status": "Live",
+      "incorporated": "2018-11-20",
+      "officers": [{"name": "Rahul Menon", "role": "Director"}]
+    },
+    "202011111K": {
+      "name": "Kestrel Marine Supplies Pte. Ltd.",
+      "status": "Live",
+      "incorporated": "2020-03-09",
+      "officers": [{"name": "Viktor Aldane", "role": "Director"}]
+    },
+    "201500999C": {
+      "name": "Harbourline Logistics Pte. Ltd.",
+      "status": "Struck Off",
+      "incorporated": "2015-06-30",
+      "officers": [{"name": "Ong Kai Wen", "role": "Director"}]
+    }
+  }
+}

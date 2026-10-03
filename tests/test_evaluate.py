@@ -19,12 +19,12 @@ PACKS = Path(__file__).parent.parent / "data" / "packs"
 
 def test_stub_extractor_is_perfect_on_all_packs() -> None:
     report = evaluate.evaluate(PACKS)
-    assert [r.pack for r in report.packs] == ["clean", "incomplete", "tampered"]
+    assert [r.pack for r in report.packs] == ["clean", "incomplete", "sanctioned", "tampered"]
     assert all(r.ok for r in report.packs)
     assert report.precision == report.recall == 1.0
     assert report.band_accuracy == report.readiness_accuracy == report.routing_accuracy == 1.0
     assert report.clean_pack_false_positives == 0
-    assert report.true_positives == 13  # 9 fraud + 4 compliance/completeness
+    assert report.true_positives == 15  # 11 fraud + 4 compliance/completeness
 
 
 def test_wrong_ground_truth_is_reported_and_fails_exit_code(
@@ -61,11 +61,11 @@ def test_crashing_pack_is_reported_and_counted_as_missed(
 
     monkeypatch.setattr(evaluate, "assess", flaky)
     report = evaluate.evaluate(PACKS)
-    clean, incomplete, tampered = report.packs
-    assert clean.ok and incomplete.ok
+    clean, incomplete, sanctioned, tampered = report.packs
+    assert clean.ok and incomplete.ok and sanctioned.ok
     assert not tampered.ok
     assert tampered.error == "RuntimeError: model returned junk"
-    assert len(tampered.missed) == 9  # every expected tampered finding
+    assert len(tampered.missed) == 10  # every expected tampered finding
     assert report.recall < 1.0 and report.precision == 1.0
 
     assert evaluate.main([]) == 1

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from gldb.schemas import Signal
 
-RULE_VERSION = "2026-10-04.2"
+RULE_VERSION = "2026-10-04.3"
 
 SIGNALS: tuple[Signal, ...] = (
     # DOC: document integrity and forensics -------------------------------
@@ -73,6 +73,18 @@ SIGNALS: tuple[Signal, ...] = (
     Signal(signal_id="REG-001", check_id="XDOC_IDENTITY", family="REG",
            name="Company identity inconsistent across documents",
            remedy="Verify the company's UEN and name against ACRA; ask the applicant to explain."),
+    Signal(signal_id="REG-002", check_id="REGISTRY_ENTITY_NOT_FOUND", family="REG",
+           name="Company not in the company register",
+           remedy="Search ACRA directly; ask the applicant for the correct UEN and BizFile extract."),
+    Signal(signal_id="REG-003", check_id="REGISTRY_NAME_MISMATCH", family="REG",
+           name="Name differs from the registered name",
+           remedy="Compare with the ACRA BizFile extract; ask the applicant to explain the difference."),
+    Signal(signal_id="REG-004", check_id="REGISTRY_ENTITY_INACTIVE", family="REG",
+           name="Company not live in the register",
+           remedy="Confirm the company's status with ACRA before any further step."),
+    Signal(signal_id="REG-005", check_id="REGISTRY_SIGNATORY_NOT_OFFICER", family="REG",
+           name="Signatory not a registered officer",
+           remedy="Request the board resolution authorising the signatory, and verify identity."),
     # COMP: compliance and completeness (never scored; drive readiness) ----
     Signal(signal_id="COMP-001", check_id="BANK_COVERAGE", family="COMP",
            name="Bank statements do not cover the required period",
@@ -125,6 +137,10 @@ SIGNALS: tuple[Signal, ...] = (
     Signal(signal_id="COMP-023", check_id="FORM_ENT_SIGNATORY", family="COMP",
            name="FATCA/CRS form: signatory not authorised",
            remedy="Verify the signatory against the board resolution."),
+    Signal(signal_id="COMP-030", check_id="SANCTIONS_MATCH", family="COMP",
+           name="Possible sanctions list match",
+           remedy="Compare identifiers (date of birth, registration number, address) with the list "
+                  "entry; escalate to the MLRO if not ruled out."),
     # SYS: system health ---------------------------------------------------
     Signal(signal_id="SYS-001", check_id="SYSTEM_CHECK_ERROR", family="SYS",
            name="A check failed to run",

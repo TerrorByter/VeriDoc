@@ -1548,7 +1548,7 @@ class TestNormaliseName:
 class TestAgents:
     def test_every_check_belongs_to_exactly_one_agent(self):
         checks = [c for agent in AGENTS for c in agent.checks]
-        assert len(checks) == len(set(checks)) == 30
+        assert len(checks) == len(set(checks)) == 33
 
     def test_evidence_is_tagged_with_its_agent_and_reports_match(self):
         pack = _make_pack(

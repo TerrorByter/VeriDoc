@@ -28,6 +28,7 @@ from gldb.extract_stub import parse_pack as parse_pack_stub
 from gldb.intake import intake, load_manifest
 from gldb.ocr import OcrResult, ocr_files
 from gldb.reconciliation import build_chains
+from gldb.reference import versions as reference_versions
 from gldb.routing import route
 from gldb.schemas import (
     ApplicationManifest,
@@ -221,6 +222,8 @@ def run(
             "readiness_status": ready.status,
             "routing_path": result.routing.path if result.routing else None,
             "policy_version": result.routing.policy_version if result.routing else None,
+            "rule_version": risk.rule_version,
+            "reference_data": reference_versions(),
             "evidence_count_by_category": category_counts,
             "extraction_mode": pack.extraction_mode,
             "sha256s": doc_sha256s,

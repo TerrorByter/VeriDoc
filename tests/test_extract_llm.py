@@ -122,15 +122,15 @@ class FakeTextract:
         self.calls += 1
         return {"Blocks": [
             {"BlockType": "PAGE", "Text": "ignored"},
-            {"BlockType": "LINE", "Text": "TAX INVOICE"},
-            {"BlockType": "LINE", "Text": f"call {self.calls}"},
+            {"BlockType": "LINE", "Text": "TAX INVOICE", "Confidence": 99.0},
+            {"BlockType": "LINE", "Text": f"call {self.calls}", "Confidence": 99.0},
         ]}
 
 
 def test_ocr_files_one_call_per_page() -> None:
     pdf = next(CLEAN.glob("bank_statement_*.pdf"))
     fake = FakeTextract()
-    pages = ocr_files([pdf], client=fake)[pdf.stem]
+    pages = ocr_files([pdf], client=fake).text[pdf.stem]
     assert len(pages) == fake.calls >= 1
     assert pages[0].startswith("TAX INVOICE\ncall ")
 

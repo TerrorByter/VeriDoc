@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import io
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -45,16 +46,33 @@ def _page_bytes(page: pypdf.PageObject) -> bytes:
     return buf.getvalue()
 
 
-def _ocr_bytes(textract: Any, page_pdf: bytes) -> str:
+#: Confidence reported for a page with no text: there is nothing to misread
+_BLANK_PAGE_CONFIDENCE = 100.0
+
+
+@dataclass(frozen=True)
+class OcrResult:
+    """doc_id (file stem) -> per-page text, and per-page mean line confidence
+    (0-100) so the router can send poorly read cases to an analyst."""
+
+    text: dict[str, list[str]] = field(default_factory=dict)
+    confidence: dict[str, list[float]] = field(default_factory=dict)
+
+
+def _ocr_bytes(textract: Any, page_pdf: bytes) -> tuple[str, float]:
     response = textract.detect_document_text(Document={"Bytes": page_pdf})
-    return "\n".join(b["Text"] for b in response["Blocks"] if b["BlockType"] == "LINE")
+    lines = [b for b in response["Blocks"] if b["BlockType"] == "LINE"]
+    confidence = (
+        sum(b["Confidence"] for b in lines) / len(lines) if lines else _BLANK_PAGE_CONFIDENCE
+    )
+    return "\n".join(b["Text"] for b in lines), confidence
 
 
-def ocr_files(paths: list[Path], client: Any | None = None) -> dict[str, list[str]]:
+def ocr_files(paths: list[Path], client: Any | None = None) -> OcrResult:
     """OCR every page of every non-form PDF with Textract DetectDocumentText.
 
     Pages are split sequentially (pypdf readers are not thread-safe); only the
-    Textract calls run concurrently. Returns doc_id (file stem) -> page text.
+    Textract calls run concurrently.
 
     Args:
         paths: PDF files to OCR.
@@ -67,8 +85,9 @@ def ocr_files(paths: list[Path], client: Any | None = None) -> dict[str, list[st
         if not reader.get_fields():
             jobs.extend((path.stem, _page_bytes(page)) for page in reader.pages)
     with ThreadPoolExecutor(max_workers=OCR_MAX_WORKERS) as pool:
-        texts = list(pool.map(lambda job: _ocr_bytes(textract, job[1]), jobs))
-    result: dict[str, list[str]] = {}
-    for (doc_id, _), text in zip(jobs, texts):
-        result.setdefault(doc_id, []).append(text)
+        pages = list(pool.map(lambda job: _ocr_bytes(textract, job[1]), jobs))
+    result = OcrResult()
+    for (doc_id, _), (text, confidence) in zip(jobs, pages):
+        result.text.setdefault(doc_id, []).append(text)
+        result.confidence.setdefault(doc_id, []).append(round(confidence, 1))
     return result

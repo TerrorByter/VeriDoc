@@ -57,5 +57,5 @@ def test_bedrock_forced_tool_schema(
 
 
 def test_textract_reads_an_invoice_page() -> None:
-    pages = ocr_files([INVOICE])[INVOICE.stem]
+    pages = ocr_files([INVOICE]).text[INVOICE.stem]
     assert "INVOICE" in pages[0].upper()

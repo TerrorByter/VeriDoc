@@ -1,6 +1,7 @@
 {
   "pack": "scanned",
   "expected_band": "Low",
+  "expected_path": "fast_track",
   "expected_readiness": "Complete",
   "expected_check_ids": [],
   "expected_check_ids_ocr": [],

@@ -687,6 +687,7 @@ def _generate_clean(out_dir: Path) -> None:
     truth = {
         "pack": "clean",
         "expected_band": "Low",
+        "expected_path": "fast_track",
         "expected_readiness": "Complete",
         "expected_check_ids": [],
         "expected_check_ids_ocr": [],
@@ -713,6 +714,7 @@ def _generate_tampered(out_dir: Path) -> None:
     truth = {
         "pack": "tampered",
         "expected_band": "High",
+        "expected_path": "enhanced_review",
         "expected_readiness": "Complete",
         "expected_check_ids": [
             "XDOC_INVOICE_BANK",
@@ -756,6 +758,7 @@ def _generate_incomplete(out_dir: Path) -> None:
     truth = {
         "pack": "incomplete",
         "expected_band": "Low",
+        "expected_path": "standard_review",
         "expected_readiness": "Incomplete",
         "expected_check_ids": [],
         "expected_check_ids_ocr": [],

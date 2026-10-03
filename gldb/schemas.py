@@ -272,6 +272,8 @@ class ExtractedPack(BaseModel):
     #: doc_id -> Textract text per page, when the OCR stage ran. Never
     #: serialised: raw document text would bypass identifier masking.
     ocr: dict[str, list[str]] = Field(default_factory=dict, exclude=True)
+    #: doc_id -> mean Textract confidence (0-100) per page, when OCR ran
+    ocr_confidence: dict[str, list[float]] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -350,6 +352,28 @@ class AgentReport(BaseModel):
     duration_ms: int
 
 
+#: Review paths, least to most cautious
+ReviewPath = Literal["fast_track", "standard_review", "enhanced_review"]
+
+
+class Routing(BaseModel):
+    """Where a scored case goes next. Produced by gldb.routing from rules and
+    versioned policy; never by an LLM. The system only routes: every outcome
+    is decided by a person."""
+
+    path: ReviewPath
+    #: True when a person must review before funding (always, unless fast track
+    #: and not drawn for the QA sample)
+    analyst_review: bool
+    qa_sampled: bool
+    #: Enhanced due diligence
+    edd_required: bool
+    hard_flags: list[str]
+    low_confidence: list[str]
+    reasons: list[str]
+    policy_version: str
+
+
 class CaseResult(BaseModel):
     case_id: str
     pack: ExtractedPack
@@ -357,6 +381,8 @@ class CaseResult(BaseModel):
     agent_reports: list[AgentReport] = []
     risk: RiskResult
     readiness: ReadinessResult | None = None
+    #: None only for results stored before routing existed
+    routing: Routing | None = None
     summary: str | None = None
 
 

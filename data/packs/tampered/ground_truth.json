@@ -1,6 +1,7 @@
 {
   "pack": "tampered",
   "expected_band": "High",
+  "expected_path": "enhanced_review",
   "expected_readiness": "Complete",
   "expected_check_ids": [
     "XDOC_INVOICE_BANK",

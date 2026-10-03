@@ -138,6 +138,29 @@ BAND_LOW_MAX: int = 19
 BAND_MEDIUM_MAX: int = 49
 
 # ---------------------------------------------------------------------------
+# Routing policy (gldb/routing.py). Every Routing records POLICY_VERSION, so a
+# past decision can be replayed against the policy that made it. Bump the
+# version whenever anything in this section changes.
+# ---------------------------------------------------------------------------
+
+POLICY_VERSION: str = "2026-10-04.1"
+
+#: Findings serious enough on their own to force enhanced review (EDD),
+#: whatever the score: sanctions hits, unregistered entities, and deliberate
+#: concealment (hidden text aimed at automated review).
+HARD_FLAG_CHECK_IDS: frozenset[str] = frozenset({
+    "SANCTIONS_MATCH",
+    "REGISTRY_ENTITY_NOT_FOUND",
+    "FORENSIC_HIDDEN_TEXT",
+})
+
+#: Share of fast-track cases also sent to an analyst for quality assurance
+QA_SAMPLE_PERCENT: int = 5
+
+#: Textract page confidence (0-100) below which a case goes to an analyst
+OCR_MIN_CONFIDENCE: float = 80.0
+
+# ---------------------------------------------------------------------------
 # Environment / runtime settings (with safe defaults)
 # ---------------------------------------------------------------------------
 

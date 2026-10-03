@@ -4,7 +4,7 @@ gldb/pipeline.py
 Pipeline orchestration for the gldb-prototype.
 
 Stage functions are named after future LangGraph nodes:
-    ocr -> intake -> classify_and_extract -> run_checks -> score -> explain
+    ocr -> intake -> classify_and_extract -> run_checks -> score -> route -> explain
 
 pack_from_folder is a test helper that builds an ExtractedPack directly
 from a pre-generated data pack directory (no AWS calls).
@@ -26,7 +26,8 @@ from gldb.explain import explain
 from gldb.extract import parse_pack
 from gldb.extract_stub import parse_pack as parse_pack_stub
 from gldb.intake import intake, load_manifest
-from gldb.ocr import ocr_files
+from gldb.ocr import OcrResult, ocr_files
+from gldb.routing import route
 from gldb.schemas import (
     ApplicationManifest,
     AuditEvent,
@@ -83,9 +84,10 @@ def _intake(
     and an empty stage_evidence list (reserved for intake-level findings in
     future stages).
     """
-    ocr = ocr_files(file_paths) if OCR_ENABLED else {}
-    docs = intake(case_id, file_paths, ocr)
-    pack = parse_pack(case_id, docs, file_paths, manifest, ocr)
+    ocr = ocr_files(file_paths) if OCR_ENABLED else OcrResult()
+    docs = intake(case_id, file_paths, ocr.text)
+    pack = parse_pack(case_id, docs, file_paths, manifest, ocr.text)
+    pack = pack.model_copy(update={"ocr_confidence": ocr.confidence})
     stage_evidence: list[Evidence] = []
     return pack, stage_evidence
 
@@ -101,18 +103,20 @@ def assess(
     manifest: ApplicationManifest | None,
 ) -> CaseResult:
     """Run the stages intake -> classify_and_extract -> run_checks -> score
-    -> readiness -> explain. No audit log, no files written: run() adds those,
-    and the evaluation harness calls this directly."""
+    -> readiness -> route -> explain. No audit log, no files written: run()
+    adds those, and the evaluation harness calls this directly."""
     pack, stage_evidence = _intake(case_id, file_paths, manifest)
     evidence, agent_reports = run_agents(pack, stage_evidence)
     risk = score(evidence)
+    ready = readiness(evidence, pack)
     return CaseResult(
         case_id=case_id,
         pack=pack,
         evidence=evidence,
         agent_reports=agent_reports,
         risk=risk,
-        readiness=readiness(evidence, pack),
+        readiness=ready,
+        routing=route(case_id, evidence, risk, ready, pack),
         summary=_explain(evidence, risk),
     )
 

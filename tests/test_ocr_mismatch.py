@@ -24,7 +24,7 @@ from gldb import evaluate, extract_stub, forensics, pipeline
 from gldb.checks import AGENTS, check_forensic_ocr_mismatch
 from gldb.data_factory import ENTITY_TEMPLATE, generate_packs
 from gldb.intake import read_text
-from gldb.ocr import ocr_files
+from gldb.ocr import OcrResult, ocr_files
 from gldb.schemas import DocMeta, ExtractedPack
 
 CLEAN = Path(__file__).parent.parent / "data" / "packs" / "clean"
@@ -149,7 +149,11 @@ class FakeTextract:
     def detect_document_text(self, Document: dict[str, bytes]) -> dict[str, Any]:
         assert Document["Bytes"].startswith(b"%PDF")
         self.calls += 1
-        return {"Blocks": [{"BlockType": "LINE", "Text": "seen"}]}
+        return {"Blocks": [
+            {"BlockType": "PAGE", "Confidence": 1.0},
+            {"BlockType": "LINE", "Text": "seen", "Confidence": 90.0},
+            {"BlockType": "LINE", "Text": "too", "Confidence": 70.0},
+        ]}
 
 
 @pytest.mark.skipif(not ENTITY_TEMPLATE.exists(), reason="AcroForm templates not present")
@@ -157,7 +161,8 @@ def test_ocr_files_ocrs_every_page_but_skips_fillable_forms() -> None:
     paths = [CLEAN / "fs_summary.pdf", CLEAN / "fatca_crs_entity.pdf"]
     fake = FakeTextract()
     result = ocr_files(paths, client=fake)
-    assert result == {"fs_summary": ["seen"]}
+    assert result.text == {"fs_summary": ["seen\ntoo"]}
+    assert result.confidence == {"fs_summary": [80.0]}  # mean of LINE confidences
     assert fake.calls == 1
 
 
@@ -167,9 +172,9 @@ def test_pipeline_runs_ocr_once_and_keeps_it_on_the_pack(
     path = _pdf(tmp_path, ["MEMO"], "memo.pdf")
     calls: list[list[Path]] = []
 
-    def fake_ocr(paths: list[Path]) -> dict[str, list[str]]:
+    def fake_ocr(paths: list[Path]) -> OcrResult:
         calls.append(paths)
-        return {"memo": ["MEMO"]}
+        return OcrResult(text={"memo": ["MEMO"]}, confidence={"memo": [55.0]})
 
     monkeypatch.setattr(pipeline, "OCR_ENABLED", True)
     monkeypatch.setattr(pipeline, "ocr_files", fake_ocr)
@@ -177,6 +182,9 @@ def test_pipeline_runs_ocr_once_and_keeps_it_on_the_pack(
     assert calls == [[path]]
     assert result.pack.ocr == {"memo": ["MEMO"]}
     assert "ocr" not in result.model_dump()["pack"]
+    assert result.pack.ocr_confidence == {"memo": [55.0]}
+    assert result.routing is not None
+    assert "memo page 1: OCR confidence 55% is below 80%" in result.routing.low_confidence
 
 
 def test_pipeline_skips_ocr_when_disabled(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -243,6 +251,17 @@ def test_tampered_revenue_is_pasted_as_an_image_over_the_original(packs: Path) -
         assert len(page.images) == 1
     with pdfplumber.open(str(packs / "clean" / "fs_summary.pdf")) as pdf:
         assert pdf.pages[0].images == []
+
+
+def test_ground_truth_states_the_expected_route(packs: Path) -> None:
+    paths = {
+        p: json.loads((packs / p / "ground_truth.json").read_text())["expected_path"]
+        for p in ("clean", "tampered", "incomplete", "scanned")
+    }
+    assert paths == {
+        "clean": "fast_track", "tampered": "enhanced_review",
+        "incomplete": "standard_review", "scanned": "fast_track",
+    }
 
 
 def test_ground_truth_lists_ocr_only_checks_separately(packs: Path) -> None:

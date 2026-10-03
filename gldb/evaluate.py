@@ -36,6 +36,8 @@ class PackResult(BaseModel):
     expected_band: str
     readiness: str
     expected_readiness: str
+    path: str
+    expected_path: str
     missed: list[str]
     unexpected: list[str]
     #: Set when the pipeline raised; the pack then counts every expected
@@ -48,6 +50,7 @@ class PackResult(BaseModel):
             self.error is None
             and self.band == self.expected_band
             and self.readiness == self.expected_readiness
+            and self.path == self.expected_path
             and not self.missed
             and not self.unexpected
         )
@@ -62,6 +65,7 @@ class Report(BaseModel):
     recall: float
     band_accuracy: float
     readiness_accuracy: float
+    routing_accuracy: float
     clean_pack_false_positives: int
     #: Packs marked requires_ocr, not run because OCR_ENABLED is off
     skipped: list[str] = []
@@ -94,6 +98,8 @@ def evaluate_pack(folder: Path) -> tuple[PackResult, int]:
             expected_band=truth["expected_band"],
             readiness="-",
             expected_readiness=truth["expected_readiness"],
+            path="-",
+            expected_path=truth["expected_path"],
             missed=sorted(c for c, _ in expected),
             unexpected=[],
             error=f"{type(exc).__name__}: {exc}",
@@ -104,13 +110,15 @@ def evaluate_pack(folder: Path) -> tuple[PackResult, int]:
         for ev in result.evidence
         if ev.severity != "info"
     }
-    assert result.readiness is not None
+    assert result.readiness is not None and result.routing is not None
     pack_result = PackResult(
         pack=folder.name,
         band=result.risk.band,
         expected_band=truth["expected_band"],
         readiness=result.readiness.status,
         expected_readiness=truth["expected_readiness"],
+        path=result.routing.path,
+        expected_path=truth["expected_path"],
         missed=sorted(c for c, _ in expected - found),
         unexpected=sorted(c for c, _ in found - expected),
     )
@@ -145,6 +153,7 @@ def evaluate(packs_dir: Path) -> Report:
         readiness_accuracy=_ratio(
             sum(r.readiness == r.expected_readiness for r in results), len(results)
         ),
+        routing_accuracy=_ratio(sum(r.path == r.expected_path for r in results), len(results)),
         clean_pack_false_positives=sum(
             len(r.unexpected) for r in results if r.expected_band == "Low"
         ),
@@ -153,18 +162,20 @@ def evaluate(packs_dir: Path) -> Report:
 
 
 def _print(report: Report) -> None:
-    print(f"{'pack':<12}{'band':<16}{'readiness':<24}missed / unexpected")
+    print(f"{'pack':<12}{'band':<16}{'readiness':<24}{'route':<36}missed / unexpected")
     for r in report.packs:
         if r.error:
             print(f"{r.pack:<12}ERROR {r.error}")
             continue
         band = f"{r.band}/{r.expected_band}"
         ready = f"{r.readiness}/{r.expected_readiness}"
-        print(f"{r.pack:<12}{band:<16}{ready:<24}{r.missed or '-'} / {r.unexpected or '-'}")
+        path = f"{r.path}/{r.expected_path}"
+        print(f"{r.pack:<12}{band:<16}{ready:<24}{path:<36}{r.missed or '-'} / {r.unexpected or '-'}")
     print(
         f"\nprecision {report.precision:.2f}  recall {report.recall:.2f}  "
         f"band accuracy {report.band_accuracy:.2f}  "
         f"readiness accuracy {report.readiness_accuracy:.2f}  "
+        f"routing accuracy {report.routing_accuracy:.2f}  "
         f"false positives on Low packs {report.clean_pack_false_positives}"
     )
     if report.skipped:

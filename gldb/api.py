@@ -39,6 +39,7 @@ from gldb.schemas import (
     Evidence,
     ReadinessResult,
     RiskResult,
+    Routing,
 )
 
 OFFICER = "officer"
@@ -60,6 +61,7 @@ class CaseView(BaseModel):
     agent_reports: list[AgentReport]
     risk: RiskResult
     readiness: ReadinessResult | None
+    routing: Routing | None
     summary: str | None
     extraction_mode: str
 
@@ -82,6 +84,7 @@ def _view(result: CaseResult) -> CaseView:
         agent_reports=result.agent_reports,
         risk=result.risk,
         readiness=result.readiness,
+        routing=result.routing,
         summary=result.summary,
         extraction_mode=result.pack.extraction_mode,
     )

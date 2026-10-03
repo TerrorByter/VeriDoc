@@ -22,7 +22,7 @@ def test_stub_extractor_is_perfect_on_all_packs() -> None:
     assert [r.pack for r in report.packs] == ["clean", "incomplete", "tampered"]
     assert all(r.ok for r in report.packs)
     assert report.precision == report.recall == 1.0
-    assert report.band_accuracy == report.readiness_accuracy == 1.0
+    assert report.band_accuracy == report.readiness_accuracy == report.routing_accuracy == 1.0
     assert report.clean_pack_false_positives == 0
     assert report.true_positives == 12  # 8 fraud + 4 compliance/completeness
 

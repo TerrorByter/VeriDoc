@@ -266,3 +266,19 @@ select:hover, select:focus-visible { border-color: var(--accent); outline: none;
 .contributions .pts { width: 3.5rem; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--warn); }
 .contributions .sig { width: 5rem; text-align: right; font-family: ui-monospace, monospace; color: var(--muted); }
 .contributions tfoot td { font-weight: 600; }
+
+/* Transaction chains */
+.chain { margin-top: 1rem; }
+.chain h3 { font-size: 1rem; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.6rem; }
+.chain-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
+.chain-step { border: 1px solid var(--border); border-radius: 12px; padding: 0.6rem 0.75rem;
+  background: var(--surface); transition: transform 0.15s ease, border-color 0.15s ease; }
+.chain-step:hover { transform: translateY(-1px); border-color: var(--accent); }
+.chain-step-head { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: baseline; }
+.chain-mark { font-weight: 700; }
+.chain-matched .chain-mark { color: var(--ok); }
+.chain-contradicts .chain-mark, .chain-missing .chain-mark { color: var(--danger); }
+.chain-contradicts, .chain-missing { border-color: hsl(350 82% 64% / 0.55); }
+.chain-not_provided { opacity: 0.6; }
+.chain-note { font-size: 0.85rem; margin: 0.35rem 0 0; }

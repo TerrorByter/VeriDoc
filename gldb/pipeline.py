@@ -27,6 +27,7 @@ from gldb.extract import parse_pack
 from gldb.extract_stub import parse_pack as parse_pack_stub
 from gldb.intake import intake, load_manifest
 from gldb.ocr import OcrResult, ocr_files
+from gldb.reconciliation import build_chains
 from gldb.routing import route
 from gldb.schemas import (
     ApplicationManifest,
@@ -117,6 +118,7 @@ def assess(
         risk=risk,
         readiness=ready,
         routing=route(case_id, evidence, risk, ready, pack),
+        chains=build_chains(pack, evidence),
         summary=_explain(evidence, risk),
     )
 

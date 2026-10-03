@@ -410,6 +410,40 @@ class AgentReport(BaseModel):
     duration_ms: int
 
 
+class ClaimRef(BaseModel):
+    """A fact as one document states it, with where it is stated."""
+
+    doc_id: str
+    page: int
+    label: str
+    value: str
+
+
+#: How an invoice relates to one counterpart record
+ChainStatus = Literal["matched", "contradicts", "missing", "not_provided"]
+
+
+class ChainStep(BaseModel):
+    step: Literal["purchase_order", "bill_of_lading", "payment"]
+    status: ChainStatus
+    invoice_claim: ClaimRef
+    #: The counterpart's claim (None when missing or not provided)
+    counterpart: ClaimRef | None = None
+    #: Findings behind this status (none for a clean match)
+    evidence_ids: list[str] = []
+    note: str = ""
+
+
+class TransactionChain(BaseModel):
+    """One invoice traced through order, shipment and payment, showing
+    where the chain breaks (gldb.reconciliation)."""
+
+    invoice_number: str
+    doc_id: str
+    steps: list[ChainStep]
+    broken: bool
+
+
 #: Review paths, least to most cautious
 ReviewPath = Literal["fast_track", "standard_review", "enhanced_review"]
 
@@ -441,6 +475,7 @@ class CaseResult(BaseModel):
     readiness: ReadinessResult | None = None
     #: None only for results stored before routing existed
     routing: Routing | None = None
+    chains: list[TransactionChain] = []
     summary: str | None = None
 
 

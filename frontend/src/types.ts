@@ -78,6 +78,31 @@ export interface Routing {
   policy_version: string;
 }
 
+export interface ClaimRef {
+  doc_id: string;
+  page: number;
+  label: string;
+  value: string;
+}
+
+export type ChainStatus = "matched" | "contradicts" | "missing" | "not_provided";
+
+export interface ChainStep {
+  step: "purchase_order" | "bill_of_lading" | "payment";
+  status: ChainStatus;
+  invoice_claim: ClaimRef;
+  counterpart: ClaimRef | null;
+  evidence_ids: string[];
+  note: string;
+}
+
+export interface TransactionChain {
+  invoice_number: string;
+  doc_id: string;
+  steps: ChainStep[];
+  broken: boolean;
+}
+
 export type CaseStatus =
   | "assessed"
   | "info_requested"
@@ -94,6 +119,7 @@ export interface CaseView {
   risk: Risk;
   readiness: Readiness | null;
   routing: Routing | null;
+  chains: TransactionChain[];
   summary: string | null;
   extraction_mode: string;
   status: CaseStatus;

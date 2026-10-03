@@ -11,6 +11,7 @@ import {
 } from "./api";
 import { AgentPanel } from "./components/AgentPanel";
 import { AuditTrail } from "./components/AuditTrail";
+import { ChainPanel } from "./components/ChainPanel";
 import { DecisionPanel } from "./components/DecisionPanel";
 import { DocumentsPanel } from "./components/DocumentsPanel";
 import { EvidenceList } from "./components/EvidenceList";
@@ -120,6 +121,8 @@ export function App() {
               extractionMode={kase.extraction_mode}
               docCount={kase.docs.length}
             />
+
+            <ChainPanel chains={kase.chains} />
 
             <EvidenceList
               evidence={kase.evidence}

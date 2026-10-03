@@ -50,6 +50,7 @@ from gldb.schemas import (
     ReasonCode,
     RiskResult,
     Routing,
+    TransactionChain,
 )
 
 SYSTEM = "system"
@@ -73,6 +74,7 @@ class CaseView(BaseModel):
     risk: RiskResult
     readiness: ReadinessResult | None
     routing: Routing | None
+    chains: list[TransactionChain]
     summary: str | None
     extraction_mode: str
     status: CaseStatus
@@ -121,6 +123,7 @@ def _view(result: CaseResult) -> CaseView:
         risk=result.risk,
         readiness=result.readiness,
         routing=result.routing,
+        chains=result.chains,
         summary=result.summary,
         extraction_mode=result.pack.extraction_mode,
         status=status,

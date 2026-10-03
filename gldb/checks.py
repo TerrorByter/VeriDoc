@@ -70,7 +70,7 @@ from gldb.schemas import (
 
 FORM_DOC_TYPES = {"fatca_crs_entity", "fatca_crs_individual"}
 
-_EVIDENCE_DOC_PLACEHOLDER = "pack"   # for cross-document evidence with no single source
+PACK_DOC = "pack"   # for cross-document evidence with no single source
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +130,7 @@ def normalise_name(s: str) -> str:
     return " ".join(s.split())
 
 
-def _manifest_missing_evidence(document: str = _EVIDENCE_DOC_PLACEHOLDER) -> Evidence:
+def _manifest_missing_evidence(document: str = PACK_DOC) -> Evidence:
     return _ev(
         "MANIFEST_MISSING",
         "completeness",
@@ -242,7 +242,7 @@ def check_bank_running_bal(pack: ExtractedPack) -> list[Evidence]:
                 f"the running total SGD {running}.",
                 expected=f"SGD {running}",
                 observed=f"SGD {stmt.closing_balance}",
-                quote=f"Closing Balance: SGD {stmt.closing_balance}",
+                quote=stmt.source_quotes.get("Closing Balance"),
             ))
 
     return results
@@ -604,7 +604,7 @@ def check_bank_coverage(pack: ExtractedPack) -> list[Evidence]:
     if not pack.bank_statements:
         results.append(_ev(
             "BANK_COVERAGE", "completeness", "medium",
-            _EVIDENCE_DOC_PLACEHOLDER, 1, 1.0,
+            PACK_DOC, 1, 1.0,
             "No bank statements found in the pack.",
             expected=f"{REQUIRED_BANK_MONTHS} months of statements",
             observed="0 statements",
@@ -636,7 +636,7 @@ def check_bank_coverage(pack: ExtractedPack) -> list[Evidence]:
         missing_str = ", ".join(f"{y}-{m:02d}" for y, m in missing)
         results.append(_ev(
             "BANK_COVERAGE", "completeness", "medium",
-            _EVIDENCE_DOC_PLACEHOLDER, 1, 1.0,
+            PACK_DOC, 1, 1.0,
             f"Bank statements do not cover the required {REQUIRED_BANK_MONTHS} "
             f"consecutive months. Missing: {missing_str}.",
             expected=f"{REQUIRED_BANK_MONTHS} months ending {latest_ym[0]}-{latest_ym[1]:02d}",
@@ -678,7 +678,7 @@ def check_checklist_missing_doc(pack: ExtractedPack) -> list[Evidence]:
             if "fatca_crs_entity" not in doc_types_present:
                 results.append(_ev(
                     "CHECKLIST_MISSING_DOC", "completeness", "high",
-                    _EVIDENCE_DOC_PLACEHOLDER, 1, 1.0,
+                    PACK_DOC, 1, 1.0,
                     f"Required document '{label}' is missing from the pack.",
                     expected="fatca_crs_entity document present",
                     observed="not found",
@@ -688,7 +688,7 @@ def check_checklist_missing_doc(pack: ExtractedPack) -> list[Evidence]:
             if "bank_statement" not in doc_types_present:
                 results.append(_ev(
                     "CHECKLIST_MISSING_DOC", "completeness", "high",
-                    _EVIDENCE_DOC_PLACEHOLDER, 1, 1.0,
+                    PACK_DOC, 1, 1.0,
                     f"Required document '{label}' is missing from the pack.",
                     expected="at least one bank_statement document present",
                     observed="not found",
@@ -1271,7 +1271,7 @@ def check_forensic_ocr_mismatch(pack: ExtractedPack) -> list[Evidence]:
     """
     if not pack.ocr:
         return [_ev(
-            "FORENSIC_OCR_SKIPPED", "fraud_signal", "info", _EVIDENCE_DOC_PLACEHOLDER, 1, 1.0,
+            "FORENSIC_OCR_SKIPPED", "fraud_signal", "info", PACK_DOC, 1, 1.0,
             "The text layer vs OCR comparison did not run because OCR is turned off. "
             "Figures covered or pasted over as images would not be detected.",
         )]
@@ -1300,7 +1300,7 @@ def _registered_entities(pack: ExtractedPack) -> list[tuple[str, int, str, str, 
     """(doc_id, page, role, UEN, name) for every company identified by UEN."""
     found = []
     if pack.manifest is not None:
-        found.append((_EVIDENCE_DOC_PLACEHOLDER, 1, "applicant", pack.manifest.uen,
+        found.append((PACK_DOC, 1, "applicant", pack.manifest.uen,
                       pack.manifest.company_name))
     found += [(i.doc_id, i.page, "seller", i.seller_uen, i.seller_name) for i in pack.invoices]
     found += [(p.doc_id, p.page, "seller", p.seller_uen, p.seller_name) for p in pack.purchase_orders]
@@ -1314,7 +1314,7 @@ def check_registry_entities(pack: ExtractedPack) -> list[Evidence]:
     results = []
     for doc_id, page, role, uen, name in _registered_entities(pack):
         entity = reg.entities.get(uen)
-        where = f"the {role} on {doc_id}" if doc_id != _EVIDENCE_DOC_PLACEHOLDER else "the applicant"
+        where = f"the {role} on {doc_id}" if doc_id != PACK_DOC else "the applicant"
         if entity is None:
             results.append(_ev(
                 "REGISTRY_ENTITY_NOT_FOUND", "fraud_signal", "high", doc_id, page, 0.95,
@@ -1351,7 +1351,7 @@ def check_registry_signatories(pack: ExtractedPack) -> list[Evidence]:
     return [
         _ev(
             "REGISTRY_SIGNATORY_NOT_OFFICER", "fraud_signal", "medium",
-            _EVIDENCE_DOC_PLACEHOLDER, 1, 0.8,
+            PACK_DOC, 1, 0.8,
             f"Authorised signatory '{person}' is not a registered officer of "
             f"'{entity.name}' ({reg.version}).",
             expected=", ".join(o.name for o in entity.officers), observed=person,
@@ -1366,9 +1366,9 @@ def _screened_names(pack: ExtractedPack) -> dict[str, tuple[str, str, int, str]]
     mentions: list[tuple[str, str, int, str]] = []
     if pack.manifest is not None:
         m = pack.manifest
-        mentions.append((m.company_name, _EVIDENCE_DOC_PLACEHOLDER, 1, "applicant"))
-        mentions += [(n, _EVIDENCE_DOC_PLACEHOLDER, 1, "signatory") for n in m.authorised_signatories]
-        mentions += [(g.name, _EVIDENCE_DOC_PLACEHOLDER, 1, "guarantor") for g in m.guarantors]
+        mentions.append((m.company_name, PACK_DOC, 1, "applicant"))
+        mentions += [(n, PACK_DOC, 1, "signatory") for n in m.authorised_signatories]
+        mentions += [(g.name, PACK_DOC, 1, "guarantor") for g in m.guarantors]
     for i in pack.invoices:
         mentions += [(i.seller_name, i.doc_id, i.page, "seller"), (i.buyer_name, i.doc_id, i.page, "buyer")]
     mentions += [(p.buyer_name, p.doc_id, p.page, "buyer") for p in pack.purchase_orders]
@@ -1423,10 +1423,10 @@ def dated_facts(pack: ExtractedPack) -> list[TimelineEvent]:
     if pack.manifest is not None:
         on, source = incorporation(pack.manifest)
         facts.append(TimelineEvent(on=on, kind="incorporated", label=f"Incorporated, per {source}",
-                                   doc_id=_EVIDENCE_DOC_PLACEHOLDER, page=1))
+                                   doc_id=PACK_DOC, page=1))
         facts.append(TimelineEvent(on=pack.manifest.application_date, kind="application",
                                    label=f"Application {pack.manifest.application_id} submitted",
-                                   doc_id=_EVIDENCE_DOC_PLACEHOLDER, page=1))
+                                   doc_id=PACK_DOC, page=1))
     facts += [
         TimelineEvent(on=f.financial_year_end, kind="financial_year_end",
                       label=f"Financial year ends (revenue SGD {f.revenue})", doc_id=f.doc_id, page=f.page)
@@ -1617,7 +1617,7 @@ def _run_agent(agent: Agent, pack: ExtractedPack) -> tuple[list[Evidence], Agent
         except Exception as exc:  # noqa: BLE001
             found.append(_ev(
                 "SYSTEM_CHECK_ERROR", "compliance", "medium",
-                _EVIDENCE_DOC_PLACEHOLDER, 1, 1.0,
+                PACK_DOC, 1, 1.0,
                 f"{check_fn.__name__} failed to run; manual verification required. "
                 f"Error: {exc}",
             ))

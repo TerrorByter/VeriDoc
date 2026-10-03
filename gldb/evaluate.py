@@ -15,6 +15,14 @@ Only non-"info" findings count. Fraud checks are compared against
 expected_check_ids (plus expected_check_ids_ocr when OCR_ENABLED, since those
 checks need the OCR stage); compliance and completeness checks against
 expected_compliance_check_ids.
+
+Attack table: each tamper in ground_truth.json names the checks expected to
+catch it (check_ids). It counts as detected only when one of them raises a
+finding on the tampered document itself; a hit elsewhere in the pack is not
+a detection. Attacks marked needs_ocr are "not run" when OCR is off.
+
+Evidence coverage: the share of risk findings traceable to a document, page
+and quote (gldb.coverage). Anything below 1.0 fails the run.
 """
 
 from __future__ import annotations
@@ -26,8 +34,22 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from gldb.config import OCR_ENABLED, PACKS_DIR
+from gldb.coverage import untraceable
 from gldb.intake import load_manifest
 from gldb.pipeline import assess
+from gldb.schemas import Evidence
+from gldb.signal_library import signal_for
+
+
+class AttackResult(BaseModel):
+    pack: str
+    attack: str
+    document: str
+    detail: str
+    #: True / False, or None when not run (needs OCR and OCR is off)
+    detected: bool | None
+    signals: list[str] = []
+    evidence_ids: list[str] = []
 
 
 class PackResult(BaseModel):
@@ -40,6 +62,10 @@ class PackResult(BaseModel):
     expected_path: str
     missed: list[str]
     unexpected: list[str]
+    attacks: list[AttackResult] = []
+    risk_findings: int = 0
+    #: Risk findings that cannot be traced to their source (gldb.coverage)
+    untraceable: list[str] = []
     #: Set when the pipeline raised; the pack then counts every expected
     #: finding as missed, so a crash can never look like a clean pass.
     error: str | None = None
@@ -53,6 +79,8 @@ class PackResult(BaseModel):
             and self.path == self.expected_path
             and not self.missed
             and not self.unexpected
+            and all(a.detected is not False for a in self.attacks)
+            and not self.untraceable
         )
 
 
@@ -67,6 +95,11 @@ class Report(BaseModel):
     readiness_accuracy: float
     routing_accuracy: float
     clean_pack_false_positives: int
+    attacks: list[AttackResult]
+    #: Detected attacks / attacks run
+    attack_detection_rate: float
+    #: Traceable risk findings / all risk findings
+    evidence_coverage: float
     #: Packs marked requires_ocr, not run because OCR_ENABLED is off
     skipped: list[str] = []
 
@@ -79,6 +112,27 @@ def expected_ids(truth: dict, ocr_enabled: bool) -> set[tuple[str, bool]]:
     return {(c, True) for c in fraud} | {
         (c, False) for c in truth["expected_compliance_check_ids"]
     }
+
+
+def _attacks(pack: str, truth: dict, evidence: list[Evidence] | None) -> list[AttackResult]:
+    """One row per tamper. *evidence* None means the pipeline crashed."""
+    rows = []
+    for tamper in truth["tampers"]:
+        hits = [
+            e for e in evidence or []
+            if e.check_id in tamper["check_ids"] and e.document == tamper["doc"]
+            and e.severity != "info"
+        ]
+        detected: bool | None = bool(hits)
+        if tamper.get("needs_ocr") and not OCR_ENABLED:
+            detected = None
+        rows.append(AttackResult(
+            pack=pack, attack=tamper["type"], document=tamper["doc"], detail=tamper["detail"],
+            detected=detected,
+            signals=sorted({signal_for(e.check_id).signal_id for e in hits}),
+            evidence_ids=[e.evidence_id for e in hits],
+        ))
+    return rows
 
 
 def evaluate_pack(folder: Path) -> tuple[PackResult, int]:
@@ -102,6 +156,7 @@ def evaluate_pack(folder: Path) -> tuple[PackResult, int]:
             expected_path=truth["expected_path"],
             missed=sorted(c for c, _ in expected),
             unexpected=[],
+            attacks=_attacks(folder.name, truth, None),
             error=f"{type(exc).__name__}: {exc}",
         ), 0
 
@@ -121,6 +176,11 @@ def evaluate_pack(folder: Path) -> tuple[PackResult, int]:
         expected_path=truth["expected_path"],
         missed=sorted(c for c, _ in expected - found),
         unexpected=sorted(c for c, _ in found - expected),
+        attacks=_attacks(folder.name, truth, result.evidence),
+        risk_findings=sum(
+            e.category == "fraud_signal" and e.severity != "info" for e in result.evidence
+        ),
+        untraceable=untraceable(result.evidence, result.pack),
     )
     return pack_result, len(expected & found)
 
@@ -142,6 +202,9 @@ def evaluate(packs_dir: Path) -> Report:
     tp = sum(tps)
     fp = sum(len(r.unexpected) for r in results)
     fn = sum(len(r.missed) for r in results)
+    attacks = [a for r in results for a in r.attacks]
+    run = [a for a in attacks if a.detected is not None]
+    findings = sum(r.risk_findings for r in results)
     return Report(
         packs=list(results),
         true_positives=tp,
@@ -157,6 +220,9 @@ def evaluate(packs_dir: Path) -> Report:
         clean_pack_false_positives=sum(
             len(r.unexpected) for r in results if r.expected_band == "Low"
         ),
+        attacks=attacks,
+        attack_detection_rate=_ratio(sum(bool(a.detected) for a in run), len(run)),
+        evidence_coverage=_ratio(findings - sum(len(r.untraceable) for r in results), findings),
         skipped=[f.name for f in skipped],
     )
 
@@ -178,6 +244,18 @@ def _print(report: Report) -> None:
         f"routing accuracy {report.routing_accuracy:.2f}  "
         f"false positives on Low packs {report.clean_pack_false_positives}"
     )
+    print(f"\n{'attack':<28}{'pack':<12}{'document':<26}{'detected':<10}signals (evidence)")
+    for a in report.attacks:
+        mark = {True: "yes", False: "NO", None: "not run"}[a.detected]
+        found = f"{', '.join(a.signals)} ({', '.join(a.evidence_ids)})" if a.evidence_ids else "-"
+        print(f"{a.attack:<28}{a.pack:<12}{a.document:<26}{mark:<10}{found}")
+    print(
+        f"\nattacks detected {report.attack_detection_rate:.2f} of those run  "
+        f"evidence coverage {report.evidence_coverage:.2f}"
+    )
+    for r in report.packs:
+        if r.untraceable:
+            print(f"untraceable findings in {r.pack}: {', '.join(r.untraceable)}")
     if report.skipped:
         print(f"skipped (need OCR_ENABLED=true): {', '.join(report.skipped)}")
 

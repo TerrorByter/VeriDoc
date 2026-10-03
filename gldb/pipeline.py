@@ -21,9 +21,12 @@ from typing import Any
 
 from gldb.audit import log_event
 from gldb.checks import run_agents
-from gldb.config import CASES_DIR, EXPLAIN_ENABLED, OCR_ENABLED
+from gldb.config import BEDROCK_MODEL_ID, CASES_DIR, EXPLAIN_ENABLED, OCR_ENABLED
+from gldb.coverage import coverage
+from gldb.explain import PROMPT_VERSION as EXPLAIN_PROMPT_VERSION
 from gldb.explain import explain
 from gldb.extract import parse_pack
+from gldb.extract_llm import PROMPT_VERSION as EXTRACT_PROMPT_VERSION
 from gldb.extract_stub import parse_pack as parse_pack_stub
 from gldb.intake import intake, load_manifest
 from gldb.investigation import build_queue
@@ -99,6 +102,17 @@ def _intake(
 def _explain(evidence: list[Evidence], risk: RiskResult) -> str | None:
     """explain stage — LLM summary when EXPLAIN_ENABLED, otherwise None."""
     return explain(evidence, risk) if EXPLAIN_ENABLED else None
+
+
+def model_ledger(extraction_mode: str, explain_enabled: bool) -> dict[str, Any]:
+    """Which model and prompt versions produced a result, for the audit log.
+    Only stages that called the model are listed; none means no model."""
+    prompts: dict[str, str] = {}
+    if extraction_mode != "stub":
+        prompts["extract"] = EXTRACT_PROMPT_VERSION
+    if explain_enabled:
+        prompts["explain"] = EXPLAIN_PROMPT_VERSION
+    return {"model_id": BEDROCK_MODEL_ID if prompts else None, "prompt_versions": prompts}
 
 
 def assess(
@@ -229,6 +243,8 @@ def run(
             "policy_version": result.routing.policy_version if result.routing else None,
             "rule_version": risk.rule_version,
             "reference_data": reference_versions(),
+            **model_ledger(pack.extraction_mode, EXPLAIN_ENABLED),
+            "evidence_coverage": coverage(evidence, pack),
             "evidence_count_by_category": category_counts,
             "extraction_mode": pack.extraction_mode,
             "sha256s": doc_sha256s,

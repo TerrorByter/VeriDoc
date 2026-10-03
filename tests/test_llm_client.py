@@ -62,3 +62,9 @@ def test_missing_model_id_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(llm_client, "BEDROCK_MODEL_ID", "")
     with pytest.raises(RuntimeError):
         llm_client.converse("s", "u", purpose="t", client=FakeBedrock([]))
+
+
+def test_prompt_version_is_a_content_hash() -> None:
+    v = llm_client.prompt_version("system prompt", "schema")
+    assert len(v) == 12 and v == llm_client.prompt_version("system prompt", "schema")
+    assert v != llm_client.prompt_version("system prompt.", "schema")

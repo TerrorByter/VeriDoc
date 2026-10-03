@@ -39,6 +39,7 @@ from gldb.form_maps import (
     all_pdf_field_names,
 )
 from gldb.schemas import ApplicationManifest
+from gldb.signal_library import BY_CHECK
 
 _SGT = timezone(timedelta(hours=8))
 GST_RATE = Decimal("0.09")
@@ -315,6 +316,17 @@ def test_incomplete_ground_truth(packs):
         "FORM_ENT_TIN_OR_REASON", "FORM_ENT_TYPE_SELECTION",
     }
     assert set(gt["expected_compliance_check_ids"]) == expected_compliance
+
+@needs_templates
+def test_every_tamper_names_known_signals_and_an_expected_check(packs):
+    for folder in packs.iterdir():
+        truth = json.loads((folder / "ground_truth.json").read_text())
+        expected = set(truth["expected_check_ids"]) | set(truth.get("expected_check_ids_ocr", []))
+        for tamper in truth["tampers"]:
+            assert tamper["check_ids"], (folder.name, tamper["type"])
+            assert set(tamper["check_ids"]) <= set(BY_CHECK)
+            assert set(tamper["check_ids"]) <= expected, (folder.name, tamper["type"])
+
 
 @needs_templates
 def test_retro_po_pack_dates_po_2002_after_its_invoice(packs):

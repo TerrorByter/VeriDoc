@@ -12,6 +12,9 @@
     {
       "doc": "invoice_INV-1002",
       "type": "sanctioned_counterparty",
+      "check_ids": [
+        "SANCTIONS_MATCH"
+      ],
       "detail": "buyer 'Kestrel Marine Supplies Pte. Ltd.' resembles a sanctions list entry"
     }
   ],

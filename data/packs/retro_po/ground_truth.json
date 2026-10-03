@@ -12,11 +12,17 @@
     {
       "doc": "invoice_INV-1002",
       "type": "invoice_before_order",
+      "check_ids": [
+        "TEMP_TRADE_SEQUENCE"
+      ],
       "detail": "invoiced 2026-07-05, before PO-2002 dated 2026-07-15"
     },
     {
       "doc": "bill_of_lading_BL-3002",
       "type": "shipped_before_order",
+      "check_ids": [
+        "TEMP_TRADE_SEQUENCE"
+      ],
       "detail": "shipped 2026-07-02, before PO-2002 dated 2026-07-15"
     }
   ],

@@ -803,13 +803,13 @@ def _generate_tampered(out_dir: Path) -> None:
         "expected_check_ids_ocr": ["FORENSIC_OCR_MISMATCH"],
         "expected_compliance_check_ids": [],
         "tampers": [
-            {"doc": "invoice_INV-1002",      "type": "amount_inflated",        "detail": "quantities and amounts inflated vs bank credit"},
-            {"doc": "invoice_INV-1002",      "type": "uen_mismatch",           "detail": "UEN 202301284K differs from company UEN 202301234K"},
-            {"doc": "invoice_INV-1002",      "type": "metadata_edited",        "detail": "ModDate 2026-07-26 22:14 is 21+ days after CreationDate 2026-07-05"},
-            {"doc": "bank_statement_2026-06","type": "closing_balance_altered","detail": "closing balance 159,449.50 inconsistent with running total 129,449.50"},
-            {"doc": "invoice_INV-1002",      "type": "prompt_injection",       "detail": "hidden white-text instruction near page bottom"},
-            {"doc": "invoice_INV-1002",      "type": "over_invoiced_vs_shipment", "detail": "300 rope / 85 fittings invoiced vs 100 / 50 shipped on BL-3002"},
-            {"doc": "fs_summary",            "type": "figure_pasted_as_image", "detail": "revenue shown as SGD 3,850,000.00 image over text layer SGD 1,850,000.00"},
+            {"doc": "invoice_INV-1002",      "type": "amount_inflated",        "check_ids": ["XDOC_INVOICE_BANK", "XDOC_PO_INVOICE"], "detail": "quantities and amounts inflated vs bank credit"},
+            {"doc": "invoice_INV-1002",      "type": "uen_mismatch",           "check_ids": ["XDOC_IDENTITY", "REGISTRY_ENTITY_NOT_FOUND"], "detail": "UEN 202301284K differs from company UEN 202301234K"},
+            {"doc": "invoice_INV-1002",      "type": "metadata_edited",        "check_ids": ["META_MOD_AFTER_CREATE", "META_PRODUCER_MISMATCH"], "detail": "ModDate 2026-07-26 22:14 is 21+ days after CreationDate 2026-07-05"},
+            {"doc": "bank_statement_2026-06","type": "closing_balance_altered", "check_ids": ["BANK_RUNNING_BAL"], "detail": "closing balance 159,449.50 inconsistent with running total 129,449.50"},
+            {"doc": "invoice_INV-1002",      "type": "prompt_injection",       "check_ids": ["FORENSIC_HIDDEN_TEXT"], "detail": "hidden white-text instruction near page bottom"},
+            {"doc": "invoice_INV-1002",      "type": "over_invoiced_vs_shipment", "check_ids": ["XDOC_BL_INVOICE"], "detail": "300 rope / 85 fittings invoiced vs 100 / 50 shipped on BL-3002"},
+            {"doc": "fs_summary",            "type": "figure_pasted_as_image", "check_ids": ["FORENSIC_OCR_MISMATCH"], "needs_ocr": True, "detail": "revenue shown as SGD 3,850,000.00 image over text layer SGD 1,850,000.00"},
         ],
         "benign": [
             {
@@ -880,7 +880,7 @@ def _generate_sanctioned(out_dir: Path) -> None:
         "expected_compliance_check_ids": [],
         "tampers": [
             {"doc": "invoice_INV-1002", "type": "sanctioned_counterparty",
-             "detail": f"buyer '{SANCTIONED_BUYER}' resembles a sanctions list entry"},
+             "check_ids": ["SANCTIONS_MATCH"], "detail": f"buyer '{SANCTIONED_BUYER}' resembles a sanctions list entry"},
         ],
         "benign": [
             {"doc": "invoice_INV-1001", "type": "rounding", "detail": "paid 32,699.50 vs invoiced 32,700.00"},
@@ -913,9 +913,9 @@ def _generate_retro_po(out_dir: Path) -> None:
         "expected_compliance_check_ids": [],
         "tampers": [
             {"doc": "invoice_INV-1002", "type": "invoice_before_order",
-             "detail": f"invoiced 2026-07-05, before {RETRO_PO} dated 2026-07-15"},
+             "check_ids": ["TEMP_TRADE_SEQUENCE"], "detail": f"invoiced 2026-07-05, before {RETRO_PO} dated 2026-07-15"},
             {"doc": "bill_of_lading_BL-3002", "type": "shipped_before_order",
-             "detail": f"shipped 2026-07-02, before {RETRO_PO} dated 2026-07-15"},
+             "check_ids": ["TEMP_TRADE_SEQUENCE"], "detail": f"shipped 2026-07-02, before {RETRO_PO} dated 2026-07-15"},
         ],
         "benign": [
             {"doc": "invoice_INV-1001", "type": "rounding", "detail": "paid 32,699.50 vs invoiced 32,700.00"},

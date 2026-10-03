@@ -12,6 +12,7 @@ redirect it.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from datetime import datetime, timezone
@@ -38,6 +39,14 @@ class LLMResult(BaseModel):
 
 
 @cache
+def prompt_version(*parts: str) -> str:
+    """A short content hash of a prompt's parts (system prompt, output
+    schema). Logged with each case so a result can be tied to the exact
+    instructions the model was given; editing them changes the version
+    without anyone having to remember to bump it."""
+    return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()[:12]
+
+
 def _default_client() -> Any:
     return boto3.client("bedrock-runtime", region_name=AWS_REGION)
 

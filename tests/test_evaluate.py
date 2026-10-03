@@ -27,6 +27,38 @@ def test_stub_extractor_is_perfect_on_all_packs() -> None:
     assert report.true_positives == 16  # 12 fraud + 4 compliance/completeness
 
 
+def test_attack_table_on_real_packs() -> None:
+    report = evaluate.evaluate(PACKS)
+    attacks = report.attacks
+    assert len(attacks) == 10  # tampered 7, sanctioned 1, retro_po 2
+    not_run = [(a.pack, a.attack) for a in attacks if a.detected is None]
+    assert not_run == [("tampered", "figure_pasted_as_image")]  # needs OCR
+    assert all(a.detected for a in attacks if a.detected is not None)
+    hidden = next(a for a in attacks if a.attack == "prompt_injection")
+    assert hidden.signals == ["DOC-001"] and hidden.evidence_ids
+    assert report.attack_detection_rate == 1.0
+    assert report.evidence_coverage == 1.0
+
+
+def test_attack_caught_only_on_another_document_is_not_detected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    packs = tmp_path / "packs"
+    shutil.copytree(PACKS / "tampered", packs / "tampered")
+    gt = packs / "tampered" / "ground_truth.json"
+    truth = json.loads(gt.read_text())
+    injection = next(t for t in truth["tampers"] if t["type"] == "prompt_injection")
+    injection["doc"] = "fs_summary"
+    gt.write_text(json.dumps(truth))
+
+    report = evaluate.evaluate(packs)
+    attack = next(a for a in report.attacks if a.attack == "prompt_injection")
+    assert (attack.detected, attack.evidence_ids) == (False, [])
+    assert report.attack_detection_rate < 1.0
+    monkeypatch.setattr(evaluate, "PACKS_DIR", str(packs))
+    assert evaluate.main([]) == 1
+
+
 def test_wrong_ground_truth_is_reported_and_fails_exit_code(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -66,6 +98,7 @@ def test_crashing_pack_is_reported_and_counted_as_missed(
     assert not tampered.ok
     assert tampered.error == "RuntimeError: model returned junk"
     assert len(tampered.missed) == 10  # every expected tampered finding
+    assert all(a.detected is not True for a in tampered.attacks)
     assert report.recall < 1.0 and report.precision == 1.0
 
     assert evaluate.main([]) == 1

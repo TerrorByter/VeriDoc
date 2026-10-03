@@ -22,6 +22,7 @@ import pytest
 
 from gldb.audit import read_events
 from gldb.data_factory import generate_packs
+from gldb import pipeline as pipeline_mod
 from gldb.pipeline import run
 from gldb.schemas import CaseResult
 
@@ -171,6 +172,22 @@ class TestTamperedPack:
         events = read_events(result.case_id)
         assert events[0].action == "case_created"
         assert events[1].action == "pipeline_completed"
+
+    def test_ledger_records_versions_and_coverage(
+        self, result: CaseResult, audit_log: Path
+    ) -> None:
+        os.environ["AUDIT_LOG_PATH"] = str(audit_log)
+        details = read_events(result.case_id)[1].details
+        # Stub extraction, no explanation: no model was used
+        assert (details["model_id"], details["prompt_versions"]) == (None, {})
+        assert details["evidence_coverage"] == 1.0
+        assert {"rule_version", "policy_version", "reference_data"} <= set(details)
+
+    def test_ledger_names_model_and_prompts_when_llm_runs(self) -> None:
+        details = pipeline_mod.model_ledger("llm", explain_enabled=True)
+        assert details["model_id"] == pipeline_mod.BEDROCK_MODEL_ID
+        assert set(details["prompt_versions"]) == {"extract", "explain"}
+        assert all(len(v) == 12 for v in details["prompt_versions"].values())
 
 
 # ---------------------------------------------------------------------------

@@ -263,6 +263,7 @@ def _parse_bank_statement(doc_id: str, pages: list[str]) -> BankStatement:
             in_table = (_cells(l, 5) or [])[:2] == ["Date", "Description"]
             continue
         if l.startswith("Closing Balance:"):
+            source_quotes["Closing Balance"] = l.strip()
             break
         parts = _cells(l, 5)
         try:

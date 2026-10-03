@@ -18,15 +18,15 @@ Rules:
 
 from __future__ import annotations
 
-import re
+import json
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
 from gldb.extract_stub import parse_entity_self_cert
-from gldb.intake import read_text
-from gldb.llm_client import converse
+from gldb.intake import contains_quote, read_text
+from gldb.llm_client import converse, prompt_version
 from gldb.schemas import (
     ApplicationManifest,
     BankStatement,
@@ -94,13 +94,15 @@ def _schema(model: type[BaseModel]) -> dict[str, Any]:
     return _decimals_as_strings(schema)
 
 
-def _norm(s: str) -> str:
-    return re.sub(r"\s+", " ", s).strip()
+#: Content hash of everything the model is told: the system prompt and each
+#: output schema. Any wording or schema change gives a new version.
+PROMPT_VERSION = prompt_version(
+    _SYSTEM, json.dumps({t: _schema(m) for t, m in _MODELS.items()}, sort_keys=True),
+)
 
 
 def _verified_quotes(quotes: dict[str, str], pages: list[str]) -> dict[str, str]:
-    haystack = _norm(" ".join(pages))
-    return {k: v for k, v in quotes.items() if _norm(v) in haystack}
+    return {k: v for k, v in quotes.items() if contains_quote(pages, v)}
 
 
 def _extract_doc(doc: DocMeta, pages: list[str]) -> BaseModel:

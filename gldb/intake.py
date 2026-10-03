@@ -188,6 +188,16 @@ def read_text(
     return pages
 
 
+def _squash(s: str) -> str:
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def contains_quote(pages: list[str], quote: str) -> bool:
+    """Whether *quote* appears in *pages*, ignoring differences in spacing
+    and line breaks (pdfplumber and OCR wrap lines differently)."""
+    return _squash(quote) in _squash(" ".join(pages))
+
+
 # ---------------------------------------------------------------------------
 # Classification
 # ---------------------------------------------------------------------------

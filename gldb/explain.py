@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import re
 
-from gldb.llm_client import converse
+from gldb.llm_client import converse, prompt_version
 from gldb.schemas import Evidence, RiskResult
 
 _SYSTEM = (
@@ -26,6 +26,9 @@ _SYSTEM = (
     "or recommend a decision about the loan, and never change the score. "
     "The summary is for a prototype: do not overstate certainty."
 )
+
+#: Content hash of the system prompt (see llm_client.prompt_version)
+PROMPT_VERSION = prompt_version(_SYSTEM)
 
 _CITATION = re.compile(r"\[(E\d+)\]")
 _NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")

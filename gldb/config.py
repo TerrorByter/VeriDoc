@@ -207,8 +207,9 @@ OCR_MAX_WORKERS: int = int(os.getenv("OCR_MAX_WORKERS", "1"))
 #: Resolution of document pages rendered for the evidence viewer (gldb.viewer)
 VIEWER_DPI: int = 110
 
-#: Whether to run the optional LLM plain-English explanation step.
-EXPLAIN_ENABLED: bool = _bool_env("EXPLAIN_ENABLED", False)
+#: Whether to run the Semantic Review Agent (LLM synthesis over the verified
+#: findings, gldb.semantic_review).
+SEMANTIC_REVIEW_ENABLED: bool = _bool_env("SEMANTIC_REVIEW_ENABLED", False)
 
 #: Path to the append-only officer/pipeline audit log.
 AUDIT_LOG_PATH: str = os.getenv("AUDIT_LOG_PATH", "logs/audit_log.jsonl")

@@ -98,9 +98,8 @@ class TestCleanPack:
         assert result.readiness is not None
         assert result.readiness.open_items == []
 
-    def test_summary_is_none(self, result: CaseResult) -> None:
-        """Explain stage is a placeholder; summary must be None."""
-        assert result.summary is None
+    def test_review_is_off_by_default(self, result: CaseResult) -> None:
+        assert result.review is None
 
     def test_result_json_saved(self, result: CaseResult, tmp_path: Path) -> None:
         result_file = Path("data") / "cases" / result.case_id / "result.json"
@@ -184,9 +183,9 @@ class TestTamperedPack:
         assert {"rule_version", "policy_version", "reference_data"} <= set(details)
 
     def test_ledger_names_model_and_prompts_when_llm_runs(self) -> None:
-        details = pipeline_mod.model_ledger("llm", explain_enabled=True)
+        details = pipeline_mod.model_ledger("llm", reviewed=True)
         assert details["model_id"] == pipeline_mod.BEDROCK_MODEL_ID
-        assert set(details["prompt_versions"]) == {"extract", "explain"}
+        assert set(details["prompt_versions"]) == {"extract", "semantic_review"}
         assert all(len(v) == 12 for v in details["prompt_versions"].values())
 
 

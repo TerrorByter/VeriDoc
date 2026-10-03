@@ -168,6 +168,18 @@ export interface ViewTarget {
 /** Findings about the application data have no document page */
 export const APPLICATION_DOC = "pack";
 
+export interface ReviewPoint {
+  text: string;
+  evidence_ids: string[];
+}
+
+export interface SemanticReview {
+  observations: ReviewPoint[];
+  questions: ReviewPoint[];
+  source: "llm" | "template";
+  rejected: number;
+}
+
 export type CaseStatus =
   | "assessed"
   | "info_requested"
@@ -187,7 +199,7 @@ export interface CaseView {
   chains: TransactionChain[];
   timeline: TimelineEvent[];
   investigation: InvestigationTask[];
-  summary: string | null;
+  review: SemanticReview | null;
   extraction_mode: string;
   status: CaseStatus;
   allowed_actions: string[];

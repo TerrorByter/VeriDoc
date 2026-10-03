@@ -20,6 +20,7 @@ import { InvestigationQueue } from "./components/InvestigationQueue";
 import { ReadinessPanel } from "./components/ReadinessPanel";
 import { RoutingBanner } from "./components/RoutingBanner";
 import { ScoreDial } from "./components/ScoreDial";
+import { SemanticReviewPanel } from "./components/SemanticReviewPanel";
 import { TimelinePanel } from "./components/TimelinePanel";
 import { UploadPanel } from "./components/UploadPanel";
 import type { AuditEvent, CaseView, ViewTarget } from "./types";
@@ -113,12 +114,7 @@ export function App() {
               {kase.readiness && <ReadinessPanel readiness={kase.readiness} />}
             </div>
 
-            {kase.summary && (
-              <section className="card" aria-labelledby="summary-title">
-                <h2 id="summary-title">Summary</h2>
-                <p className="summary">{kase.summary}</p>
-              </section>
-            )}
+            {kase.review && <SemanticReviewPanel review={kase.review} />}
 
             <AgentPanel
               agents={kase.agent_reports}

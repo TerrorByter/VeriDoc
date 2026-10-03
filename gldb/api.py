@@ -56,6 +56,7 @@ from gldb.schemas import (
     ReasonCode,
     RiskResult,
     Routing,
+    SemanticReview,
     TimelineEvent,
     TransactionChain,
 )
@@ -84,7 +85,7 @@ class CaseView(BaseModel):
     chains: list[TransactionChain]
     timeline: list[TimelineEvent]
     investigation: list[InvestigationTask]
-    summary: str | None
+    review: SemanticReview | None
     extraction_mode: str
     status: CaseStatus
     allowed_actions: list[str]
@@ -148,7 +149,7 @@ def _view(result: CaseResult) -> CaseView:
         chains=result.chains,
         timeline=result.timeline,
         investigation=result.investigation,
-        summary=result.summary,
+        review=result.review,
         extraction_mode=result.pack.extraction_mode,
         status=status,
         allowed_actions=lifecycle.allowed_actions(status),

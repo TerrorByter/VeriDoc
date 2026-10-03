@@ -4,7 +4,8 @@ gldb/pipeline.py
 Pipeline orchestration for the gldb-prototype.
 
 Stage functions are named after future LangGraph nodes:
-    ocr -> intake -> classify_and_extract -> run_checks -> score -> route -> explain
+    ocr -> intake -> classify_and_extract -> run_checks -> score -> route
+    -> chains, timeline, investigation -> semantic_review
 
 pack_from_folder is a test helper that builds an ExtractedPack directly
 from a pre-generated data pack directory (no AWS calls).
@@ -21,10 +22,8 @@ from typing import Any
 
 from gldb.audit import log_event
 from gldb.checks import run_agents
-from gldb.config import BEDROCK_MODEL_ID, CASES_DIR, EXPLAIN_ENABLED, OCR_ENABLED
+from gldb.config import BEDROCK_MODEL_ID, CASES_DIR, OCR_ENABLED, SEMANTIC_REVIEW_ENABLED
 from gldb.coverage import coverage
-from gldb.explain import PROMPT_VERSION as EXPLAIN_PROMPT_VERSION
-from gldb.explain import explain
 from gldb.extract import parse_pack
 from gldb.extract_llm import PROMPT_VERSION as EXTRACT_PROMPT_VERSION
 from gldb.extract_stub import parse_pack as parse_pack_stub
@@ -40,9 +39,10 @@ from gldb.schemas import (
     CaseResult,
     Evidence,
     ExtractedPack,
-    RiskResult,
 )
 from gldb.scoring import readiness, score
+from gldb.semantic_review import PROMPT_VERSION as REVIEW_PROMPT_VERSION
+from gldb.semantic_review import review
 from gldb.timeline import build_timeline
 
 
@@ -99,19 +99,14 @@ def _intake(
     return pack, stage_evidence
 
 
-def _explain(case_id: str, evidence: list[Evidence], risk: RiskResult) -> str | None:
-    """explain stage — LLM summary when EXPLAIN_ENABLED, otherwise None."""
-    return explain(evidence, risk, case_id) if EXPLAIN_ENABLED else None
-
-
-def model_ledger(extraction_mode: str, explain_enabled: bool) -> dict[str, Any]:
+def model_ledger(extraction_mode: str, reviewed: bool) -> dict[str, Any]:
     """Which model and prompt versions produced a result, for the audit log.
     Only stages that called the model are listed; none means no model."""
     prompts: dict[str, str] = {}
     if extraction_mode != "stub":
         prompts["extract"] = EXTRACT_PROMPT_VERSION
-    if explain_enabled:
-        prompts["explain"] = EXPLAIN_PROMPT_VERSION
+    if reviewed:
+        prompts["semantic_review"] = REVIEW_PROMPT_VERSION
     return {"model_id": BEDROCK_MODEL_ID if prompts else None, "prompt_versions": prompts}
 
 
@@ -122,12 +117,14 @@ def assess(
 ) -> CaseResult:
     """Run the stages intake -> classify_and_extract -> run_checks -> score
     -> readiness -> route -> chains, timeline and investigation queue ->
-    explain. No audit log, no files written: run()
+    semantic review. No audit log, no files written: run()
     adds those, and the evaluation harness calls this directly."""
     pack, stage_evidence = _intake(case_id, file_paths, manifest)
     evidence, agent_reports = run_agents(pack, stage_evidence)
     risk = score(evidence)
     ready = readiness(evidence, pack)
+    chains = build_chains(pack, evidence)
+    timeline = build_timeline(pack, evidence)
     return CaseResult(
         case_id=case_id,
         pack=pack,
@@ -136,10 +133,10 @@ def assess(
         risk=risk,
         readiness=ready,
         routing=route(case_id, evidence, risk, ready, pack),
-        chains=build_chains(pack, evidence),
-        timeline=build_timeline(pack, evidence),
+        chains=chains,
+        timeline=timeline,
         investigation=build_queue(case_id, evidence, pack, risk),
-        summary=_explain(case_id, evidence, risk),
+        review=review(case_id, evidence, chains, timeline) if SEMANTIC_REVIEW_ENABLED else None,
     )
 
 
@@ -181,7 +178,7 @@ def run(
     4. run_checks: collect all Evidence.
     5. score: compute RiskResult (fraud_signal evidence only).
     6. readiness: compute ReadinessResult (compliance/completeness evidence only).
-    7. explain: LLM summary if EXPLAIN_ENABLED, else None.
+    7. semantic review: LLM synthesis if SEMANTIC_REVIEW_ENABLED, else None.
     8. Persist CaseResult JSON to ``<CASES_DIR>/<case_id>/result.json``.
     9. Log ``pipeline_completed`` audit event.
 
@@ -243,7 +240,7 @@ def run(
             "policy_version": result.routing.policy_version if result.routing else None,
             "rule_version": risk.rule_version,
             "reference_data": reference_versions(),
-            **model_ledger(pack.extraction_mode, EXPLAIN_ENABLED),
+            **model_ledger(pack.extraction_mode, result.review is not None),
             "evidence_coverage": coverage(evidence, pack),
             "evidence_count_by_category": category_counts,
             "extraction_mode": pack.extraction_mode,

@@ -516,6 +516,25 @@ class Routing(BaseModel):
     policy_version: str
 
 
+class ReviewPoint(BaseModel):
+    text: str
+    #: Findings the point relies on; never empty
+    evidence_ids: list[str]
+
+
+class SemanticReview(BaseModel):
+    """The Semantic Review Agent's synthesis (gldb.semantic_review): where the
+    documents' story holds together and where it does not, and what to ask
+    the applicant. Guidance only: it never scores, routes or decides."""
+
+    observations: list[ReviewPoint]
+    questions: list[ReviewPoint]
+    #: "template" when no model point passed the grounding check
+    source: Literal["llm", "template"]
+    #: Model points dropped for failing the grounding check
+    rejected: int = 0
+
+
 class CaseResult(BaseModel):
     case_id: str
     pack: ExtractedPack
@@ -528,7 +547,8 @@ class CaseResult(BaseModel):
     chains: list[TransactionChain] = []
     timeline: list[TimelineEvent] = []
     investigation: list[InvestigationTask] = []
-    summary: str | None = None
+    #: None when the review is off or there was nothing to review
+    review: SemanticReview | None = None
 
 
 # ---------------------------------------------------------------------------

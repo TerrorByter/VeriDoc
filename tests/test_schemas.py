@@ -321,7 +321,7 @@ def _make_case_result() -> CaseResult:
         pack=_make_pack(),
         evidence=[_make_evidence()],
         risk=_make_risk(),
-        summary=None,
+        review=None,
     )
 
 

@@ -45,7 +45,7 @@ Edit `.env`. `.env` is gitignored and must never be committed. Each teammate nee
 1. Install the CLI (`brew install awscli`) and save an IAM user's keys as a profile: `aws configure --profile gldb` (region `ap-southeast-1`). The keys live in `~/.aws/credentials`, never in the project.
 2. The IAM user needs `bedrock:InvokeModel` and `textract:DetectDocumentText` (Resource `*`). Textract also has to be activated once for the account.
 3. In `.env`, set `AWS_PROFILE=gldb`, `AWS_REGION` and `BEDROCK_MODEL_ID` (a model ID, inference profile ID or inference profile ARN from the Bedrock console).
-4. Turn features on: `EXTRACTION_MODE=llm` (Bedrock extraction), `OCR_ENABLED=true` (Textract for scans), `EXPLAIN_ENABLED=true` (LLM summary). Restart the backend after editing `.env`.
+4. Turn features on: `EXTRACTION_MODE=llm` (Bedrock extraction), `OCR_ENABLED=true` (Textract for scans), `SEMANTIC_REVIEW_ENABLED=true` (Semantic Review Agent). Restart the backend after editing `.env`.
 
 Check the connection with `aws sts get-caller-identity --profile gldb`, then the live tests below.
 
@@ -92,7 +92,7 @@ gldb/               Core package
   scoring.py        Rule-based risk score (LLMs never touch the score)
   audit.py          Append-only JSONL audit log
   pipeline.py       run(case_id, file_paths) -> CaseResult
-  explain.py        Optional LLM plain-English summary with citation check
+  semantic_review.py  Semantic Review Agent: LLM synthesis over verified facts, grounding-checked
   api.py            FastAPI app used by the frontend
   ocr.py            Textract OCR for scanned PDFs
 frontend/           React + TypeScript (Vite) UI

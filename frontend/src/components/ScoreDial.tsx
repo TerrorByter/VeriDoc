@@ -30,14 +30,41 @@ export function ScoreDial({ risk }: { risk: Risk }) {
           )}
         </div>
       </div>
-      {risk.reasons.length > 0 && (
-        <ul className="reasons">
-          {risk.reasons.map((r) => (
-            <li key={r}>{r}</li>
-          ))}
-        </ul>
+      {risk.contributions.length > 0 && (
+        <>
+          <h3 className="why">Why this score?</h3>
+          <table className="contributions">
+            <tbody>
+              {risk.contributions.map((c) => (
+                <tr key={c.evidence_id}>
+                  <td className="pts">+{c.points}</td>
+                  <td>
+                    {c.name}
+                    <span className="muted"> · {c.evidence_id}, {c.document} p.{c.page}</span>
+                  </td>
+                  <td className="sig">{c.signal_id}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td className="pts">{risk.contributions.reduce((n, c) => n + c.points, 0)}</td>
+                <td colSpan={2} className="muted">
+                  total{risk.score === 100 ? ", capped at 100" : ""}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </>
       )}
-      <p className="fineprint">Rule-based score. No AI model sets or changes it.</p>
+      {risk.reasons
+        .filter((r) => r.startsWith("Hard rule"))
+        .map((r) => (
+          <p key={r} className="flag-note">{r}</p>
+        ))}
+      <p className="fineprint">
+        Rule-based score (rules {risk.rule_version}). No AI model sets or changes it.
+      </p>
     </section>
   );
 }

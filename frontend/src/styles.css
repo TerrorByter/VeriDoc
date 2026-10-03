@@ -256,3 +256,13 @@ select {
   transition: border-color 0.15s ease;
 }
 select:hover, select:focus-visible { border-color: var(--accent); outline: none; }
+
+/* "Why this score?" itemised breakdown */
+.why { font-size: 0.95rem; margin: 1rem 0 0.4rem; }
+.contributions { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.contributions td { padding: 0.3rem 0.4rem; border-top: 1px solid var(--border); vertical-align: top; }
+.contributions tr { transition: background 0.15s ease; }
+.contributions tbody tr:hover { background: hsl(254 90% 68% / 0.08); }
+.contributions .pts { width: 3.5rem; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--warn); }
+.contributions .sig { width: 5rem; text-align: right; font-family: ui-monospace, monospace; color: var(--muted); }
+.contributions tfoot td { font-weight: 600; }

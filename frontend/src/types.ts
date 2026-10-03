@@ -34,11 +34,23 @@ export interface AgentReport {
   duration_ms: number;
 }
 
+export interface Contribution {
+  signal_id: string;
+  check_id: string;
+  name: string;
+  evidence_id: string;
+  document: string;
+  page: number;
+  points: number;
+}
+
 export interface Risk {
   score: number;
   band: Band;
   manual_review_required: boolean;
   reasons: string[];
+  contributions: Contribution[];
+  rule_version: string;
 }
 
 export interface ChecklistItem {

@@ -310,11 +310,44 @@ class Evidence(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+SignalFamily = Literal["DOC", "FIN", "TXN", "REG", "ENT", "TEMP", "COMP", "SYS"]
+
+
+class Signal(BaseModel, frozen=True):
+    """A named, versioned risk signal (gldb.signal_library). Maps one check
+    to the name an analyst sees and to what would resolve it."""
+
+    signal_id: str              # e.g. "DOC-001"; family prefix as below
+    check_id: str
+    family: SignalFamily
+    name: str
+    #: What would resolve or explain the signal ("what would change it?")
+    remedy: str
+    #: Fixed points; None uses the severity weight the check reported
+    points: int | None = None
+
+
+class Contribution(BaseModel):
+    """One line of the itemised risk score, traced to its evidence."""
+
+    signal_id: str
+    check_id: str
+    name: str
+    evidence_id: str
+    document: str
+    page: int
+    points: int
+
+
 class RiskResult(BaseModel):
     score: int = Field(..., ge=0, le=100)
     band: Literal["Low", "Medium", "High"]
     manual_review_required: bool
     reasons: list[str]
+    #: The score itemised by signal; points may sum above the 100 cap
+    contributions: list[Contribution] = []
+    #: Signal library version that produced the contributions
+    rule_version: str = ""
 
     @field_validator("score")
     @classmethod

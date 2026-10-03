@@ -25,6 +25,7 @@ Rules:
 
 from __future__ import annotations
 
+import json
 import re
 import secrets
 import shutil
@@ -42,16 +43,18 @@ from gldb.config import CASES_DIR, PACKS_DIR, UPLOADS_DIR
 from gldb.extract_llm import ExtractionError
 from gldb.feedback import CheckFeedback, report
 from gldb.intake import IntakeError
-from gldb.pipeline import run
-from gldb.viewer import Box, locate, render_page
+from gldb.pipeline import OCR_LINES_FILE, run
+from gldb.viewer import locate, render_page
 from gldb.schemas import (
     AgentReport,
     AuditEvent,
+    Box,
     CaseResult,
     CaseStatus,
     DocMeta,
     Evidence,
     InvestigationTask,
+    OcrLine,
     ReadinessResult,
     ReasonCode,
     RiskResult,
@@ -351,6 +354,15 @@ def _document(result: CaseResult, doc_id: str, page: int) -> tuple[Path, DocMeta
     return path, doc
 
 
+def _ocr_lines(case_id: str, doc_id: str, page: int) -> list[OcrLine]:
+    """The OCR lines of one page, if the case was OCR'd."""
+    path = Path(CASES_DIR) / case_id / OCR_LINES_FILE
+    if not path.is_file():
+        return []
+    pages = json.loads(path.read_text(encoding="utf-8")).get(doc_id, [])
+    return [OcrLine.model_validate(line) for line in pages[page - 1]] if page <= len(pages) else []
+
+
 @app.get("/api/cases/{case_id}/documents/{doc_id}/pages/{page}")
 def get_page(case_id: str, doc_id: str, page: int) -> Response:
     """One page of a case document, as PNG."""
@@ -370,8 +382,9 @@ def get_evidence_location(case_id: str, evidence_id: str) -> EvidenceLocation:
         return EvidenceLocation(evidence_id=evidence_id, doc_id=PACK_DOC, page=0,
                                 page_count=0, highlighted=None, boxes=[])
     path, doc = _document(result, ev.document, ev.page)
+    lines = _ocr_lines(result.case_id, doc.doc_id, ev.page)
     for text in (ev.quote, ev.observed):
-        if text and (boxes := locate(path, ev.page, text)):
+        if text and (boxes := locate(path, ev.page, text, lines)):
             return EvidenceLocation(evidence_id=evidence_id, doc_id=doc.doc_id, page=ev.page,
                                     page_count=doc.page_count, highlighted=text, boxes=boxes)
     return EvidenceLocation(evidence_id=evidence_id, doc_id=doc.doc_id, page=ev.page,

@@ -111,7 +111,9 @@ def _intake(
             for d in docs if d.doc_type not in FORM_DOC_TYPES
         }, case_id)
     pack = parse_pack(case_id, docs, file_paths, manifest, ocr.text)
-    pack = pack.model_copy(update={"ocr_confidence": ocr.confidence, "prompt_screen": screened})
+    pack = pack.model_copy(update={
+        "ocr_confidence": ocr.confidence, "ocr_lines": ocr.lines, "prompt_screen": screened,
+    })
     stage_evidence: list[Evidence] = []
     return pack, stage_evidence
 
@@ -168,6 +170,10 @@ def assess(
 # ---------------------------------------------------------------------------
 
 
+#: Per-case file of OCR lines with positions (see _persist)
+OCR_LINES_FILE = "ocr_lines.json"
+
+
 def _persist(result: CaseResult) -> None:
     """Write result.json, first archiving any earlier result of the case as
     result.vN.json, so a re-assessment never overwrites the record."""
@@ -178,6 +184,12 @@ def _persist(result: CaseResult) -> None:
         version = len(list(out_dir.glob("result.v*.json"))) + 1
         current.rename(out_dir / f"result.v{version}.json")
     current.write_text(result.model_dump_json(indent=2), encoding="utf-8")
+    # OCR lines hold raw document text: kept beside the case for the viewer,
+    # never in result.json or the API
+    if result.pack.ocr_lines:
+        lines = {doc: [[line.model_dump() for line in page] for page in pages]
+                 for doc, pages in result.pack.ocr_lines.items()}
+        (out_dir / OCR_LINES_FILE).write_text(json.dumps(lines), encoding="utf-8")
 
 
 def run(

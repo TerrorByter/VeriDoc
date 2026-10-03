@@ -27,6 +27,7 @@ import pypdf
 from botocore.config import Config
 
 from gldb.config import AWS_REGION, OCR_MAX_WORKERS
+from gldb.schemas import Box, OcrLine
 from gldb.usage import log_usage
 
 #: Adaptive retries slow the client down when Textract throttles, so a burst
@@ -58,15 +59,29 @@ class OcrResult:
 
     text: dict[str, list[str]] = field(default_factory=dict)
     confidence: dict[str, list[float]] = field(default_factory=dict)
+    #: doc_id -> per page, each line with its position (for highlighting)
+    lines: dict[str, list[list[OcrLine]]] = field(default_factory=dict)
 
 
-def _ocr_bytes(textract: Any, page_pdf: bytes) -> tuple[str, float]:
+def _ocr_line(block: dict[str, Any]) -> OcrLine | None:
+    """A LINE block with its bounding box (Textract gives page fractions)."""
+    bb = block.get("Geometry", {}).get("BoundingBox")
+    if bb is None:
+        return None
+    return OcrLine(text=block["Text"], box=Box(
+        x0=round(bb["Left"], 4), top=round(bb["Top"], 4),
+        x1=round(bb["Left"] + bb["Width"], 4), bottom=round(bb["Top"] + bb["Height"], 4),
+    ))
+
+
+def _ocr_bytes(textract: Any, page_pdf: bytes) -> tuple[str, float, list[OcrLine]]:
     response = textract.detect_document_text(Document={"Bytes": page_pdf})
     lines = [b for b in response["Blocks"] if b["BlockType"] == "LINE"]
     confidence = (
         sum(b["Confidence"] for b in lines) / len(lines) if lines else _BLANK_PAGE_CONFIDENCE
     )
-    return "\n".join(b["Text"] for b in lines), confidence
+    placed = [line for b in lines if (line := _ocr_line(b)) is not None]
+    return "\n".join(b["Text"] for b in lines), confidence, placed
 
 
 def ocr_files(paths: list[Path], case_id: str = "", client: Any | None = None) -> OcrResult:
@@ -91,7 +106,8 @@ def ocr_files(paths: list[Path], case_id: str = "", client: Any | None = None) -
     if jobs:
         log_usage("textract", "ocr", case_id, pages=len(jobs))
     result = OcrResult()
-    for (doc_id, _), (text, confidence) in zip(jobs, pages):
+    for (doc_id, _), (text, confidence, lines) in zip(jobs, pages):
         result.text.setdefault(doc_id, []).append(text)
         result.confidence.setdefault(doc_id, []).append(round(confidence, 1))
+        result.lines.setdefault(doc_id, []).append(lines)
     return result

@@ -280,6 +280,22 @@ class DocMeta(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class Box(BaseModel):
+    """A region of a page, as fractions (0-1) of its width and height."""
+
+    x0: float
+    top: float
+    x1: float
+    bottom: float
+
+
+class OcrLine(BaseModel):
+    """One line Textract read, with where it is on the page."""
+
+    text: str
+    box: Box
+
+
 class PromptAttackHit(BaseModel):
     """A page the prompt attack screen flagged (gldb.prompt_screen)."""
 
@@ -305,6 +321,10 @@ class ExtractedPack(BaseModel):
     #: doc_id -> Textract text per page, when the OCR stage ran. Never
     #: serialised: raw document text would bypass identifier masking.
     ocr: dict[str, list[str]] = Field(default_factory=dict, exclude=True)
+    #: doc_id -> per page, the lines Textract read with their positions. Kept
+    #: on the server with the case (for highlighting on scanned pages); never
+    #: serialised, as it holds raw document text.
+    ocr_lines: dict[str, list[list[OcrLine]]] = Field(default_factory=dict, exclude=True)
     #: doc_id -> mean Textract confidence (0-100) per page, when OCR ran
     ocr_confidence: dict[str, list[float]] = {}
     #: doc_id -> pages flagged by the prompt attack screen; None when the

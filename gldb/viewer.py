@@ -9,8 +9,10 @@ the page (0-1), drawn over the image by the browser. The browser never needs
 the PDF or a PDF engine.
 
 Quotes are found in the PDF's text layer, invisible text included, so hidden
-text shows where it is hiding. A scanned page has no text layer: its quote
-cannot be placed, and the viewer says so rather than guessing.
+text shows where it is hiding. A scanned page has no text layer: there the
+lines Textract read (with their positions) are searched instead, and a quote
+within a line is narrowed in proportion to its place in the line. Without
+either, the quote cannot be placed and the viewer says so.
 """
 
 from __future__ import annotations
@@ -20,24 +22,15 @@ import re
 from pathlib import Path
 
 import pdfplumber
-from pydantic import BaseModel
-
 from gldb.config import VIEWER_DPI
+from gldb.intake import contains_quote
+from gldb.schemas import Box, OcrLine
 
 
 def _fraction(value: float, size: float) -> float:
     """*value* as a fraction of *size*, kept on the page (hidden text may be
     placed off it)."""
     return min(max(value / size, 0.0), 1.0)
-
-
-class Box(BaseModel):
-    """A highlight, as fractions of the page width and height."""
-
-    x0: float
-    top: float
-    x1: float
-    bottom: float
 
 
 def render_page(path: Path, page: int) -> bytes:
@@ -49,15 +42,43 @@ def render_page(path: Path, page: int) -> bytes:
     return buf.getvalue()
 
 
-def locate(path: Path, page: int, text: str) -> list[Box]:
+#: Longest run of OCR lines one quote is matched across
+_MAX_OCR_LINES = 3
+
+
+def _ocr_locate(lines: list[OcrLine], text: str) -> list[Box]:
+    """Boxes for the first, shortest run of OCR lines containing *text*."""
+    squashed = " ".join(text.split())
+    for span in range(1, _MAX_OCR_LINES + 1):
+        for i in range(len(lines) - span + 1):
+            run = lines[i:i + span]
+            if not contains_quote([line.text for line in run], squashed):
+                continue
+            if span > 1:
+                return [line.box for line in run]
+            line = " ".join(run[0].text.split())
+            start = line.index(squashed)
+            b = run[0].box
+            width = b.x1 - b.x0
+            return [b.model_copy(update={
+                "x0": round(b.x0 + width * start / len(line), 4),
+                "x1": round(b.x0 + width * (start + len(squashed)) / len(line), 4),
+            })]
+    return []
+
+
+def locate(path: Path, page: int, text: str, ocr_lines: list[OcrLine] | None = None) -> list[Box]:
     """Boxes for every occurrence of *text* on 1-based *page*, one per line
-    of the match. Spacing and line breaks in *text* do not matter."""
+    of the match. Spacing and line breaks in *text* do not matter. A page
+    with no text layer is searched in *ocr_lines* (that page's OCR lines)."""
     words = text.split()
     if not words:
         return []
     pattern = r"\s+".join(re.escape(w) for w in words)
     with pdfplumber.open(str(path)) as pdf:
         p = pdf.pages[page - 1]
+        if not p.chars:
+            return _ocr_locate(ocr_lines or [], text)
         boxes = []
         for match in p.search(pattern, regex=True, return_chars=True):
             lines: dict[int, list[dict]] = {}

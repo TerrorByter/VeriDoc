@@ -11,7 +11,10 @@ export function AuditTrail({ audit }: { audit: AuditEvent[] }) {
             <span>
               <strong>{e.action}</strong>
               {e.evidence_id && ` ${e.evidence_id}`}
-              {e.decision && ` → ${e.decision}`} · {e.actor}
+              {e.decision && ` → ${e.decision}`}
+              {e.reason_code && ` (${e.reason_code})`} · {e.actor}
+              {e.role && ` as ${e.role}`}
+              {e.reason && <span className="muted"> — {e.reason}</span>}
             </span>
           </li>
         ))}

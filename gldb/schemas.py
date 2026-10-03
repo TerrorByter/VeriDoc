@@ -391,20 +391,45 @@ class CaseResult(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+AuditAction = Literal[
+    "case_created",
+    "pipeline_completed",
+    "flag_confirmed",
+    "flag_dismissed",
+    "documents_added",
+    "analyst_decision",
+    "mlro_decision",
+    "final_decision",  # legacy: written before the case lifecycle existed
+]
+
+#: Case status, derived by replaying audit events (gldb.lifecycle)
+CaseStatus = Literal[
+    "assessed", "info_requested", "escalated", "mlro_reviewed", "approved", "declined",
+]
+
+#: Controlled vocabulary for dismissing a flag: lets override patterns be
+#: counted (gldb.feedback) to tune checks and spot unfair outcomes.
+ReasonCode = Literal[
+    "ocr_misread",
+    "extraction_error",
+    "legitimate_explanation",
+    "duplicate_finding",
+    "threshold_too_strict",
+    "other",
+]
+
+
 class AuditEvent(BaseModel):
     timestamp: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
     case_id: str
     actor: str
-    action: Literal[
-        "case_created",
-        "pipeline_completed",
-        "flag_confirmed",
-        "flag_dismissed",
-        "final_decision",
-    ]
+    #: "analyst" or "mlro" for human actions; None for the system
+    role: str | None = None
+    action: AuditAction
     evidence_id: str | None = None
     decision: str | None = None
+    reason_code: ReasonCode | None = None
     reason: str | None = None
     details: dict = {}

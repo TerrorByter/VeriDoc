@@ -126,17 +126,34 @@ def assess(
 # ---------------------------------------------------------------------------
 
 
+def _persist(result: CaseResult) -> None:
+    """Write result.json, first archiving any earlier result of the case as
+    result.vN.json, so a re-assessment never overwrites the record."""
+    out_dir = Path(CASES_DIR) / result.case_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    current = out_dir / "result.json"
+    if current.exists():
+        version = len(list(out_dir.glob("result.v*.json"))) + 1
+        current.rename(out_dir / f"result.v{version}.json")
+    current.write_text(result.model_dump_json(indent=2), encoding="utf-8")
+
+
 def run(
     case_id: str,
     file_paths: list[Path | str],
     manifest_path: Path | None = None,
     actor: str = "system",
+    new_case: bool = True,
 ) -> CaseResult:
     """Run the full loan-assessment pipeline for *case_id*.
 
+    With *new_case* False (documents re-entering after a request for
+    information) no case_created event is logged and the previous result is
+    archived rather than overwritten.
+
     Stages
     ------
-    1. Log ``case_created`` audit event.
+    1. Log ``case_created`` audit event (new cases only).
     2. Load manifest from *manifest_path* (or None).
     3. intake → classify_and_extract: build ExtractedPack.
     4. run_checks: collect all Evidence.
@@ -158,15 +175,16 @@ def run(
     resolved: list[Path] = [Path(p) for p in file_paths]
 
     # ------------------------------------------------------------------ 1
-    log_event(AuditEvent(
-        case_id=case_id,
-        actor=actor,
-        action="case_created",
-        details={
-            "filenames": [p.name for p in resolved],
-            "sha256s": {},   # hashes are computed inside intake; we log names here
-        },
-    ))
+    if new_case:
+        log_event(AuditEvent(
+            case_id=case_id,
+            actor=actor,
+            action="case_created",
+            details={
+                "filenames": [p.name for p in resolved],
+                "sha256s": {},   # hashes are computed inside intake; we log names here
+            },
+        ))
 
     # ------------------------------------------------------------------ 2
     manifest: ApplicationManifest | None = None
@@ -183,11 +201,7 @@ def run(
     )
 
     # ------------------------------------------------------------------ 8  persist result
-    out_dir = Path(CASES_DIR) / case_id
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "result.json").write_text(
-        result.model_dump_json(indent=2), encoding="utf-8"
-    )
+    _persist(result)
 
     # ------------------------------------------------------------------ 9
     category_counts: dict[str, int] = dict(
@@ -203,6 +217,8 @@ def run(
             "score": risk.score,
             "band": risk.band,
             "readiness_status": ready.status,
+            "routing_path": result.routing.path if result.routing else None,
+            "policy_version": result.routing.policy_version if result.routing else None,
             "evidence_count_by_category": category_counts,
             "extraction_mode": pack.extraction_mode,
             "sha256s": doc_sha256s,

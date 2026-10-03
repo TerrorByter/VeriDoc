@@ -53,6 +53,27 @@ export interface Readiness {
   checklist: ChecklistItem[];
 }
 
+export type ReviewPath = "fast_track" | "standard_review" | "enhanced_review";
+
+export interface Routing {
+  path: ReviewPath;
+  analyst_review: boolean;
+  qa_sampled: boolean;
+  edd_required: boolean;
+  hard_flags: string[];
+  low_confidence: string[];
+  reasons: string[];
+  policy_version: string;
+}
+
+export type CaseStatus =
+  | "assessed"
+  | "info_requested"
+  | "escalated"
+  | "mlro_reviewed"
+  | "approved"
+  | "declined";
+
 export interface CaseView {
   case_id: string;
   docs: DocMeta[];
@@ -60,18 +81,36 @@ export interface CaseView {
   agent_reports: AgentReport[];
   risk: Risk;
   readiness: Readiness | null;
+  routing: Routing | null;
   summary: string | null;
   extraction_mode: string;
+  status: CaseStatus;
+  allowed_actions: string[];
+  open_flags: string[];
 }
 
 export interface AuditEvent {
   timestamp: string;
   actor: string;
+  role: string | null;
   action: string;
   evidence_id: string | null;
   decision: string | null;
+  reason_code: string | null;
   reason: string | null;
 }
 
 export type FlagDecision = "confirmed" | "dismissed";
-export type FinalDecision = "approved" | "rejected" | "more_info_requested";
+
+export const REASON_CODES = {
+  ocr_misread: "OCR misread the document",
+  extraction_error: "Field extracted wrongly",
+  legitimate_explanation: "Legitimate explanation",
+  duplicate_finding: "Duplicate of another finding",
+  threshold_too_strict: "Threshold too strict",
+  other: "Other (note required)",
+} as const;
+export type ReasonCode = keyof typeof REASON_CODES;
+
+export type AnalystDecision = "approve" | "decline" | "request_info" | "escalate";
+export type MlroDecision = "str_filed" | "no_str";

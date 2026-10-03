@@ -241,3 +241,18 @@ blockquote {
 /* Spinner */
 .spinner { display: inline-block; width: 0.85em; height: 0.85em; margin-right: 0.35em; vertical-align: -0.1em; border-radius: 50%; border: 2px solid hsl(232 40% 8% / 0.3); border-top-color: hsl(232 40% 8%); animation: spin 0.7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Routing banner: colour follows the review path */
+.routing { border-left: 4px solid var(--route, var(--border)); }
+.route-fast_track { --route: var(--ok); }
+.route-standard_review { --route: var(--warn); }
+.route-enhanced_review { --route: var(--danger); }
+.routing-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.5rem 1rem; }
+.routing-head h2 { margin-bottom: 0.25rem; }
+.hard-flags { color: var(--danger); font-weight: 600; margin: 0.5rem 0; }
+select {
+  font: inherit; color: var(--text); background: var(--surface-strong);
+  border: 1px solid var(--border); border-radius: 10px; padding: 0.45rem 0.6rem;
+  transition: border-color 0.15s ease;
+}
+select:hover, select:focus-visible { border-color: var(--accent); outline: none; }

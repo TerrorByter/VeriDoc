@@ -1,8 +1,10 @@
 import type {
+  AnalystDecision,
   AuditEvent,
   CaseView,
-  FinalDecision,
   FlagDecision,
+  MlroDecision,
+  ReasonCode,
 } from "./types";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -36,6 +38,8 @@ export const createCase = (files: File[]) => {
   return request<CaseView>("/api/cases", { method: "POST", body: form });
 };
 
+export const getCase = (caseId: string) => request<CaseView>(`/api/cases/${caseId}`);
+
 export const getAudit = (caseId: string) =>
   request<AuditEvent[]>(`/api/cases/${caseId}/audit`);
 
@@ -43,15 +47,36 @@ export const decideFlag = (
   caseId: string,
   evidenceId: string,
   decision: FlagDecision,
-  reason: string,
+  reasonCode: ReasonCode | null,
+  note: string,
+  actor: string,
 ) =>
   request<AuditEvent>(
     `/api/cases/${caseId}/flags/${evidenceId}`,
-    json({ decision, reason }),
+    json({ decision, reason_code: reasonCode, note, actor }),
   );
 
 export const decideCase = (
   caseId: string,
-  decision: FinalDecision,
+  decision: AnalystDecision,
   reason: string,
-) => request<AuditEvent>(`/api/cases/${caseId}/decision`, json({ decision, reason }));
+  actor: string,
+) =>
+  request<AuditEvent>(`/api/cases/${caseId}/decision`, json({ decision, reason, actor }));
+
+export const decideAsMlro = (
+  caseId: string,
+  decision: MlroDecision,
+  reason: string,
+  actor: string,
+) =>
+  request<AuditEvent>(
+    `/api/cases/${caseId}/mlro-decision`,
+    json({ decision, reason, actor }),
+  );
+
+export const addDocuments = (caseId: string, files: File[]) => {
+  const form = new FormData();
+  files.forEach((file) => form.append("files", file));
+  return request<CaseView>(`/api/cases/${caseId}/documents`, { method: "POST", body: form });
+};

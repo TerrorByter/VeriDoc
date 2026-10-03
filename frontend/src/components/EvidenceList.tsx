@@ -1,5 +1,6 @@
 import { useState } from "react";
-import type { AuditEvent, Category, Evidence, FlagDecision } from "../types";
+import { REASON_CODES } from "../types";
+import type { AuditEvent, Category, Evidence, FlagDecision, ReasonCode } from "../types";
 
 const SEVERITY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
 
@@ -12,7 +13,14 @@ const TABS: { key: Category; label: string }[] = [
 interface Props {
   evidence: Evidence[];
   audit: AuditEvent[];
-  onDecide: (evidenceId: string, decision: FlagDecision, reason: string) => Promise<void>;
+  /** False once the case is closed: flags can no longer be decided */
+  editable: boolean;
+  onDecide: (
+    evidenceId: string,
+    decision: FlagDecision,
+    reasonCode: ReasonCode | null,
+    note: string,
+  ) => Promise<void>;
 }
 
 function latestDecision(audit: AuditEvent[], evidenceId: string): string | null {
@@ -25,13 +33,17 @@ function latestDecision(audit: AuditEvent[], evidenceId: string): string | null 
 function Card({
   ev,
   decision,
+  editable,
   onDecide,
 }: {
   ev: Evidence;
   decision: string | null;
+  editable: boolean;
   onDecide: Props["onDecide"];
 }) {
-  const [reason, setReason] = useState("");
+  const [code, setCode] = useState<ReasonCode | "">("");
+  const [note, setNote] = useState("");
+  const canDismiss = code !== "" && (code !== "other" || note.trim() !== "");
   return (
     <li className={`evidence sev-${ev.severity}`}>
       <div className="ev-head">
@@ -51,31 +63,50 @@ function Card({
         </dl>
       )}
       {ev.quote && <blockquote>{ev.quote}</blockquote>}
-      <div className="row">
-        <input
-          type="text"
-          value={reason}
-          placeholder="Reason (optional)"
-          aria-label={`Reason for ${ev.evidence_id}`}
-          onChange={(e) => setReason(e.target.value)}
-        />
-        {(["confirmed", "dismissed"] as const).map((d) => (
+      {editable && ev.category === "fraud_signal" && (
+        <div className="row">
           <button
-            key={d}
             type="button"
-            className={`btn chip${decision === d ? " active" : ""}`}
-            aria-pressed={decision === d}
-            onClick={() => onDecide(ev.evidence_id, d, reason)}
+            className={`btn chip${decision === "confirmed" ? " active" : ""}`}
+            aria-pressed={decision === "confirmed"}
+            onClick={() => onDecide(ev.evidence_id, "confirmed", null, "")}
           >
-            {d === "confirmed" ? "Confirm flag" : "Dismiss"}
+            Confirm flag
           </button>
-        ))}
-      </div>
+          <select
+            value={code}
+            aria-label={`Reason code to dismiss ${ev.evidence_id}`}
+            onChange={(e) => setCode(e.target.value as ReasonCode | "")}
+          >
+            <option value="">Dismiss because…</option>
+            {Object.entries(REASON_CODES).map(([key, label]) => (
+              <option key={key} value={key}>{label}</option>
+            ))}
+          </select>
+          <input
+            type="text"
+            value={note}
+            placeholder={code === "other" ? "Note (required)" : "Note (optional)"}
+            aria-label={`Note for ${ev.evidence_id}`}
+            onChange={(e) => setNote(e.target.value)}
+          />
+          <button
+            type="button"
+            className={`btn chip${decision === "dismissed" ? " active" : ""}`}
+            aria-pressed={decision === "dismissed"}
+            disabled={!canDismiss}
+            onClick={() => code && onDecide(ev.evidence_id, "dismissed", code, note.trim())}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+      {decision && <p className="recorded">Decision: {decision}</p>}
     </li>
   );
 }
 
-export function EvidenceList({ evidence, audit, onDecide }: Props) {
+export function EvidenceList({ evidence, audit, editable, onDecide }: Props) {
   const [tab, setTab] = useState<Category>("fraud_signal");
   const [agent, setAgent] = useState<string | null>(null);
   const agents = [...new Set(evidence.map((e) => e.agent).filter(Boolean))];
@@ -127,6 +158,7 @@ export function EvidenceList({ evidence, audit, onDecide }: Props) {
               key={ev.evidence_id}
               ev={ev}
               decision={latestDecision(audit, ev.evidence_id)}
+              editable={editable}
               onDecide={onDecide}
             />
           ))}

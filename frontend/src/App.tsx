@@ -1,10 +1,13 @@
 import { useCallback, useState } from "react";
 import {
+  addDocuments,
   createCase,
   createCaseFromPack,
+  decideAsMlro,
   decideCase,
   decideFlag,
   getAudit,
+  getCase,
 } from "./api";
 import { AgentPanel } from "./components/AgentPanel";
 import { AuditTrail } from "./components/AuditTrail";
@@ -12,9 +15,10 @@ import { DecisionPanel } from "./components/DecisionPanel";
 import { DocumentsPanel } from "./components/DocumentsPanel";
 import { EvidenceList } from "./components/EvidenceList";
 import { ReadinessPanel } from "./components/ReadinessPanel";
+import { RoutingBanner } from "./components/RoutingBanner";
 import { ScoreDial } from "./components/ScoreDial";
 import { UploadPanel } from "./components/UploadPanel";
-import type { AuditEvent, CaseView, FinalDecision, FlagDecision } from "./types";
+import type { AuditEvent, CaseView } from "./types";
 
 export function App() {
   const [kase, setKase] = useState<CaseView | null>(null);
@@ -40,11 +44,18 @@ export function App() {
     }).finally(() => setBusy(false));
   };
 
+  /** Write, then reload the case: its status and allowed actions are derived
+   * on the server from the audit log, so they are never guessed here. */
   const record = async (write: () => Promise<unknown>) => {
     if (!kase) return;
     await guard(async () => {
       await write();
-      setAudit(await getAudit(kase.case_id));
+      const [fresh, events] = await Promise.all([
+        getCase(kase.case_id),
+        getAudit(kase.case_id),
+      ]);
+      setKase(fresh);
+      setAudit(events);
     });
   };
 
@@ -90,6 +101,8 @@ export function App() {
               </button>
             </div>
 
+            {kase.routing && <RoutingBanner routing={kase.routing} />}
+
             <div className="grid">
               <ScoreDial risk={kase.risk} />
               {kase.readiness && <ReadinessPanel readiness={kase.readiness} />}
@@ -111,16 +124,23 @@ export function App() {
             <EvidenceList
               evidence={kase.evidence}
               audit={audit}
-              onDecide={(id, decision: FlagDecision, reason) =>
-                record(() => decideFlag(kase.case_id, id, decision, reason))
+              editable={kase.allowed_actions.length > 0}
+              onDecide={(id, decision, reasonCode, note) =>
+                record(() => decideFlag(kase.case_id, id, decision, reasonCode, note, "analyst"))
               }
             />
             <DocumentsPanel docs={kase.docs} />
             <DecisionPanel
-              audit={audit}
-              onDecide={(decision: FinalDecision, reason) =>
-                record(() => decideCase(kase.case_id, decision, reason))
+              status={kase.status}
+              allowedActions={kase.allowed_actions}
+              openFlags={kase.open_flags}
+              onAnalyst={(decision, reason, actor) =>
+                record(() => decideCase(kase.case_id, decision, reason, actor))
               }
+              onMlro={(decision, reason, actor) =>
+                record(() => decideAsMlro(kase.case_id, decision, reason, actor))
+              }
+              onDocuments={(files) => record(() => addDocuments(kase.case_id, files))}
             />
             <AuditTrail audit={audit} />
           </>

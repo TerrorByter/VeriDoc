@@ -27,6 +27,7 @@ import pypdf
 from botocore.config import Config
 
 from gldb.config import AWS_REGION, OCR_MAX_WORKERS
+from gldb.usage import log_usage
 
 #: Adaptive retries slow the client down when Textract throttles, so a burst
 #: above the account's rate quota waits instead of failing the case.
@@ -68,7 +69,7 @@ def _ocr_bytes(textract: Any, page_pdf: bytes) -> tuple[str, float]:
     return "\n".join(b["Text"] for b in lines), confidence
 
 
-def ocr_files(paths: list[Path], client: Any | None = None) -> OcrResult:
+def ocr_files(paths: list[Path], case_id: str = "", client: Any | None = None) -> OcrResult:
     """OCR every page of every non-form PDF with Textract DetectDocumentText.
 
     Pages are split sequentially (pypdf readers are not thread-safe); only the
@@ -76,6 +77,7 @@ def ocr_files(paths: list[Path], client: Any | None = None) -> OcrResult:
 
     Args:
         paths: PDF files to OCR.
+        case_id: The case the pages are read for, for cost per case.
         client: Injectable textract client (tests). Defaults to boto3.
     """
     textract = client or _default_client()
@@ -86,6 +88,8 @@ def ocr_files(paths: list[Path], client: Any | None = None) -> OcrResult:
             jobs.extend((path.stem, _page_bytes(page)) for page in reader.pages)
     with ThreadPoolExecutor(max_workers=OCR_MAX_WORKERS) as pool:
         pages = list(pool.map(lambda job: _ocr_bytes(textract, job[1]), jobs))
+    if jobs:
+        log_usage("textract", "ocr", case_id, pages=len(jobs))
     result = OcrResult()
     for (doc_id, _), (text, confidence) in zip(jobs, pages):
         result.text.setdefault(doc_id, []).append(text)

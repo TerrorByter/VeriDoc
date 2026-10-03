@@ -91,7 +91,7 @@ def _intake(
     and an empty stage_evidence list (reserved for intake-level findings in
     future stages).
     """
-    ocr = ocr_files(file_paths) if OCR_ENABLED else OcrResult()
+    ocr = ocr_files(file_paths, case_id) if OCR_ENABLED else OcrResult()
     docs = intake(case_id, file_paths, ocr.text)
     pack = parse_pack(case_id, docs, file_paths, manifest, ocr.text)
     pack = pack.model_copy(update={"ocr_confidence": ocr.confidence})
@@ -99,9 +99,9 @@ def _intake(
     return pack, stage_evidence
 
 
-def _explain(evidence: list[Evidence], risk: RiskResult) -> str | None:
+def _explain(case_id: str, evidence: list[Evidence], risk: RiskResult) -> str | None:
     """explain stage — LLM summary when EXPLAIN_ENABLED, otherwise None."""
-    return explain(evidence, risk) if EXPLAIN_ENABLED else None
+    return explain(evidence, risk, case_id) if EXPLAIN_ENABLED else None
 
 
 def model_ledger(extraction_mode: str, explain_enabled: bool) -> dict[str, Any]:
@@ -139,7 +139,7 @@ def assess(
         chains=build_chains(pack, evidence),
         timeline=build_timeline(pack, evidence),
         investigation=build_queue(case_id, evidence, pack, risk),
-        summary=_explain(evidence, risk),
+        summary=_explain(case_id, evidence, risk),
     )
 
 

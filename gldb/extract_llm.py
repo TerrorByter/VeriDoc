@@ -105,13 +105,14 @@ def _verified_quotes(quotes: dict[str, str], pages: list[str]) -> dict[str, str]
     return {k: v for k, v in quotes.items() if contains_quote(pages, v)}
 
 
-def _extract_doc(doc: DocMeta, pages: list[str]) -> BaseModel:
+def _extract_doc(doc: DocMeta, pages: list[str], case_id: str = "") -> BaseModel:
     model = _MODELS[doc.doc_type]
     body = "\n\n".join(f"[page {i}]\n{t}" for i, t in enumerate(pages, start=1))
     result = converse(
         _SYSTEM,
         f"<document>\n{body}\n</document>",
         purpose=f"extract_{doc.doc_type}",
+        case_id=case_id,
         schema=_schema(model),
     )
     data = dict(result.data or {})
@@ -141,7 +142,7 @@ def parse_pack(
             continue
         if doc.doc_type in _MODELS:
             pages = read_text(path, visible_only=True, ocr=ocr.get(doc.doc_id))
-            extracted[doc.doc_type].append(_extract_doc(doc, pages))
+            extracted[doc.doc_type].append(_extract_doc(doc, pages, case_id))
         elif doc.doc_type == "fatca_crs_entity":
             entity_self_certs.append(parse_entity_self_cert(doc.doc_id, path))
 

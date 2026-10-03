@@ -53,7 +53,8 @@ def test_llm_pack_matches_stub_pack(
     calls: list[dict[str, Any]] = []
     queue = [d for d in docs if d.doc_id in models]
 
-    def fake(system: str, user: str, *, purpose: str, schema: dict[str, Any]) -> LLMResult:
+    def fake(system: str, user: str, *, purpose: str, case_id: str, schema: dict[str, Any]) -> LLMResult:
+        assert case_id == "t"
         calls.append({"system": system, "user": user, "purpose": purpose})
         model = models[queue[len(calls) - 1].doc_id]
         data = json.loads(model.model_dump_json(exclude={"doc_id", "page"}))

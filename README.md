@@ -103,7 +103,7 @@ data/
   cases/            Processed case outputs (gitignored)
 logs/
   audit_log.jsonl   Append-only officer action + pipeline log (gitignored)
-  llm_usage.jsonl   LLM call log (gitignored)
+  usage.jsonl       Bedrock tokens and Textract pages per case (gitignored)
 tests/              pytest suite
 ```
 

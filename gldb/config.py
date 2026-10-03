@@ -210,5 +210,22 @@ EXPLAIN_ENABLED: bool = _bool_env("EXPLAIN_ENABLED", False)
 #: Path to the append-only officer/pipeline audit log.
 AUDIT_LOG_PATH: str = os.getenv("AUDIT_LOG_PATH", "logs/audit_log.jsonl")
 
-#: Path to the LLM usage log.
-LLM_USAGE_LOG_PATH: str = os.getenv("LLM_USAGE_LOG_PATH", "logs/llm_usage.jsonl")
+#: Path to the usage log: Bedrock tokens and Textract pages per case, never
+#: document content (gldb.usage).
+USAGE_LOG_PATH: str = os.getenv("USAGE_LOG_PATH", "logs/usage.jsonl")
+
+# ---------------------------------------------------------------------------
+# Unit prices for cost estimates (gldb.usage). From the AWS Price List API,
+# ap-southeast-1 on-demand list prices, as of PRICES_AS_OF. Estimates only:
+# the bill is the record of what was charged.
+# ---------------------------------------------------------------------------
+
+PRICES_AS_OF: str = "2026-10-04"
+
+#: Textract DetectDocumentText (SyncTextPagesProcessed), first 1M pages/month
+TEXTRACT_USD_PER_PAGE: Decimal = Decimal("0.0015")
+
+#: Bedrock model ID -> (USD per 1M input tokens, USD per 1M output tokens)
+MODEL_USD_PER_M_TOKENS: dict[str, tuple[Decimal, Decimal]] = {
+    "global.anthropic.claude-sonnet-4-6": (Decimal("3"), Decimal("15")),
+}

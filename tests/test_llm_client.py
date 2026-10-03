@@ -31,7 +31,7 @@ class FakeBedrock:
 @pytest.fixture(autouse=True)
 def _model_and_log(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
     monkeypatch.setattr(llm_client, "BEDROCK_MODEL_ID", "test-model")
-    monkeypatch.setenv("LLM_USAGE_LOG_PATH", str(tmp_path / "usage.jsonl"))
+    monkeypatch.setenv("USAGE_LOG_PATH", str(tmp_path / "usage.jsonl"))
 
 
 def test_text_call_uses_temperature_zero_and_logs_tokens_only(tmp_path: Any) -> None:

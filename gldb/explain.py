@@ -79,11 +79,11 @@ def _is_grounded(summary: str, facts: str, evidence: list[Evidence]) -> bool:
     )
 
 
-def explain(evidence: list[Evidence], risk: RiskResult) -> str:
+def explain(evidence: list[Evidence], risk: RiskResult, case_id: str = "") -> str:
     """Return a cited plain-English summary, or the template if the LLM's fails the check."""
     facts = _facts(evidence, risk)
     result = converse(
-        _SYSTEM, f"<facts>\n{facts}\n</facts>", purpose="explain_case"
+        _SYSTEM, f"<facts>\n{facts}\n</facts>", purpose="explain_case", case_id=case_id,
     )
     summary = result.text.strip()
     if summary and _is_grounded(summary, facts, evidence):

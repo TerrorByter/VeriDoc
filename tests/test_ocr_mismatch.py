@@ -172,7 +172,8 @@ def test_pipeline_runs_ocr_once_and_keeps_it_on_the_pack(
     path = _pdf(tmp_path, ["MEMO"], "memo.pdf")
     calls: list[list[Path]] = []
 
-    def fake_ocr(paths: list[Path]) -> OcrResult:
+    def fake_ocr(paths: list[Path], case_id: str) -> OcrResult:
+        assert case_id == "t"
         calls.append(paths)
         return OcrResult(text={"memo": ["MEMO"]}, confidence={"memo": [55.0]})
 

@@ -31,7 +31,7 @@ INVOICE = next(
 
 def test_bedrock_converse(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     assert config.BEDROCK_MODEL_ID, "BEDROCK_MODEL_ID is empty in .env"
-    monkeypatch.setenv("LLM_USAGE_LOG_PATH", str(tmp_path / "usage.jsonl"))
+    monkeypatch.setenv("USAGE_LOG_PATH", str(tmp_path / "usage.jsonl"))
     result = llm_client.converse(
         "Reply with the single word OK.", "ping", purpose="live_smoke"
     )
@@ -42,7 +42,7 @@ def test_bedrock_converse(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
 def test_bedrock_forced_tool_schema(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setenv("LLM_USAGE_LOG_PATH", str(tmp_path / "usage.jsonl"))
+    monkeypatch.setenv("USAGE_LOG_PATH", str(tmp_path / "usage.jsonl"))
     result = llm_client.converse(
         "Return the requested value.",
         "The answer is 42.",

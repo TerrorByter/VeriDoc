@@ -279,13 +279,13 @@ def test_scanned_pack_is_image_only_copy_of_clean(packs: Path) -> None:
     with pdfplumber.open(str(scanned / "invoice_INV-1001.pdf")) as pdf:
         assert len(pdf.pages[0].images) == 1
     truth = json.loads((scanned / "ground_truth.json").read_text())
-    assert truth["requires_ocr"] is True
+    assert truth["requires"] == ["ocr"]
     assert (truth["expected_band"], truth["expected_check_ids"]) == ("Low", [])
 
 
-def test_evaluate_skips_ocr_only_packs_when_ocr_is_off(packs: Path) -> None:
+def test_evaluate_skips_packs_needing_capabilities_that_are_off(packs: Path) -> None:
     report = evaluate.evaluate(packs)
-    assert report.skipped == ["scanned"]
+    assert report.skipped == ["injected", "scanned"]  # need prompt screen, OCR
     assert "scanned" not in [r.pack for r in report.packs]
 
 

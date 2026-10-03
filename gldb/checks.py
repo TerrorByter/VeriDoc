@@ -1292,6 +1292,29 @@ def check_forensic_ocr_mismatch(pack: ExtractedPack) -> list[Evidence]:
     return results
 
 
+def check_prompt_injection(pack: ExtractedPack) -> list[Evidence]:
+    """Pages the prompt attack screen flagged: the text a model would read
+    contains instructions aimed at it. Info PROMPT_SCREEN_SKIPPED when the
+    screen did not run, so its absence is visible."""
+    if pack.prompt_screen is None:
+        return [_ev(
+            "PROMPT_SCREEN_SKIPPED", "fraud_signal", "info", PACK_DOC, 1, 1.0,
+            "Document text was not screened for prompt attacks (PROMPT_SCREEN_ENABLED is off).",
+        )]
+    return [
+        _ev(
+            "PROMPT_INJECTION", "fraud_signal", "high", doc_id, hit.page, 0.9,
+            f"The text on page {hit.page} of {doc_id} contains instructions aimed at an AI "
+            f"model (prompt attack screen, {hit.confidence} confidence). A genuine business "
+            "document has no reason to address an automated reviewer.",
+            expected="no instructions addressed to a model",
+            observed=f"prompt attack detected ({hit.confidence} confidence)",
+        )
+        for doc_id, hits in pack.prompt_screen.items()
+        for hit in hits
+    ]
+
+
 # ---------------------------------------------------------------------------
 # G. REGISTRY & SCREENING (versioned reference data, see gldb.reference)
 # ---------------------------------------------------------------------------
@@ -1554,13 +1577,15 @@ AGENTS: list[Agent] = [
     ),
     Agent(
         "Forensics",
-        "Hidden text, figures edited or pasted over the original, and re-saved PDFs, "
-        "found in the raw file and by comparing it with what OCR sees.",
+        "Hidden text, figures edited or pasted over the original, re-saved PDFs, and "
+        "instructions aimed at AI models, found in the raw file, by comparing it with "
+        "what OCR sees, and by a Bedrock guardrail.",
         [
             check_forensic_hidden_text,
             check_forensic_mixed_font,
             check_forensic_incremental_update,
             check_forensic_ocr_mismatch,
+            check_prompt_injection,
         ],
     ),
     Agent(

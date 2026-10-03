@@ -3,8 +3,8 @@ gldb/usage.py
 -------------
 Usage metering and cost per case ("showback").
 
-Every billable AWS call appends one record to USAGE_LOG_PATH: Bedrock tokens
-or Textract pages, with the case they were spent on. Never document content.
+Every billable AWS call appends one record to USAGE_LOG_PATH: Bedrock tokens,
+Textract pages or Guardrails text units, with the case they were spent on. Never document content.
 Metering and pricing are kept apart: records hold quantities, and prices come
 from the table in gldb/config.py when a report is made, so a price change
 never needs a code change and old usage can be re-priced.
@@ -28,6 +28,7 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 from gldb.config import (
+    GUARDRAIL_USD_PER_TEXT_UNIT,
     MODEL_USD_PER_M_TOKENS,
     PRICES_AS_OF,
     TEXTRACT_USD_PER_PAGE,
@@ -44,7 +45,8 @@ def _path() -> Path:
 
 
 def log_usage(
-    service: Literal["bedrock", "textract"], purpose: str, case_id: str, **quantities: Any,
+    service: Literal["bedrock", "textract", "guardrails"], purpose: str, case_id: str,
+    **quantities: Any,
 ) -> None:
     """Append one usage record (quantities such as model_id, input_tokens,
     output_tokens or pages)."""
@@ -72,6 +74,7 @@ class CaseCost(BaseModel):
     case_id: str
     last_seen: str
     pages: int = 0
+    text_units: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
     #: None when any usage could not be priced (see unpriced)
@@ -95,6 +98,9 @@ def report(records: list[dict[str, Any]]) -> list[CaseCost]:
         if r.get("service") == "textract":
             row.pages += r["pages"]
             amount: Decimal | None = TEXTRACT_USD_PER_PAGE * r["pages"]
+        elif r.get("service") == "guardrails":
+            row.text_units += r["text_units"]
+            amount = GUARDRAIL_USD_PER_TEXT_UNIT * r["text_units"]
         else:  # bedrock; records before metering had no "service"
             row.input_tokens += r["input_tokens"]
             row.output_tokens += r["output_tokens"]
@@ -112,10 +118,10 @@ def report(records: list[dict[str, Any]]) -> list[CaseCost]:
 
 def main() -> int:
     rows = report(read_usage())
-    print(f"{'case':<34}{'pages':>7}{'tokens in':>11}{'tokens out':>12}{'USD':>10}")
+    print(f"{'case':<34}{'pages':>7}{'units':>7}{'tokens in':>11}{'tokens out':>12}{'USD':>10}")
     for r in rows:
         usd = f"{r.usd:.4f}" if r.usd is not None else "unpriced"
-        print(f"{r.case_id:<34}{r.pages:>7}{r.input_tokens:>11}{r.output_tokens:>12}{usd:>10}")
+        print(f"{r.case_id:<34}{r.pages:>7}{r.text_units:>7}{r.input_tokens:>11}{r.output_tokens:>12}{usd:>10}")
     priced = [r.usd for r in rows if r.usd is not None]
     print(f"\ntotal USD {sum(priced, Decimal(0)):.4f} (estimate; list prices as of {PRICES_AS_OF})")
     for r in rows:

@@ -188,6 +188,12 @@ def read_text(
     return pages
 
 
+def model_view(path: "Path | str", ocr: list[str] | None = None) -> list[str]:
+    """The text of *path* a model is given: visible characters only, with
+    OCR for scanned pages. The prompt attack screen checks exactly this."""
+    return read_text(path, visible_only=True, ocr=ocr)
+
+
 def _squash(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 

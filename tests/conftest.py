@@ -12,6 +12,7 @@ import tempfile
 
 os.environ.update({
     "EXTRACTION_MODE": "stub", "OCR_ENABLED": "false", "SEMANTIC_REVIEW_ENABLED": "false",
+    "PROMPT_SCREEN_ENABLED": "false",
     # Fake clients still meter usage: keep it out of the real log
     "USAGE_LOG_PATH": os.path.join(tempfile.mkdtemp(), "usage.jsonl"),
 })

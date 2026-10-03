@@ -280,6 +280,14 @@ class DocMeta(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class PromptAttackHit(BaseModel):
+    """A page the prompt attack screen flagged (gldb.prompt_screen)."""
+
+    page: int
+    #: The guardrail's confidence: "LOW", "MEDIUM" or "HIGH"
+    confidence: str
+
+
 class ExtractedPack(BaseModel):
     case_id: str
     docs: list[DocMeta]
@@ -299,6 +307,9 @@ class ExtractedPack(BaseModel):
     ocr: dict[str, list[str]] = Field(default_factory=dict, exclude=True)
     #: doc_id -> mean Textract confidence (0-100) per page, when OCR ran
     ocr_confidence: dict[str, list[float]] = {}
+    #: doc_id -> pages flagged by the prompt attack screen; None when the
+    #: screen did not run, {} when it ran and flagged nothing
+    prompt_screen: dict[str, list[PromptAttackHit]] | None = None
 
 
 # ---------------------------------------------------------------------------

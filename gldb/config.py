@@ -143,7 +143,7 @@ BAND_MEDIUM_MAX: int = 49
 # version whenever anything in this section changes.
 # ---------------------------------------------------------------------------
 
-POLICY_VERSION: str = "2026-10-04.1"
+POLICY_VERSION: str = "2026-10-04.2"
 
 #: Findings serious enough on their own to force enhanced review (EDD),
 #: whatever the score: sanctions hits, unregistered entities, and deliberate
@@ -152,6 +152,7 @@ HARD_FLAG_CHECK_IDS: frozenset[str] = frozenset({
     "SANCTIONS_MATCH",
     "REGISTRY_ENTITY_NOT_FOUND",
     "FORENSIC_HIDDEN_TEXT",
+    "PROMPT_INJECTION",
 })
 
 #: Share of fast-track cases also sent to an analyst for quality assurance
@@ -207,6 +208,13 @@ OCR_MAX_WORKERS: int = int(os.getenv("OCR_MAX_WORKERS", "1"))
 #: Resolution of document pages rendered for the evidence viewer (gldb.viewer)
 VIEWER_DPI: int = 110
 
+#: Whether to screen document text for prompt attacks with a Bedrock
+#: guardrail before any model reads it (gldb.prompt_screen; infra/guardrail.yaml).
+PROMPT_SCREEN_ENABLED: bool = _bool_env("PROMPT_SCREEN_ENABLED", False)
+#: The guardrail and its pinned, immutable version (stack outputs)
+GUARDRAIL_ID: str = os.getenv("GUARDRAIL_ID", "")
+GUARDRAIL_VERSION: str = os.getenv("GUARDRAIL_VERSION", "")
+
 #: Whether to run the Semantic Review Agent (LLM synthesis over the verified
 #: findings, gldb.semantic_review).
 SEMANTIC_REVIEW_ENABLED: bool = _bool_env("SEMANTIC_REVIEW_ENABLED", False)
@@ -233,3 +241,7 @@ TEXTRACT_USD_PER_PAGE: Decimal = Decimal("0.0015")
 MODEL_USD_PER_M_TOKENS: dict[str, tuple[Decimal, Decimal]] = {
     "global.anthropic.claude-sonnet-4-6": (Decimal("3"), Decimal("15")),
 }
+
+#: Bedrock Guardrails content filters (incl. prompt attack), per text unit
+#: (up to 1,000 characters)
+GUARDRAIL_USD_PER_TEXT_UNIT: Decimal = Decimal("0.00015")

@@ -25,7 +25,7 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from gldb.extract_stub import parse_entity_self_cert
-from gldb.intake import contains_quote, read_text
+from gldb.intake import contains_quote, model_view
 from gldb.llm_client import converse, prompt_version
 from gldb.schemas import (
     ApplicationManifest,
@@ -141,7 +141,7 @@ def parse_pack(
         if path is None:
             continue
         if doc.doc_type in _MODELS:
-            pages = read_text(path, visible_only=True, ocr=ocr.get(doc.doc_id))
+            pages = model_view(path, ocr.get(doc.doc_id))
             extracted[doc.doc_type].append(_extract_doc(doc, pages, case_id))
         elif doc.doc_type == "fatca_crs_entity":
             entity_self_certs.append(parse_entity_self_cert(doc.doc_id, path))

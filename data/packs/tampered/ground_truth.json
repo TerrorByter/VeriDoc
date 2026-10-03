@@ -77,7 +77,9 @@
       "check_ids": [
         "FORENSIC_OCR_MISMATCH"
       ],
-      "needs_ocr": true,
+      "requires": [
+        "ocr"
+      ],
       "detail": "revenue shown as SGD 3,850,000.00 image over text layer SGD 1,850,000.00"
     }
   ],

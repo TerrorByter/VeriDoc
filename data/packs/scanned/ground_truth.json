@@ -14,5 +14,7 @@
       "detail": "paid 32,699.50 vs invoiced 32,700.00"
     }
   ],
-  "requires_ocr": true
+  "requires": [
+    "ocr"
+  ]
 }

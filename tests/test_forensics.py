@@ -159,4 +159,4 @@ def test_paths_never_leak_into_serialised_pack(tmp_path: Path) -> None:
 
 def test_forensics_agent_is_registered() -> None:
     agent = next(a for a in AGENTS if a.name == "Forensics")
-    assert len(agent.checks) == 4
+    assert len(agent.checks) == 5

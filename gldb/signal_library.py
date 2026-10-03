@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from gldb.schemas import Signal
 
-RULE_VERSION = "2026-10-04.4"
+RULE_VERSION = "2026-10-04.5"
 
 SIGNALS: tuple[Signal, ...] = (
     # DOC: document integrity and forensics -------------------------------
@@ -46,6 +46,13 @@ SIGNALS: tuple[Signal, ...] = (
     Signal(signal_id="DOC-007", check_id="FORENSIC_OCR_SKIPPED", family="DOC",
            name="Visible-vs-file comparison not run",
            remedy="Re-run the case with OCR turned on."),
+    Signal(signal_id="DOC-008", check_id="PROMPT_INJECTION", family="DOC",
+           name="Instructions aimed at an AI model",
+           remedy="Treat the document as untrusted: obtain it directly from the issuer and check "
+                  "each figure against the original by hand."),
+    Signal(signal_id="DOC-009", check_id="PROMPT_SCREEN_SKIPPED", family="DOC",
+           name="Prompt attack screen not run",
+           remedy="Re-run the case with PROMPT_SCREEN_ENABLED on."),
     # FIN: financial arithmetic --------------------------------------------
     Signal(signal_id="FIN-001", check_id="INV_ARITH", family="FIN",
            name="Invoice arithmetic does not add up",

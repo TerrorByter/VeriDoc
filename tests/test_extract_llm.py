@@ -15,7 +15,7 @@ import pytest
 
 from gldb import extract, extract_llm, extract_stub
 from gldb.extract_stub import parse_pack as stub_parse_pack
-from gldb.intake import intake, load_manifest
+from gldb.intake import intake, load_manifest, read_text
 from gldb.llm_client import LLMResult
 from gldb.ocr import ocr_files
 
@@ -87,7 +87,7 @@ def test_unverifiable_quotes_are_dropped(
         extract_llm, "converse",
         lambda *a, **k: LLMResult(text="", data=data, input_tokens=1, output_tokens=1),
     )
-    inv = extract_llm._extract_doc(inv_doc, extract_llm.read_text(CLEAN / inv_doc.filename))
+    inv = extract_llm._extract_doc(inv_doc, read_text(CLEAN / inv_doc.filename))
     assert "Total" not in inv.source_quotes
     assert inv.source_quotes["Subtotal"] == stub_inv.source_quotes["Subtotal"]
 
@@ -155,7 +155,7 @@ def test_hidden_text_never_reaches_the_llm(monkeypatch: pytest.MonkeyPatch) -> N
     assert "Total:" in seen[0]
     assert "SYSTEM NOTE" not in seen[0] and "ignore all previous" not in seen[0]
     # The default reader still sees it: intake and classification are unchanged.
-    assert "SYSTEM NOTE" in " ".join(extract_llm.read_text(paths[0]))
+    assert "SYSTEM NOTE" in " ".join(read_text(paths[0]))
 
 
 def test_schema_has_no_raw_number_alternatives() -> None:

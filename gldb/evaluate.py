@@ -19,7 +19,11 @@ expected_compliance_check_ids.
 Attack table: each tamper in ground_truth.json names the checks expected to
 catch it (check_ids). It counts as detected only when one of them raises a
 finding on the tampered document itself; a hit elsewhere in the pack is not
-a detection. Attacks marked needs_ocr are "not run" when OCR is off.
+a detection.
+
+Capabilities: a pack or attack may list what it needs ("requires": "ocr",
+"prompt_screen"). A pack needing a capability that is off is skipped; an
+attack needing one is "not run". Neither counts as a miss.
 
 Evidence coverage: the share of risk findings traceable to a document, page
 and quote (gldb.coverage). Anything below 1.0 fails the run.
@@ -33,7 +37,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from gldb.config import OCR_ENABLED, PACKS_DIR
+from gldb.config import OCR_ENABLED, PACKS_DIR, PROMPT_SCREEN_ENABLED
 from gldb.coverage import untraceable
 from gldb.intake import load_manifest
 from gldb.pipeline import assess
@@ -41,12 +45,20 @@ from gldb.schemas import Evidence
 from gldb.signal_library import signal_for
 
 
+#: Optional capabilities and whether this run has them
+CAPABILITIES: dict[str, bool] = {"ocr": OCR_ENABLED, "prompt_screen": PROMPT_SCREEN_ENABLED}
+
+
+def _missing(requires: list[str]) -> list[str]:
+    return [c for c in requires if not CAPABILITIES.get(c, False)]
+
+
 class AttackResult(BaseModel):
     pack: str
     attack: str
     document: str
     detail: str
-    #: True / False, or None when not run (needs OCR and OCR is off)
+    #: True / False, or None when not run (needs a capability that is off)
     detected: bool | None
     signals: list[str] = []
     evidence_ids: list[str] = []
@@ -100,7 +112,7 @@ class Report(BaseModel):
     attack_detection_rate: float
     #: Traceable risk findings / all risk findings
     evidence_coverage: float
-    #: Packs marked requires_ocr, not run because OCR_ENABLED is off
+    #: Packs not run because a capability they require is off
     skipped: list[str] = []
 
 
@@ -124,7 +136,7 @@ def _attacks(pack: str, truth: dict, evidence: list[Evidence] | None) -> list[At
             and e.severity != "info"
         ]
         detected: bool | None = bool(hits)
-        if tamper.get("needs_ocr") and not OCR_ENABLED:
+        if _missing(tamper.get("requires", [])):
             detected = None
         rows.append(AttackResult(
             pack=pack, attack=tamper["type"], document=tamper["doc"], detail=tamper["detail"],
@@ -189,14 +201,14 @@ def _ratio(numerator: int, denominator: int) -> float:
     return numerator / denominator if denominator else 1.0
 
 
-def _requires_ocr(folder: Path) -> bool:
+def _skipped(folder: Path) -> bool:
     truth = json.loads((folder / "ground_truth.json").read_text(encoding="utf-8"))
-    return bool(truth.get("requires_ocr"))
+    return bool(_missing(truth.get("requires", [])))
 
 
 def evaluate(packs_dir: Path) -> Report:
     all_folders = sorted(p for p in packs_dir.iterdir() if (p / "ground_truth.json").is_file())
-    skipped = [] if OCR_ENABLED else [f for f in all_folders if _requires_ocr(f)]
+    skipped = [f for f in all_folders if _skipped(f)]
     folders = [f for f in all_folders if f not in skipped]
     results, tps = zip(*(evaluate_pack(f) for f in folders))
     tp = sum(tps)
@@ -257,7 +269,7 @@ def _print(report: Report) -> None:
         if r.untraceable:
             print(f"untraceable findings in {r.pack}: {', '.join(r.untraceable)}")
     if report.skipped:
-        print(f"skipped (need OCR_ENABLED=true): {', '.join(report.skipped)}")
+        print(f"skipped (a required capability is off): {', '.join(report.skipped)}")
 
 
 def main(argv: list[str]) -> int:

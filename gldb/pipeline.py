@@ -4,7 +4,7 @@ gldb/pipeline.py
 Pipeline orchestration for the gldb-prototype.
 
 Stage functions are named after future LangGraph nodes:
-    ocr -> intake -> classify_and_extract -> run_checks -> score -> route
+    ocr -> intake -> prompt_screen -> classify_and_extract -> run_checks -> score -> route
     -> chains, timeline, investigation -> semantic_review
 
 pack_from_folder is a test helper that builds an ExtractedPack directly
@@ -21,15 +21,24 @@ from pathlib import Path
 from typing import Any
 
 from gldb.audit import log_event
-from gldb.checks import run_agents
-from gldb.config import BEDROCK_MODEL_ID, CASES_DIR, OCR_ENABLED, SEMANTIC_REVIEW_ENABLED
+from gldb.checks import FORM_DOC_TYPES, run_agents
+from gldb.config import (
+    BEDROCK_MODEL_ID,
+    CASES_DIR,
+    GUARDRAIL_ID,
+    GUARDRAIL_VERSION,
+    OCR_ENABLED,
+    PROMPT_SCREEN_ENABLED,
+    SEMANTIC_REVIEW_ENABLED,
+)
 from gldb.coverage import coverage
 from gldb.extract import parse_pack
 from gldb.extract_llm import PROMPT_VERSION as EXTRACT_PROMPT_VERSION
 from gldb.extract_stub import parse_pack as parse_pack_stub
-from gldb.intake import intake, load_manifest
+from gldb.intake import intake, load_manifest, model_view
 from gldb.investigation import build_queue
 from gldb.ocr import OcrResult, ocr_files
+from gldb.prompt_screen import screen
 from gldb.reconciliation import build_chains
 from gldb.reference import versions as reference_versions
 from gldb.routing import route
@@ -84,7 +93,7 @@ def _intake(
     file_paths: list[Path],
     manifest: ApplicationManifest | None,
 ) -> tuple[ExtractedPack, list[Evidence]]:
-    """ocr → intake → classify_and_extract stage.
+    """ocr → intake → prompt_screen → classify_and_extract stage.
 
     OCRs every page once when OCR_ENABLED, then validates, hashes, classifies
     all files and parses their content. Returns the populated ExtractedPack
@@ -93,10 +102,24 @@ def _intake(
     """
     ocr = ocr_files(file_paths, case_id) if OCR_ENABLED else OcrResult()
     docs = intake(case_id, file_paths, ocr.text)
+    screened = None
+    if PROMPT_SCREEN_ENABLED:
+        # Screen exactly what a model would read; forms never go to a model
+        paths = {p.stem: p for p in file_paths}
+        screened = screen({
+            d.doc_id: model_view(paths[d.doc_id], ocr.text.get(d.doc_id))
+            for d in docs if d.doc_type not in FORM_DOC_TYPES
+        }, case_id)
     pack = parse_pack(case_id, docs, file_paths, manifest, ocr.text)
-    pack = pack.model_copy(update={"ocr_confidence": ocr.confidence})
+    pack = pack.model_copy(update={"ocr_confidence": ocr.confidence, "prompt_screen": screened})
     stage_evidence: list[Evidence] = []
     return pack, stage_evidence
+
+
+def screen_ledger(screened: bool) -> dict[str, Any]:
+    """Which guardrail version screened the case, for the audit log."""
+    return {"prompt_screen": {"guardrail_id": GUARDRAIL_ID, "version": GUARDRAIL_VERSION}
+            if screened else None}
 
 
 def model_ledger(extraction_mode: str, reviewed: bool) -> dict[str, Any]:
@@ -241,6 +264,7 @@ def run(
             "rule_version": risk.rule_version,
             "reference_data": reference_versions(),
             **model_ledger(pack.extraction_mode, result.review is not None),
+            **screen_ledger(pack.prompt_screen is not None),
             "evidence_coverage": coverage(evidence, pack),
             "evidence_count_by_category": category_counts,
             "extraction_mode": pack.extraction_mode,

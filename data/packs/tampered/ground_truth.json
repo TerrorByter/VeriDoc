@@ -11,7 +11,8 @@
     "BANK_RUNNING_BAL",
     "BANK_CONTINUITY",
     "FORENSIC_HIDDEN_TEXT",
-    "XDOC_PO_INVOICE"
+    "XDOC_PO_INVOICE",
+    "XDOC_BL_INVOICE"
   ],
   "expected_check_ids_ocr": [
     "FORENSIC_OCR_MISMATCH"
@@ -42,6 +43,11 @@
       "doc": "invoice_INV-1002",
       "type": "prompt_injection",
       "detail": "hidden white-text instruction near page bottom"
+    },
+    {
+      "doc": "invoice_INV-1002",
+      "type": "over_invoiced_vs_shipment",
+      "detail": "300 rope / 85 fittings invoiced vs 100 / 50 shipped on BL-3002"
     },
     {
       "doc": "fs_summary",

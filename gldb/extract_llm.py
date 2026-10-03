@@ -30,6 +30,7 @@ from gldb.llm_client import converse
 from gldb.schemas import (
     ApplicationManifest,
     BankStatement,
+    BillOfLading,
     DocMeta,
     ExtractedPack,
     FinancialStatementSummary,
@@ -47,7 +48,8 @@ _SYSTEM = (
     "YYYY-MM-DD. In source_quotes, give short verbatim excerpts of the "
     "document that support the figures (Invoice: keys 'Subtotal', "
     "'GST (9%)', 'Total'; purchase order: key 'Total'; bank statement: key = transaction description, "
-    "value = the transaction line)."
+    "value = the transaction line; bill of lading: key = 'Quantity ' + goods description, "
+    "value = the goods line)."
 )
 
 _MODELS: dict[str, type[BaseModel]] = {
@@ -55,6 +57,7 @@ _MODELS: dict[str, type[BaseModel]] = {
     "bank_statement": BankStatement,
     "financial_statements": FinancialStatementSummary,
     "purchase_order": PurchaseOrder,
+    "bill_of_lading": BillOfLading,
 }
 
 #: Fields set by the pipeline, not by the model.
@@ -127,12 +130,7 @@ def parse_pack(
     """LLM counterpart of extract_stub.parse_pack (same signature)."""
     ocr = ocr or {}
     path_map = {p.stem: p for p in pdf_paths}
-    extracted: dict[str, list[Any]] = {
-        "invoice": [],
-        "bank_statement": [],
-        "financial_statements": [],
-        "purchase_order": [],
-    }
+    extracted: dict[str, list[Any]] = {doc_type: [] for doc_type in _MODELS}
     entity_self_certs = []
 
     for doc in docs:
@@ -152,6 +150,7 @@ def parse_pack(
         bank_statements=extracted["bank_statement"],
         financial_statements=extracted["financial_statements"],
         purchase_orders=extracted["purchase_order"],
+        bills_of_lading=extracted["bill_of_lading"],
         entity_self_certs=entity_self_certs,
         manifest=manifest,
         extraction_mode="llm",

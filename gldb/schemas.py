@@ -81,6 +81,29 @@ class PurchaseOrder(BaseModel):
     source_quotes: dict[str, str] = {}
 
 
+class ShippedGoods(BaseModel):
+    description: str
+    quantity: int
+
+
+class BillOfLading(BaseModel):
+    """Trade record: the carrier's receipt for goods shipped. Ties to an
+    invoice by its invoice reference."""
+
+    doc_id: str
+    bl_number: str
+    shipped_date: date
+    shipper_name: str
+    consignee_name: str
+    vessel: str
+    port_of_loading: str
+    port_of_discharge: str
+    invoice_reference: str
+    goods: list[ShippedGoods]
+    page: int = 1
+    source_quotes: dict[str, str] = {}
+
+
 class Transaction(BaseModel):
     date: date
     description: str
@@ -234,6 +257,7 @@ DocType = Literal[
     "bank_statement",
     "financial_statements",
     "purchase_order",
+    "bill_of_lading",
     "fatca_crs_entity",
     "fatca_crs_individual",
     "unknown",
@@ -263,6 +287,7 @@ class ExtractedPack(BaseModel):
     bank_statements: list[BankStatement]
     financial_statements: list[FinancialStatementSummary]
     purchase_orders: list[PurchaseOrder] = []
+    bills_of_lading: list[BillOfLading] = []
     entity_self_certs: list[EntitySelfCert] = []
     manifest: ApplicationManifest | None = None
     extraction_mode: Literal["llm", "stub", "mixed"]

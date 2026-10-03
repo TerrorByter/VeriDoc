@@ -30,6 +30,7 @@ from gldb.schemas import (
     Address,
     ApplicationManifest,
     BankStatement,
+    BillOfLading,
     ControllingPerson,
     DocMeta,
     EntitySelfCert,
@@ -37,6 +38,7 @@ from gldb.schemas import (
     Invoice,
     LineItem,
     PurchaseOrder,
+    ShippedGoods,
     Signatory,
     TaxResidencyRow,
     Transaction,
@@ -179,6 +181,51 @@ def _parse_purchase_order(doc_id: str, pages: list[str]) -> PurchaseOrder:
         page=1,
         source_quotes={
             "Total": l.strip() for l in lines if l.startswith(f"{total_label}:")
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Bill of lading parser
+# ---------------------------------------------------------------------------
+
+def _parse_bill_of_lading(doc_id: str, pages: list[str]) -> BillOfLading:
+    lines = [l for l in (pages[0] if pages else "").splitlines() if l.strip()]
+
+    def _get(label: str) -> str:
+        for l in lines:
+            if l.startswith(f"{label}:"):
+                return l.split(":", 1)[1].strip()
+        return ""
+
+    goods: list[ShippedGoods] = []
+    in_table = False
+    for l in lines:
+        if not in_table:
+            in_table = (_cells(l, 2) or []) == ["Description", "Quantity"]
+            continue
+        parts = _cells(l, 2)
+        try:
+            if parts is None:
+                raise ValueError
+            goods.append(ShippedGoods(description=parts[0], quantity=int(parts[1])))
+        except ValueError:
+            raise _row_error(doc_id, l) from None
+
+    return BillOfLading(
+        doc_id=doc_id,
+        bl_number=_get("B/L No"),
+        shipped_date=_parse_date(_get("Shipped on Board")),
+        shipper_name=_get("Shipper"),
+        consignee_name=_get("Consignee"),
+        vessel=_get("Vessel"),
+        port_of_loading=_get("Port of Loading"),
+        port_of_discharge=_get("Port of Discharge"),
+        invoice_reference=_get("Invoice Ref"),
+        goods=goods,
+        page=1,
+        source_quotes={
+            f"Quantity {g.description}": f"{g.description} | {g.quantity}" for g in goods
         },
     )
 
@@ -534,6 +581,7 @@ def parse_pack(
     bank_statements = []
     financial_statements = []
     purchase_orders = []
+    bills_of_lading = []
     entity_self_certs = []
 
     for doc in docs:
@@ -550,6 +598,8 @@ def parse_pack(
             financial_statements.append(_parse_fs_summary(doc.doc_id, pages))
         elif doc.doc_type == "purchase_order":
             purchase_orders.append(_parse_purchase_order(doc.doc_id, pages))
+        elif doc.doc_type == "bill_of_lading":
+            bills_of_lading.append(_parse_bill_of_lading(doc.doc_id, pages))
         elif doc.doc_type == "fatca_crs_entity":
             entity_self_certs.append(parse_entity_self_cert(doc.doc_id, p))
 
@@ -560,6 +610,7 @@ def parse_pack(
         bank_statements=bank_statements,
         financial_statements=financial_statements,
         purchase_orders=purchase_orders,
+        bills_of_lading=bills_of_lading,
         entity_self_certs=entity_self_certs,
         manifest=manifest,
         extraction_mode="stub",

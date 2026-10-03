@@ -487,6 +487,50 @@ def check_xdoc_po_invoice(pack: ExtractedPack) -> list[Evidence]:
     return results
 
 
+def check_xdoc_bl_invoice(pack: ExtractedPack) -> list[Evidence]:
+    """Invoiced quantities should not exceed what the bill of lading shows
+    was shipped: billing for more goods than were shipped is the classic
+    over-invoicing red flag in trade-based money laundering.
+
+    Only runs when the pack contains bills of lading, which link to an invoice
+    by their invoice reference. Invoice lines absent from the bill of lading
+    (services, which are never shipped) are not flagged.
+    """
+    results: list[Evidence] = []
+    if not pack.bills_of_lading:
+        return results
+
+    for inv in pack.invoices:
+        bls = [b for b in pack.bills_of_lading if b.invoice_reference == inv.invoice_number]
+        if not bls:
+            results.append(_ev(
+                "XDOC_BL_INVOICE", "fraud_signal", "medium", inv.doc_id, inv.page, 0.7,
+                f"No bill of lading in the pack refers to invoice {inv.invoice_number}, "
+                "so the goods billed cannot be traced to a shipment.",
+                expected=f"bill of lading referring to {inv.invoice_number}",
+                observed="none",
+            ))
+            continue
+        shipped: dict[str, tuple[int, str]] = {}
+        for bl in bls:
+            for g in bl.goods:
+                key = normalise_name(g.description)
+                total, _ = shipped.get(key, (0, ""))
+                shipped[key] = (total + g.quantity, bl.bl_number)
+        for item in inv.line_items:
+            match = shipped.get(normalise_name(item.description))
+            if match and item.quantity > match[0]:
+                qty, bl_number = match
+                results.append(_ev(
+                    "XDOC_BL_INVOICE", "fraud_signal", "high", inv.doc_id, inv.page, 0.95,
+                    f"Invoice {inv.invoice_number} bills {item.quantity} x '{item.description}' "
+                    f"but bill of lading {bl_number} shows only {qty} shipped.",
+                    expected=f"at most {qty} shipped ({bl_number})",
+                    observed=f"{item.quantity} invoiced",
+                ))
+    return results
+
+
 # 7. META_MOD_AFTER_CREATE -----------------------------------------------
 
 def check_meta_mod_after_create(pack: ExtractedPack) -> list[Evidence]:
@@ -1290,8 +1334,9 @@ AGENTS: list[Agent] = [
     ),
     Agent(
         "Cross-Document",
-        "Consistency of identity and amounts across invoices, purchase orders, bank and statements.",
-        [check_xdoc_identity, check_xdoc_invoice_bank, check_xdoc_po_invoice],
+        "Consistency of identity, amounts and quantities across invoices, purchase orders, "
+        "bills of lading, bank and statements.",
+        [check_xdoc_identity, check_xdoc_invoice_bank, check_xdoc_po_invoice, check_xdoc_bl_invoice],
     ),
     Agent(
         "Compliance & Completeness",

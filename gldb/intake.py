@@ -203,6 +203,7 @@ _DOC_KEYWORDS: list[tuple[str, DocType]] = [
     ("STATEMENT OF ACCOUNT", "bank_statement"),
     ("FINANCIAL STATEMENTS SUMMARY", "financial_statements"),
     ("PURCHASE ORDER", "purchase_order"),
+    ("BILL OF LADING", "bill_of_lading"),
 ]
 
 

@@ -147,6 +147,8 @@ BASE_FILES = {
     "fatca_crs_entity.pdf",
     "purchase_order_PO-2001.pdf",
     "purchase_order_PO-2002.pdf",
+    "bill_of_lading_BL-3001.pdf",
+    "bill_of_lading_BL-3002.pdf",
     "application.json",
     "ground_truth.json",
 }
@@ -286,7 +288,7 @@ def test_tampered_ground_truth(packs):
     expected_ids = {
         "XDOC_INVOICE_BANK", "XDOC_IDENTITY", "META_MOD_AFTER_CREATE",
         "META_PRODUCER_MISMATCH", "BANK_RUNNING_BAL", "BANK_CONTINUITY",
-        "FORENSIC_HIDDEN_TEXT", "XDOC_PO_INVOICE",
+        "FORENSIC_HIDDEN_TEXT", "XDOC_PO_INVOICE", "XDOC_BL_INVOICE",
     }
     assert set(gt["expected_check_ids"]) == expected_ids
     assert gt["expected_compliance_check_ids"] == []
@@ -294,6 +296,7 @@ def test_tampered_ground_truth(packs):
     assert tamper_types == {
         "amount_inflated", "uen_mismatch", "metadata_edited",
         "closing_balance_altered", "prompt_injection", "figure_pasted_as_image",
+        "over_invoiced_vs_shipment",
     }
     # New tamper references bank_statement_2026-06, not bank_statement
     docs = {t["doc"] for t in gt["tampers"] if t["type"] == "closing_balance_altered"}

@@ -236,6 +236,34 @@ def _render_purchase_order(
     doc.save()
 
 
+def _render_bill_of_lading(
+    path: Path,
+    *,
+    number: str,
+    shipper: str,
+    consignee: str,
+    shipped: date,
+    invoice_ref: str,
+    goods: list[tuple[str, int]],
+) -> None:
+    doc = _Doc(path)
+    doc.line("BILL OF LADING")
+    doc.blank()
+    doc.line(f"B/L No: {number}")
+    doc.line(f"Shipper: {shipper}")
+    doc.line(f"Consignee: {consignee}")
+    doc.line(f"Vessel: {BL_VESSEL}")
+    doc.line(f"Port of Loading: {BL_PORT_OF_LOADING}")
+    doc.line(f"Port of Discharge: {BL_PORT_OF_DISCHARGE}")
+    doc.line(f"Shipped on Board: {shipped.isoformat()}")
+    doc.line(f"Invoice Ref: {invoice_ref}")
+    doc.blank()
+    doc.line("Description | Quantity")
+    for desc, qty in goods:
+        doc.line(f"{desc} | {qty}")
+    doc.save()
+
+
 def _render_bank_statement(
     path: Path,
     *,
@@ -644,6 +672,19 @@ PURCHASE_ORDERS = [
 ]
 PO_LEAD_DAYS = 14
 
+#: Bills of lading: what was actually shipped for each invoice (goods only;
+#: services are never shipped). Identical in every pack, so the tampered
+#: INV-1002's inflated quantities exceed the shipment.
+BL_VESSEL = "MV Straits Pioneer"
+BL_PORT_OF_LOADING = "Singapore"
+BL_PORT_OF_DISCHARGE = "Port Klang"
+BL_SHIP_DAYS_BEFORE_INVOICE = 3
+BILLS_OF_LADING = [
+    ("BL-3001", INV1001_BUYER, INV1001_DATE, "INV-1001", [("LED panel lights", 200)]),
+    ("BL-3002", INV1002_BUYER, INV1002_DATE, "INV-1002",
+     [(desc, qty) for desc, qty, _, _ in INV1002_ITEMS_CLEAN]),
+]
+
 
 def _write_purchase_orders(out_dir: Path) -> None:
     """Write PO-2001 and PO-2002 into *out_dir*."""
@@ -655,6 +696,18 @@ def _write_purchase_orders(out_dir: Path) -> None:
             number=number, po_date=po_date, line_items=items, total=total,
         )
         _set_metadata(path, PRODUCER_REPORTLAB, _sgt(po_date), _sgt(po_date))
+
+
+def _write_bills_of_lading(out_dir: Path) -> None:
+    """Write BL-3001 and BL-3002 into *out_dir*."""
+    for number, consignee, invoice_date, invoice_ref, goods in BILLS_OF_LADING:
+        shipped = invoice_date - timedelta(days=BL_SHIP_DAYS_BEFORE_INVOICE)
+        path = out_dir / f"bill_of_lading_{number}.pdf"
+        _render_bill_of_lading(
+            path, number=number, shipper=SELLER, consignee=consignee,
+            shipped=shipped, invoice_ref=invoice_ref, goods=goods,
+        )
+        _set_metadata(path, PRODUCER_REPORTLAB, _sgt(shipped), _sgt(shipped))
 
 
 def _write_application_json(out_dir: Path) -> None:
@@ -681,6 +734,7 @@ def _generate_clean(out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     _write_invoices_and_fs(out_dir, tampered_inv1002=False)
     _write_purchase_orders(out_dir)
+    _write_bills_of_lading(out_dir)
     _write_bank_statements(out_dir, BS_MONTHS)
     _write_application_json(out_dir)
     _write_entity_form(out_dir, ENTITY_FORM_VALUES_CLEAN)
@@ -708,6 +762,7 @@ def _generate_tampered(out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     _write_invoices_and_fs(out_dir, tampered_inv1002=True)
     _write_purchase_orders(out_dir)
+    _write_bills_of_lading(out_dir)
     _write_bank_statements(out_dir, BS_MONTHS, tampered_jun_closing=True)
     _write_application_json(out_dir)
     _write_entity_form(out_dir, ENTITY_FORM_VALUES_CLEAN)  # entity form identical to clean
@@ -725,6 +780,7 @@ def _generate_tampered(out_dir: Path) -> None:
             "BANK_CONTINUITY",
             "FORENSIC_HIDDEN_TEXT",
             "XDOC_PO_INVOICE",
+            "XDOC_BL_INVOICE",
         ],
         # Fire only when the OCR stage runs (OCR_ENABLED)
         "expected_check_ids_ocr": ["FORENSIC_OCR_MISMATCH"],
@@ -735,6 +791,7 @@ def _generate_tampered(out_dir: Path) -> None:
             {"doc": "invoice_INV-1002",      "type": "metadata_edited",        "detail": "ModDate 2026-07-26 22:14 is 21+ days after CreationDate 2026-07-05"},
             {"doc": "bank_statement_2026-06","type": "closing_balance_altered","detail": "closing balance 159,449.50 inconsistent with running total 129,449.50"},
             {"doc": "invoice_INV-1002",      "type": "prompt_injection",       "detail": "hidden white-text instruction near page bottom"},
+            {"doc": "invoice_INV-1002",      "type": "over_invoiced_vs_shipment", "detail": "300 rope / 85 fittings invoiced vs 100 / 50 shipped on BL-3002"},
             {"doc": "fs_summary",            "type": "figure_pasted_as_image", "detail": "revenue shown as SGD 3,850,000.00 image over text layer SGD 1,850,000.00"},
         ],
         "benign": [
@@ -752,6 +809,7 @@ def _generate_incomplete(out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     _write_invoices_and_fs(out_dir, tampered_inv1002=False)
     _write_purchase_orders(out_dir)
+    _write_bills_of_lading(out_dir)
     _write_bank_statements(out_dir, BS_MONTHS, skip_month=4)  # omit April
     _write_application_json(out_dir)
     _write_entity_form(out_dir, ENTITY_FORM_VALUES_INCOMPLETE)
@@ -831,6 +889,8 @@ def _verify_pack(pack_dir: Path, tampered_inv1002: bool = False) -> None:
     _verify_metadata(pack_dir / "fs_summary.pdf",       PRODUCER_REPORTLAB, True)
     for number, *_ in PURCHASE_ORDERS:
         _verify_metadata(pack_dir / f"purchase_order_{number}.pdf", PRODUCER_REPORTLAB, True)
+    for number, *_ in BILLS_OF_LADING:
+        _verify_metadata(pack_dir / f"bill_of_lading_{number}.pdf", PRODUCER_REPORTLAB, True)
     if tampered_inv1002:
         meta = _read_metadata(pack_dir / "invoice_INV-1002.pdf")
         assert meta.get("/Producer") == PRODUCER_TAMPERED

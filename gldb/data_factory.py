@@ -677,6 +677,8 @@ PURCHASE_ORDERS = [
     ("PO-2002", INV1002_BUYER, INV1002_DATE, INV1002_ITEMS_CLEAN, INV1002_TOTAL_CLEAN),
 ]
 PO_LEAD_DAYS = 14
+#: Retrospective PO (retro_po pack): dated this many days after its invoice
+RETRO_PO_DAYS_AFTER_INVOICE = 10
 
 #: Bills of lading: what was actually shipped for each invoice (goods only;
 #: services are never shipped). Identical in every pack, so the tampered
@@ -692,11 +694,17 @@ BILLS_OF_LADING = [
 ]
 
 
-def _write_purchase_orders(out_dir: Path, buyer_1002: str = INV1002_BUYER) -> None:
-    """Write PO-2001 and PO-2002 (placed by *buyer_1002*) into *out_dir*."""
+def _write_purchase_orders(
+    out_dir: Path, buyer_1002: str = INV1002_BUYER, retro: str | None = None,
+) -> None:
+    """Write PO-2001 and PO-2002 (placed by *buyer_1002*) into *out_dir*.
+    The PO numbered *retro* is dated after its invoice instead of before."""
     for number, buyer, invoice_date, items, total in PURCHASE_ORDERS:
         buyer = buyer_1002 if buyer == INV1002_BUYER else buyer
-        po_date = invoice_date - timedelta(days=PO_LEAD_DAYS)
+        po_date = (
+            invoice_date + timedelta(days=RETRO_PO_DAYS_AFTER_INVOICE) if number == retro
+            else invoice_date - timedelta(days=PO_LEAD_DAYS)
+        )
         path = out_dir / f"purchase_order_{number}.pdf"
         _render_purchase_order(
             path, buyer=buyer, seller=SELLER, seller_uen=SELLER_UEN_CLEAN,
@@ -881,6 +889,41 @@ def _generate_sanctioned(out_dir: Path) -> None:
     (out_dir / "ground_truth.json").write_text(json.dumps(truth, indent=2))
 
 
+#: Retrospective PO pack: PO-2002 is dated after the invoice and the shipment
+#: it should have preceded, as when an order is raised afterwards to support
+#: a sale on paper. Amounts all agree, so only the dates give it away.
+RETRO_PO = "PO-2002"
+
+
+def _generate_retro_po(out_dir: Path) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    _write_invoices_and_fs(out_dir)
+    _write_purchase_orders(out_dir, retro=RETRO_PO)
+    _write_bills_of_lading(out_dir)
+    _write_bank_statements(out_dir, BS_MONTHS)
+    _write_application_json(out_dir)
+    _write_entity_form(out_dir, ENTITY_FORM_VALUES_CLEAN)
+    truth = {
+        "pack": "retro_po",
+        "expected_band": "Medium",
+        "expected_path": "standard_review",
+        "expected_readiness": "Complete",
+        "expected_check_ids": ["TEMP_TRADE_SEQUENCE"],
+        "expected_check_ids_ocr": [],
+        "expected_compliance_check_ids": [],
+        "tampers": [
+            {"doc": "invoice_INV-1002", "type": "invoice_before_order",
+             "detail": f"invoiced 2026-07-05, before {RETRO_PO} dated 2026-07-15"},
+            {"doc": "bill_of_lading_BL-3002", "type": "shipped_before_order",
+             "detail": f"shipped 2026-07-02, before {RETRO_PO} dated 2026-07-15"},
+        ],
+        "benign": [
+            {"doc": "invoice_INV-1001", "type": "rounding", "detail": "paid 32,699.50 vs invoiced 32,700.00"},
+        ],
+    }
+    (out_dir / "ground_truth.json").write_text(json.dumps(truth, indent=2))
+
+
 def _scan(src: Path, dst: Path) -> None:
     """Write *src* as an image-only PDF (no text layer), keeping its metadata."""
     with pdfplumber.open(str(src)) as pdf:
@@ -960,17 +1003,20 @@ def generate_packs(base_dir: str | Path = "data/packs") -> None:
     _generate_incomplete(base / "incomplete")
     _generate_scanned(base / "clean", base / "scanned")
     _generate_sanctioned(base / "sanctioned")
+    _generate_retro_po(base / "retro_po")
     _verify_pack(base / "clean",    tampered_inv1002=False)
     _verify_pack(base / "tampered", tampered_inv1002=True)
     _verify_pack(base / "incomplete", tampered_inv1002=False)
     _verify_pack(base / "scanned", tampered_inv1002=False)
     _verify_pack(base / "sanctioned", tampered_inv1002=False)
+    _verify_pack(base / "retro_po", tampered_inv1002=False)
     print("Packs generated and verified.")
     print(f"  clean/      -> {base / 'clean'}")
     print(f"  tampered/   -> {base / 'tampered'}")
     print(f"  incomplete/ -> {base / 'incomplete'}")
     print(f"  scanned/    -> {base / 'scanned'}")
     print(f"  sanctioned/ -> {base / 'sanctioned'}")
+    print(f"  retro_po/   -> {base / 'retro_po'}")
 
 
 if __name__ == "__main__":

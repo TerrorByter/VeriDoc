@@ -49,7 +49,7 @@ def test_case_reports_each_agent_and_tags_evidence(client: TestClient) -> None:
     names = [a["name"] for a in case["agent_reports"]]
     assert names == [
         "Document Integrity", "Forensics", "Cross-Document", "Registry & Screening",
-        "Compliance & Completeness",
+        "Timeline", "Compliance & Completeness",
     ]
     assert {e["agent"] for e in case["evidence"]} <= set(names)
     fraud = [e for e in case["evidence"] if e["category"] == "fraud_signal"]
@@ -58,6 +58,13 @@ def test_case_reports_each_agent_and_tags_evidence(client: TestClient) -> None:
 
 def test_clean_pack_is_low(client: TestClient) -> None:
     assert _case(client, "clean")["risk"]["band"] == "Low"
+
+
+def test_case_has_timeline_and_investigation_queue(client: TestClient) -> None:
+    case = _case(client, "retro_po")
+    assert [t["check_id"] for t in case["investigation"]] == ["TEMP_TRADE_SEQUENCE"] * 2
+    flagged = [e for e in case["timeline"] if e["evidence_ids"]]
+    assert {e["kind"] for e in flagged} == {"invoice", "shipped"}
 
 
 def test_unknown_pack_and_bad_case_ids_are_404(client: TestClient) -> None:

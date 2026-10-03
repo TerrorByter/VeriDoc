@@ -282,3 +282,30 @@ select:hover, select:focus-visible { border-color: var(--accent); outline: none;
 .chain-contradicts, .chain-missing { border-color: hsl(350 82% 64% / 0.55); }
 .chain-not_provided { opacity: 0.6; }
 .chain-note { font-size: 0.85rem; margin: 0.35rem 0 0; }
+
+/* Investigation queue */
+.queue { list-style: none; margin: 0.75rem 0 0; padding: 0; display: grid; gap: 0.7rem; counter-reset: task; }
+.task {
+  --prio: var(--sev-medium);
+  position: relative; padding: 0.75rem 0.9rem 0.75rem 2.6rem; border-radius: 12px;
+  border: 1px solid var(--border); border-left: 4px solid var(--prio);
+  background: hsl(232 30% 10% / 0.55); transition: transform 0.15s, background 0.15s, opacity 0.2s;
+}
+.task::before {
+  counter-increment: task; content: counter(task);
+  position: absolute; left: 0.75rem; top: 0.8rem; width: 1.3rem; height: 1.3rem; border-radius: 50%;
+  display: grid; place-items: center; font: 700 0.72rem var(--font-body);
+  color: hsl(232 40% 8%); background: var(--prio);
+}
+.task:hover { transform: translateX(2px); background: hsl(232 30% 12% / 0.8); }
+.task.done { opacity: 0.55; }
+.prio-urgent { --prio: var(--sev-critical); }
+.prio-high { --prio: var(--sev-high); }
+.prio-normal { --prio: var(--sev-low); }
+.prio {
+  text-transform: uppercase; font: 700 0.68rem var(--font-body); letter-spacing: 0.06em;
+  padding: 0.1rem 0.5rem; border-radius: 6px; color: var(--prio);
+  border: 1px solid var(--prio); background: color-mix(in srgb, var(--prio) 14%, transparent);
+}
+.task-remedy { margin: 0 0 0.35rem; font-size: 0.9rem; }
+.task-change { margin: 0; font-size: 0.83rem; }

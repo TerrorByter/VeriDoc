@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from gldb.schemas import Signal
 
-RULE_VERSION = "2026-10-04.3"
+RULE_VERSION = "2026-10-04.4"
 
 SIGNALS: tuple[Signal, ...] = (
     # DOC: document integrity and forensics -------------------------------
@@ -85,6 +85,15 @@ SIGNALS: tuple[Signal, ...] = (
     Signal(signal_id="REG-005", check_id="REGISTRY_SIGNATORY_NOT_OFFICER", family="REG",
            name="Signatory not a registered officer",
            remedy="Request the board resolution authorising the signatory, and verify identity."),
+    # TEMP: temporal consistency ------------------------------------------
+    Signal(signal_id="TEMP-001", check_id="TEMP_BEFORE_INCORPORATION", family="TEMP",
+           name="Dated before the company existed",
+           remedy="Check the incorporation date with ACRA; ask the applicant which entity issued "
+                  "or received the document."),
+    Signal(signal_id="TEMP-002", check_id="TEMP_TRADE_SEQUENCE", family="TEMP",
+           name="Trade steps out of order",
+           remedy="Ask the buyer to confirm when the order was placed; request the original "
+                  "order email or the buyer's procurement record."),
     # COMP: compliance and completeness (never scored; drive readiness) ----
     Signal(signal_id="COMP-001", check_id="BANK_COVERAGE", family="COMP",
            name="Bank statements do not cover the required period",

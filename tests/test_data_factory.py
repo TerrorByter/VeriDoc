@@ -316,6 +316,17 @@ def test_incomplete_ground_truth(packs):
     }
     assert set(gt["expected_compliance_check_ids"]) == expected_compliance
 
+@needs_templates
+def test_retro_po_pack_dates_po_2002_after_its_invoice(packs):
+    folder = packs / "retro_po"
+    assert {p.name for p in folder.iterdir()} == BASE_FILES | _bank_files()
+    text = pdfplumber.open(folder / "purchase_order_PO-2002.pdf").pages[0].extract_text()
+    assert "PO Date: 2026-07-15" in text
+    gt = json.loads((folder / "ground_truth.json").read_text())
+    assert (gt["expected_band"], gt["expected_path"]) == ("Medium", "standard_review")
+    assert gt["expected_check_ids"] == ["TEMP_TRADE_SEQUENCE"]
+
+
 # ---------------------------------------------------------------------------
 # application.json validates as ApplicationManifest
 # ---------------------------------------------------------------------------

@@ -46,10 +46,12 @@ from gldb.schemas import (
     CaseStatus,
     DocMeta,
     Evidence,
+    InvestigationTask,
     ReadinessResult,
     ReasonCode,
     RiskResult,
     Routing,
+    TimelineEvent,
     TransactionChain,
 )
 
@@ -75,6 +77,8 @@ class CaseView(BaseModel):
     readiness: ReadinessResult | None
     routing: Routing | None
     chains: list[TransactionChain]
+    timeline: list[TimelineEvent]
+    investigation: list[InvestigationTask]
     summary: str | None
     extraction_mode: str
     status: CaseStatus
@@ -124,6 +128,8 @@ def _view(result: CaseResult) -> CaseView:
         readiness=result.readiness,
         routing=result.routing,
         chains=result.chains,
+        timeline=result.timeline,
+        investigation=result.investigation,
         summary=result.summary,
         extraction_mode=result.pack.extraction_mode,
         status=status,

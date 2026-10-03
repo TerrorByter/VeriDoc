@@ -56,7 +56,12 @@ from gldb.schemas import (
     ApplicationManifest,
     EntitySelfCert,
     Evidence,
+    EvidenceCategory,
     ExtractedPack,
+    Invoice,
+    PurchaseOrder,
+    Severity,
+    TimelineEvent,
 )
 
 # ---------------------------------------------------------------------------
@@ -74,8 +79,8 @@ _EVIDENCE_DOC_PLACEHOLDER = "pack"   # for cross-document evidence with no singl
 
 def _ev(
     check_id: str,
-    category: str,
-    severity: str,
+    category: EvidenceCategory,
+    severity: Severity,
     document: str,
     page: int,
     confidence: float,
@@ -88,8 +93,8 @@ def _ev(
     return Evidence(
         evidence_id="",   # assigned later by run_agents
         check_id=check_id,
-        category=category,          # type: ignore[arg-type]
-        severity=severity,          # type: ignore[arg-type]
+        category=category,
+        severity=severity,
         document=document,
         page=page,
         quote=quote,
@@ -442,23 +447,29 @@ def check_xdoc_invoice_bank(pack: ExtractedPack) -> list[Evidence]:
 
 # 6b. XDOC_PO_INVOICE ----------------------------------------------------
 
+def matching_po(inv: Invoice, pack: ExtractedPack) -> PurchaseOrder | None:
+    """The purchase order an invoice relates to: from the same buyer, with
+    the closest total. None when that buyer placed no order."""
+    buyer = normalise_name(inv.buyer_name)
+    orders = [po for po in pack.purchase_orders if normalise_name(po.buyer_name) == buyer]
+    return min(orders, key=lambda p: abs(p.total - inv.total)) if orders else None
+
+
 def check_xdoc_po_invoice(pack: ExtractedPack) -> list[Evidence]:
     """Each invoice should be backed by a purchase order from the same buyer.
 
     Only runs when the pack contains purchase orders. Billing less than the
-    order is normal (partial delivery); billing more, billing before the
-    order was placed, or billing a buyer with no order is flagged.
+    order is normal (partial delivery); billing more, or billing a buyer with
+    no order, is flagged. Billing before the order was placed is a date-order
+    break, reported by TEMP_TRADE_SEQUENCE.
     """
     results: list[Evidence] = []
     if not pack.purchase_orders:
         return results
 
     for inv in pack.invoices:
-        buyer = normalise_name(inv.buyer_name)
-        matches = [
-            po for po in pack.purchase_orders if normalise_name(po.buyer_name) == buyer
-        ]
-        if not matches:
+        po = matching_po(inv, pack)
+        if po is None:
             results.append(_ev(
                 "XDOC_PO_INVOICE", "fraud_signal", "medium", inv.doc_id, inv.page, 0.7,
                 f"Invoice {inv.invoice_number} bills '{inv.buyer_name}' but none of the "
@@ -466,10 +477,7 @@ def check_xdoc_po_invoice(pack: ExtractedPack) -> list[Evidence]:
                 expected=f"purchase order from {inv.buyer_name}",
                 observed="none",
             ))
-            continue
-
-        po = min(matches, key=lambda p: abs(p.total - inv.total))
-        if inv.total - po.total > TOLERANCE_SGD:
+        elif inv.total - po.total > TOLERANCE_SGD:
             results.append(_ev(
                 "XDOC_PO_INVOICE", "fraud_signal", "high", inv.doc_id, inv.page, 0.95,
                 f"Invoice {inv.invoice_number} total SGD {inv.total} exceeds purchase "
@@ -477,14 +485,6 @@ def check_xdoc_po_invoice(pack: ExtractedPack) -> list[Evidence]:
                 quote=inv.source_quotes.get("Total"),
                 expected=f"at most SGD {po.total}",
                 observed=f"SGD {inv.total}",
-            ))
-        if inv.invoice_date < po.po_date:
-            results.append(_ev(
-                "XDOC_PO_INVOICE", "fraud_signal", "medium", inv.doc_id, inv.page, 0.9,
-                f"Invoice {inv.invoice_number} is dated {inv.invoice_date}, before its "
-                f"purchase order {po.po_number} ({po.po_date}).",
-                expected=f"on or after {po.po_date}",
-                observed=str(inv.invoice_date),
             ))
 
     return results
@@ -1401,6 +1401,126 @@ def check_sanctions(pack: ExtractedPack) -> list[Evidence]:
 
 
 # ---------------------------------------------------------------------------
+# H. TEMPORAL CONSISTENCY
+# Evidence "observed" holds the date found wrong, so gldb.timeline can mark
+# the exact event a finding is about.
+# ---------------------------------------------------------------------------
+
+def incorporation(manifest: ApplicationManifest) -> tuple[date, str]:
+    """The applicant's incorporation date and its source: the company
+    register when it lists the UEN, otherwise the application itself."""
+    reg = registry()
+    entity = reg.entities.get(manifest.uen)
+    if entity is not None:
+        return entity.incorporated, f"the company register ({reg.version})"
+    return manifest.date_of_incorporation, "the application"
+
+
+def dated_facts(pack: ExtractedPack) -> list[TimelineEvent]:
+    """Every dated fact the pack states, unsorted. Trade facts carry the
+    invoice they belong to as *ref*."""
+    facts: list[TimelineEvent] = []
+    if pack.manifest is not None:
+        on, source = incorporation(pack.manifest)
+        facts.append(TimelineEvent(on=on, kind="incorporated", label=f"Incorporated, per {source}",
+                                   doc_id=_EVIDENCE_DOC_PLACEHOLDER, page=1))
+        facts.append(TimelineEvent(on=pack.manifest.application_date, kind="application",
+                                   label=f"Application {pack.manifest.application_id} submitted",
+                                   doc_id=_EVIDENCE_DOC_PLACEHOLDER, page=1))
+    facts += [
+        TimelineEvent(on=f.financial_year_end, kind="financial_year_end",
+                      label=f"Financial year ends (revenue SGD {f.revenue})", doc_id=f.doc_id, page=f.page)
+        for f in pack.financial_statements
+    ]
+    facts += [
+        TimelineEvent(on=s.period_start, kind="bank_statement",
+                      label=f"Bank statement {s.period_start} to {s.period_end}", doc_id=s.doc_id, page=s.page)
+        for s in pack.bank_statements
+    ]
+    po_invoice = {
+        po.doc_id: inv.invoice_number
+        for inv in pack.invoices if (po := matching_po(inv, pack)) is not None
+    }
+    facts += [
+        TimelineEvent(on=po.po_date, kind="purchase_order",
+                      label=f"PO {po.po_number} placed by {po.buyer_name}",
+                      doc_id=po.doc_id, page=po.page, ref=po_invoice.get(po.doc_id, ""))
+        for po in pack.purchase_orders
+    ]
+    facts += [
+        TimelineEvent(on=b.shipped_date, kind="shipped",
+                      label=f"B/L {b.bl_number}: shipped on {b.vessel}",
+                      doc_id=b.doc_id, page=b.page, ref=b.invoice_reference)
+        for b in pack.bills_of_lading
+    ]
+    facts += [
+        TimelineEvent(on=i.invoice_date, kind="invoice",
+                      label=f"Invoice {i.invoice_number} to {i.buyer_name}, SGD {i.total}",
+                      doc_id=i.doc_id, page=i.page, ref=i.invoice_number)
+        for i in pack.invoices
+    ]
+    numbers = [i.invoice_number for i in pack.invoices]
+    facts += [
+        TimelineEvent(on=t.date, kind="payment", label=f"Received SGD {t.credit}: {t.description}",
+                      doc_id=s.doc_id, page=s.page, ref=ref)
+        for s in pack.bank_statements
+        for t in s.transactions
+        if t.credit is not None
+        and (ref := next((n for n in numbers if n.upper() in t.description.upper()), None))
+    ]
+    return facts
+
+
+def check_temp_before_incorporation(pack: ExtractedPack) -> list[Evidence]:
+    """No document can describe trading by a company before it existed."""
+    if pack.manifest is None:
+        return []
+    incorporated, source = incorporation(pack.manifest)
+    return [
+        _ev(
+            "TEMP_BEFORE_INCORPORATION", "fraud_signal", "high", f.doc_id, f.page, 0.95,
+            f"{f.label} is dated {f.on}, before the company was incorporated on "
+            f"{incorporated} according to {source}.",
+            expected=f"on or after {incorporated}",
+            observed=str(f.on),
+        )
+        for f in dated_facts(pack)
+        # a payment is already covered by its statement's period
+        if f.kind not in ("incorporated", "application", "payment") and f.on < incorporated
+    ]
+
+
+def check_temp_trade_sequence(pack: ExtractedPack) -> list[Evidence]:
+    """A trade runs order -> shipment, and order -> invoice. An invoice or a
+    shipment dated before its purchase order suggests the order was raised
+    afterwards to support the sale on paper (a retrospective PO)."""
+    results: list[Evidence] = []
+    invoices = {i.invoice_number: i for i in pack.invoices}
+    for inv in pack.invoices:
+        po = matching_po(inv, pack)
+        if po is not None and inv.invoice_date < po.po_date:
+            results.append(_ev(
+                "TEMP_TRADE_SEQUENCE", "fraud_signal", "medium", inv.doc_id, inv.page, 0.9,
+                f"Invoice {inv.invoice_number} is dated {inv.invoice_date}, before its "
+                f"purchase order {po.po_number} ({po.po_date}).",
+                expected=f"on or after {po.po_date}",
+                observed=str(inv.invoice_date),
+            ))
+    for bl in pack.bills_of_lading:
+        inv = invoices.get(bl.invoice_reference)
+        po = matching_po(inv, pack) if inv is not None else None
+        if po is not None and bl.shipped_date < po.po_date:
+            results.append(_ev(
+                "TEMP_TRADE_SEQUENCE", "fraud_signal", "medium", bl.doc_id, bl.page, 0.9,
+                f"Bill of lading {bl.bl_number} says goods were shipped on {bl.shipped_date}, "
+                f"before purchase order {po.po_number} ({po.po_date}) was placed.",
+                expected=f"on or after {po.po_date}",
+                observed=str(bl.shipped_date),
+            ))
+    return results
+
+
+# ---------------------------------------------------------------------------
 # E. AGENTS AND RUNNER
 # ---------------------------------------------------------------------------
 
@@ -1454,6 +1574,12 @@ AGENTS: list[Agent] = [
         "Companies and people checked against the company register and the sanctions list "
         "(versioned reference data).",
         [check_registry_entities, check_registry_signatories, check_sanctions],
+    ),
+    Agent(
+        "Timeline",
+        "Dates across documents: trading before the company existed, and orders, "
+        "shipments and invoices out of sequence.",
+        [check_temp_before_incorporation, check_temp_trade_sequence],
     ),
     Agent(
         "Compliance & Completeness",

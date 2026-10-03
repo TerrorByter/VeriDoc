@@ -305,14 +305,18 @@ class ExtractedPack(BaseModel):
 # Evidence — the only container for a fraud finding
 # ---------------------------------------------------------------------------
 
+EvidenceCategory = Literal["fraud_signal", "compliance", "completeness"]
+Severity = Literal["info", "low", "medium", "high", "critical"]
+RiskBand = Literal["Low", "Medium", "High"]
+
 
 class Evidence(BaseModel):
     evidence_id: str = ""          # assigned later as E01, E02, …
     agent: str = ""                # name of the agent that produced this finding
     check_id: str
     #: fraud_signal feeds the risk score; compliance/completeness feed ReadinessResult only
-    category: Literal["fraud_signal", "compliance", "completeness"] = "fraud_signal"
-    severity: Literal["info", "low", "medium", "high", "critical"]
+    category: EvidenceCategory = "fraud_signal"
+    severity: Severity
     document: str                  # doc_id
     page: int
     quote: str | None = None
@@ -366,7 +370,7 @@ class Contribution(BaseModel):
 
 class RiskResult(BaseModel):
     score: int = Field(..., ge=0, le=100)
-    band: Literal["Low", "Medium", "High"]
+    band: RiskBand
     manual_review_required: bool
     reasons: list[str]
     #: The score itemised by signal; points may sum above the 100 cap
@@ -444,8 +448,54 @@ class TransactionChain(BaseModel):
     broken: bool
 
 
+TimelineKind = Literal[
+    "incorporated", "financial_year_end", "bank_statement", "purchase_order",
+    "shipped", "invoice", "payment", "application",
+]
+
+
+class TimelineEvent(BaseModel):
+    """One dated fact of the case, with the document and page it comes from
+    (gldb.timeline)."""
+
+    on: date
+    kind: TimelineKind
+    label: str
+    doc_id: str
+    page: int
+    #: The invoice this fact belongs to ("" when it belongs to no trade)
+    ref: str = ""
+    #: Temporal findings about this fact
+    evidence_ids: list[str] = []
+
+
 #: Review paths, least to most cautious
 ReviewPath = Literal["fast_track", "standard_review", "enhanced_review"]
+
+
+TaskPriority = Literal["urgent", "high", "normal"]
+
+
+class InvestigationTask(BaseModel):
+    """One thing for the analyst to resolve: the findings of one signal on
+    one document, with the signal's remedy and what resolving them would
+    change (gldb.investigation). Guidance only: people decide."""
+
+    task_id: str
+    priority: TaskPriority
+    signal_id: str
+    check_id: str
+    name: str
+    category: EvidenceCategory
+    document: str
+    evidence_ids: list[str]
+    remedy: str
+    #: Score points these findings add (0 for readiness items)
+    points: int
+    #: The case if these findings were resolved, all else unchanged
+    score_if_resolved: int
+    band_if_resolved: RiskBand
+    path_if_resolved: ReviewPath
 
 
 class Routing(BaseModel):
@@ -476,6 +526,8 @@ class CaseResult(BaseModel):
     #: None only for results stored before routing existed
     routing: Routing | None = None
     chains: list[TransactionChain] = []
+    timeline: list[TimelineEvent] = []
+    investigation: list[InvestigationTask] = []
     summary: str | None = None
 
 

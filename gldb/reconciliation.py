@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from gldb.checks import normalise_name
+from gldb.checks import matching_po
 from gldb.config import MATCH_WINDOW_DAYS, TOLERANCE_SGD
 from gldb.schemas import (
     ChainStatus,
@@ -56,9 +56,7 @@ def _po_step(inv: Invoice, pack: ExtractedPack, evidence: list[Evidence]) -> Cha
     flags = _findings(evidence, "XDOC_PO_INVOICE", inv.doc_id)
     if not pack.purchase_orders:
         return ChainStep(step="purchase_order", status="not_provided", invoice_claim=claim)
-    buyer = normalise_name(inv.buyer_name)
-    orders = [po for po in pack.purchase_orders if normalise_name(po.buyer_name) == buyer]
-    po = min(orders, key=lambda p: abs(p.total - inv.total)) if orders else None
+    po = matching_po(inv, pack)
     status = _flag_status(flags, po is not None)
     return ChainStep(
         step="purchase_order", status=status, invoice_claim=claim,

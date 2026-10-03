@@ -26,6 +26,7 @@ from gldb.explain import explain
 from gldb.extract import parse_pack
 from gldb.extract_stub import parse_pack as parse_pack_stub
 from gldb.intake import intake, load_manifest
+from gldb.investigation import build_queue
 from gldb.ocr import OcrResult, ocr_files
 from gldb.reconciliation import build_chains
 from gldb.reference import versions as reference_versions
@@ -39,6 +40,7 @@ from gldb.schemas import (
     RiskResult,
 )
 from gldb.scoring import readiness, score
+from gldb.timeline import build_timeline
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +107,8 @@ def assess(
     manifest: ApplicationManifest | None,
 ) -> CaseResult:
     """Run the stages intake -> classify_and_extract -> run_checks -> score
-    -> readiness -> route -> explain. No audit log, no files written: run()
+    -> readiness -> route -> chains, timeline and investigation queue ->
+    explain. No audit log, no files written: run()
     adds those, and the evaluation harness calls this directly."""
     pack, stage_evidence = _intake(case_id, file_paths, manifest)
     evidence, agent_reports = run_agents(pack, stage_evidence)
@@ -120,6 +123,8 @@ def assess(
         readiness=ready,
         routing=route(case_id, evidence, risk, ready, pack),
         chains=build_chains(pack, evidence),
+        timeline=build_timeline(pack, evidence),
+        investigation=build_queue(case_id, evidence, pack, risk),
         summary=_explain(evidence, risk),
     )
 

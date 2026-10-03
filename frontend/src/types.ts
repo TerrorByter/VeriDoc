@@ -103,6 +103,44 @@ export interface TransactionChain {
   broken: boolean;
 }
 
+export type TimelineKind =
+  | "incorporated"
+  | "financial_year_end"
+  | "bank_statement"
+  | "purchase_order"
+  | "shipped"
+  | "invoice"
+  | "payment"
+  | "application";
+
+export interface TimelineEvent {
+  on: string;
+  kind: TimelineKind;
+  label: string;
+  doc_id: string;
+  page: number;
+  ref: string;
+  evidence_ids: string[];
+}
+
+export type TaskPriority = "urgent" | "high" | "normal";
+
+export interface InvestigationTask {
+  task_id: string;
+  priority: TaskPriority;
+  signal_id: string;
+  check_id: string;
+  name: string;
+  category: Category;
+  document: string;
+  evidence_ids: string[];
+  remedy: string;
+  points: number;
+  score_if_resolved: number;
+  band_if_resolved: Band;
+  path_if_resolved: ReviewPath;
+}
+
 export type CaseStatus =
   | "assessed"
   | "info_requested"
@@ -120,6 +158,8 @@ export interface CaseView {
   readiness: Readiness | null;
   routing: Routing | null;
   chains: TransactionChain[];
+  timeline: TimelineEvent[];
+  investigation: InvestigationTask[];
   summary: string | null;
   extraction_mode: string;
   status: CaseStatus;

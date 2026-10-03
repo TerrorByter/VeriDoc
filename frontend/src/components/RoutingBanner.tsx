@@ -1,6 +1,6 @@
 import type { ReviewPath, Routing } from "../types";
 
-const PATH_LABEL: Record<ReviewPath, string> = {
+export const PATH_LABEL: Record<ReviewPath, string> = {
   fast_track: "Fast track",
   standard_review: "Standard review",
   enhanced_review: "Enhanced review (EDD)",

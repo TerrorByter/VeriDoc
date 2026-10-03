@@ -15,6 +15,7 @@ import { ChainPanel } from "./components/ChainPanel";
 import { DecisionPanel } from "./components/DecisionPanel";
 import { DocumentsPanel } from "./components/DocumentsPanel";
 import { EvidenceList } from "./components/EvidenceList";
+import { InvestigationQueue } from "./components/InvestigationQueue";
 import { ReadinessPanel } from "./components/ReadinessPanel";
 import { RoutingBanner } from "./components/RoutingBanner";
 import { ScoreDial } from "./components/ScoreDial";
@@ -121,6 +122,15 @@ export function App() {
               extractionMode={kase.extraction_mode}
               docCount={kase.docs.length}
             />
+
+            {kase.routing && (
+              <InvestigationQueue
+                tasks={kase.investigation}
+                risk={kase.risk}
+                path={kase.routing.path}
+                openFlags={kase.open_flags}
+              />
+            )}
 
             <ChainPanel chains={kase.chains} />
 

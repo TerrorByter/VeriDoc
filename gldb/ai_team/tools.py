@@ -482,6 +482,11 @@ def _clip(text: str, limit: int, tail: str) -> str:
     return text if len(text) <= limit else text[: limit - len(tail)] + tail
 
 
+def result_json(data: Any) -> str:
+    """A tool's data as the model is given it: compact JSON."""
+    return json.dumps(data, default=str, ensure_ascii=False, separators=(",", ":"))
+
+
 def call_tool(agent: AgentName, name: str, args: Args, case: CaseData,
               ledger: Ledger) -> tuple[str, bool]:
     """Run one tool call for *agent*; returns (text for the model, is_error).
@@ -495,7 +500,7 @@ def call_tool(agent: AgentName, name: str, args: Args, case: CaseData,
         _check_args(tool.schema, args)
         data = tool.fn(case, args, agent, ledger)
         summary = tool.summary(args, data)
-        body, error = json.dumps(data, default=str, ensure_ascii=False, separators=(",", ":")), False
+        body, error = result_json(data), False
     except (ToolError, KeyError, ValueError, TypeError) as exc:
         message = f"missing or unknown key: {exc}" if isinstance(exc, KeyError) else str(exc)
         summary, body, error = f"error: {message}", json.dumps({"error": message}, ensure_ascii=False), True

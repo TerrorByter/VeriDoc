@@ -18,8 +18,8 @@ from typing import Any, get_args
 
 from gldb.ai_team.loop import Activity, run_agent
 from gldb.ai_team.prompts import DEFAULT_BRIEF, PROMPT_VERSIONS, SPECIALIST, SUPERVISOR_MEMO, SUPERVISOR_PLAN
-from gldb.ai_team.tools import CaseData, Ledger, _case_overview
-from gldb.ai_team.verify import check_lead, check_point, numbers
+from gldb.ai_team.tools import CaseData, Ledger, _case_overview, result_json
+from gldb.ai_team.verify import check_lead, check_point, check_question, numbers
 from gldb.config import AGENT_SPECIALIST_MODEL, AGENT_SUPERVISOR_MODEL, AGENTS_ENABLED
 from gldb.schemas import AgentName, AgentTeam, Evidence, Lead, Memo, ReviewPoint, SpecialistName
 
@@ -56,6 +56,19 @@ def _verified(lead: Lead, ledger: Ledger, findings: dict[str, Evidence]) -> Lead
     reason = check_lead(lead, ledger.issued_to(lead.agent), ledger.results, findings)
     return lead.model_copy(update={"outcome": "kept" if reason is None else "withheld",
                                    "withheld_reason": reason})
+
+
+def _verified_questions(ledger: Ledger) -> list[dict[str, Any]]:
+    """The drafted questions that pass the verifier; a note for each that does not."""
+    passed = []
+    for question in ledger.questions:
+        agent, text, cites = question["agent"], question["text"], question["cites"]
+        reason = check_question(agent, text, cites, ledger.issued_to(agent), ledger.results)
+        if reason is None:
+            passed.append(question)
+        else:
+            ledger.note(f"{agent}: question withheld ({reason})")
+    return passed
 
 
 def _points(raw: Any, known_ids: set[str], known_numbers: set[str]) -> tuple[list[ReviewPoint], int]:
@@ -106,16 +119,16 @@ def run_team(case: CaseData, models: TeamModels, *, on_activity: Activity = lamb
     leads = [_verified(lead, ledger, findings) for lead in ledger.leads]
     kept = [lead for lead in leads if lead.outcome == "kept"]
 
-    # The Supervisor sees the kept leads and drafted questions, never a tool result
+    # The Supervisor sees the kept leads and verified questions, never a tool result
     task = json.dumps({"leads": [lead.model_dump(mode="json", include=_LEAD_FIELDS) for lead in kept],
-                       "questions": ledger.questions}, ensure_ascii=False)
+                       "questions": _verified_questions(ledger)}, ensure_ascii=False)
     raw = run("supervisor", models.supervisor, SUPERVISOR_MEMO, task, "submit_memo")
     if raw is None:
         ledger.note("supervisor: no memo submitted")
         memo = Memo()
     else:
         known_ids = set(findings) | {lead.lead_id for lead in kept}
-        overview = json.dumps(_case_overview(case, {}, "supervisor", ledger), default=str, ensure_ascii=False)
+        overview = result_json(_case_overview(case, {}, "supervisor", ledger))
         cited = " ".join(ledger.results[c] for lead in kept for c in lead.cites)
         memo = _memo(raw, known_ids, numbers(overview) | numbers(cited))
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import get_args
 
-from gldb.ai_team.verify import PATTERNS, check_lead, check_point, numbers
+from gldb.ai_team.verify import PATTERNS, check_lead, check_point, check_question, numbers
 from gldb.schemas import Evidence, Lead, Pattern, ReviewPoint
 
 _RESULTS = {"R01": '{"date": "2026-07-12", "credit": "18530.00", "description": "GIRO CR HARBOURLINE LOGISTICS INV-1002"}'}
@@ -133,3 +133,26 @@ def test_point_rejects_unknown_ids_and_unknown_numbers() -> None:
 
 def test_point_numbers_are_normalised_before_matching() -> None:
     assert check_point(ReviewPoint(text="See 18,530.00", evidence_ids=["E01"]), {"E01"}, {"18530"})
+
+
+def test_grounded_question_is_kept() -> None:
+    assert check_question("transaction", "Who sent the SGD 18,530.00 credit?", ["R01"], {"R01"}, _RESULTS) is None
+
+
+def test_question_without_citations_is_withheld() -> None:
+    assert check_question("transaction", "Who paid?", [], {"R01"}, _RESULTS) == "no citations"
+
+
+def test_question_citing_a_result_its_agent_did_not_receive_is_withheld() -> None:
+    reason = check_question("kyc", "Who paid?", ["R01"], {"R02"}, _RESULTS)
+    assert reason == "cites a tool result it did not receive: R01"
+
+
+def test_question_with_verdict_language_is_withheld() -> None:
+    reason = check_question("transaction", "Should this be declined?", ["R01"], {"R01"}, _RESULTS)
+    assert reason == "uses verdict language: declined"
+
+
+def test_question_number_absent_from_cited_results_is_withheld() -> None:
+    reason = check_question("transaction", "Why SGD 18,531?", ["R01"], {"R01"}, _RESULTS)
+    assert reason == "uses a number not in its cited results: 18531"

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 
-from gldb.schemas import Evidence, Lead, ReviewPoint, SpecialistName
+from gldb.schemas import AgentName, Evidence, Lead, ReviewPoint, SpecialistName
 
 _NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
 #: Words that accuse or decide: a reviewer describes, people judge
@@ -45,31 +45,49 @@ def numbers(text: str) -> set[str]:
     return set(_numbers(text))
 
 
+def _cite_reason(cites: list[str], issued: set[str]) -> str | None:
+    if not cites:
+        return "no citations"
+    if (unreceived := next((c for c in cites if c not in issued), None)) is not None:
+        return f"cites a tool result it did not receive: {unreceived}"
+    return None
+
+
+def _wording_reason(text: str, cited: list[str]) -> str | None:
+    """Why *text* is withheld for verdict words or for a number found in none
+    of the *cited* texts, or None."""
+    if word := VERDICT_WORDS.search(text):
+        return f"uses verdict language: {word.group(1).lower()}"
+    known = numbers(" ".join(cited))
+    if stray := next((n for n in _numbers(text) if n not in known), None):
+        return f"uses a number not in its cited results: {stray}"
+    return None
+
+
 def check_lead(lead: Lead, issued: set[str], results: dict[str, str],
                findings: dict[str, Evidence]) -> str | None:
     """Why the lead is withheld, or None to keep it. `issued` are the tool
     results its agent received, `results` their text, `findings` the case's."""
-    if not lead.cites:
-        return "no citations"
-    if (unreceived := next((c for c in lead.cites if c not in issued), None)) is not None:
-        return f"cites a tool result it did not receive: {unreceived}"
+    if reason := _cite_reason(lead.cites, issued):
+        return reason
     if (unknown := next((f for f in lead.finding_ids if f not in findings), None)) is not None:
         return f"cites an unknown finding: {unknown}"
     if lead.kind == "triage" and not lead.finding_ids and lead.verdict is None:
         return "triage lead without a finding or verdict"
     if (lead.kind == "pattern" or lead.pattern is not None) and lead.pattern not in PATTERNS[lead.agent]:
         return f"pattern not in this specialist's list: {lead.pattern}"
-    text = f"{lead.title} {lead.detail}"
-    if word := VERDICT_WORDS.search(text):
-        return f"uses verdict language: {word.group(1).lower()}"
     cited = [results.get(c, "") for c in lead.cites]
     for finding_id in lead.finding_ids:
         finding = findings[finding_id]
         cited += [s for s in (finding.explanation, finding.expected, finding.observed) if s]
-    known = numbers(" ".join(cited))
-    if stray := next((n for n in _numbers(text) if n not in known), None):
-        return f"uses a number not in its cited results: {stray}"
-    return None
+    return _wording_reason(f"{lead.title} {lead.detail}", cited)
+
+
+def check_question(agent: AgentName, text: str, cites: list[str], issued: set[str],
+                   results: dict[str, str]) -> str | None:
+    """Why *agent*'s drafted question is withheld, or None to keep it: the
+    same citation, wording and number rules as a lead."""
+    return _cite_reason(cites, issued) or _wording_reason(text, [results.get(c, "") for c in cites])
 
 
 def check_point(point: ReviewPoint, known_ids: set[str], known_numbers: set[str]) -> bool:

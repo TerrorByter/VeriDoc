@@ -4,8 +4,9 @@ tests/test_ai_team_loop.py
 One agent's bounded tool loop: it runs the model's tool calls, sends the
 results back (errors flagged), and stops on a finish tool, the end of the
 model's turn, the step cap (successful evidence calls), the cap on failed
-calls or the token budget. A scripted fake stands in for Bedrock, so no AWS
-call is made.
+calls or the token budget. A cap does not stop the agent at once: it gets a
+few grace turns to record its conclusions, with evidence calls refused. A
+scripted fake stands in for Bedrock, so no AWS call is made.
 """
 
 from __future__ import annotations
@@ -72,10 +73,13 @@ def test_step_cap_stops_the_loop(case: CaseData, monkeypatch: pytest.MonkeyPatch
 
     assert len(ledger.tool_calls) == 2
     assert ledger.notes == ["transaction: step limit reached"]
-    assert len(fake.requests["transaction"]) == 3
+    # The two turns that ran the calls, then the grace turns
+    assert len(fake.requests["transaction"]) == 2 + loop._GRACE_TURNS
 
 
-def test_step_cap_applies_within_a_turn(case: CaseData, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_step_cap_applies_within_a_turn_and_every_tool_use_is_answered(
+    case: CaseData, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(loop, "AGENT_MAX_STEPS", 1)
     fake = ScriptedBedrock({"transaction": [[_search(), _search(), _search()]]})
     ledger = Ledger()
@@ -84,7 +88,72 @@ def test_step_cap_applies_within_a_turn(case: CaseData, monkeypatch: pytest.Monk
 
     assert len(ledger.tool_calls) == 1
     assert ledger.notes == ["transaction: step limit reached"]
-    assert len(fake.requests["transaction"]) == 1
+    first, second = fake.requests["transaction"]
+    asked = [b["toolUse"]["toolUseId"] for b in second["messages"][-2]["content"]]
+    results = [b["toolResult"] for b in second["messages"][-1]["content"]]
+    assert [r["toolUseId"] for r in results] == asked and len(asked) == 3
+    assert [r.get("status") for r in results] == [None, "error", "error"]
+
+
+def test_a_lead_recorded_in_the_turn_after_the_last_evidence_call_is_kept(
+    case: CaseData, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(loop, "AGENT_MAX_STEPS", 2)
+    fake = ScriptedBedrock({"transaction": [[_search()], [_search()], [_lead()], [{"text": "done"}]]})
+    ledger = Ledger()
+
+    assert _run(fake, case, ledger) is None
+
+    assert [c.tool for c in ledger.tool_calls] == ["search_bank_transactions"] * 2 + ["record_lead"]
+    assert len(ledger.leads) == 1
+    # Never blocked from anything it asked for: no stop to note
+    assert ledger.notes == [] and len(fake.requests["transaction"]) == 4
+
+
+def test_evidence_calls_in_grace_turns_are_refused_not_run(case: CaseData,
+                                                           monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(loop, "AGENT_MAX_STEPS", 1)
+    fake = ScriptedBedrock({"transaction": [[_search()], [_search(), _lead()], [{"text": "done"}]]})
+    ledger = Ledger()
+
+    assert _run(fake, case, ledger) is None
+
+    # The refused call is neither run nor recorded (it takes no R id); the lead beside it is
+    assert [c.tool for c in ledger.tool_calls] == ["search_bank_transactions", "record_lead"]
+    assert len(ledger.leads) == 1 and ledger.notes == ["transaction: step limit reached"]
+    refused, recorded = fake.requests["transaction"][2]["messages"][-1]["content"]
+    assert refused["toolResult"]["status"] == "error"
+    assert refused["toolResult"]["content"][0]["text"].startswith("Step limit reached: no more evidence tools.")
+    assert "record_lead" in refused["toolResult"]["content"][0]["text"]
+    assert "status" not in recorded["toolResult"]
+    # The same tools are offered every turn: the refusal is in code
+    configs = [r["toolConfig"] for r in fake.requests["transaction"]]
+    assert configs[0] == configs[1] == configs[2]
+
+
+def test_grace_turns_are_bounded(case: CaseData, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(loop, "AGENT_MAX_STEPS", 1)
+    fake = ScriptedBedrock({"transaction": _searches(10)})
+    ledger = Ledger()
+
+    assert _run(fake, case, ledger) is None
+
+    assert len(ledger.tool_calls) == 1
+    assert ledger.notes == ["transaction: step limit reached"]
+    assert len(fake.requests["transaction"]) == 1 + loop._GRACE_TURNS
+
+
+def test_the_token_budget_still_applies_in_grace_turns(case: CaseData, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(loop, "AGENT_MAX_STEPS", 1)
+    # Each scripted turn costs 15 tokens: the budget allows the cap turn and the first grace turn only
+    monkeypatch.setattr(tools, "AGENT_TOKEN_BUDGET", 20)
+    fake = ScriptedBedrock({"transaction": _searches(5)})
+    ledger = Ledger()
+
+    assert _run(fake, case, ledger) is None
+
+    assert ledger.notes == ["transaction: step limit reached", "transaction: budget reached"]
+    assert len(fake.requests["transaction"]) == 2
 
 
 def _bad() -> dict[str, Any]:
@@ -120,7 +189,7 @@ def test_leads_are_recorded_even_in_the_turn_that_hits_the_cap(case: CaseData,
 
     assert [c.tool for c in ledger.tool_calls] == ["search_bank_transactions", "record_lead", "record_lead"]
     assert len(ledger.leads) == 2 and ledger.notes == ["transaction: step limit reached"]
-    assert len(fake.requests["transaction"]) == 1
+    assert len(fake.requests["transaction"]) == 2
 
 
 def test_failed_calls_do_not_use_the_step_cap(case: CaseData, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -155,7 +224,7 @@ def test_failed_calls_are_capped_separately(case: CaseData, monkeypatch: pytest.
 
     assert len(ledger.tool_calls) == 2 and all(c.error for c in ledger.tool_calls)
     assert ledger.notes == ["transaction: too many failed tool calls"]
-    assert len(fake.requests["transaction"]) == 3
+    assert len(fake.requests["transaction"]) == 2 + loop._GRACE_TURNS
 
 
 def test_failed_leads_and_questions_count_towards_the_failure_cap(case: CaseData,
@@ -169,7 +238,7 @@ def test_failed_leads_and_questions_count_towards_the_failure_cap(case: CaseData
 
     assert [(c.tool, c.error) for c in ledger.tool_calls] == [("record_lead", True), ("draft_question", True)]
     assert ledger.notes == ["transaction: too many failed tool calls"]
-    assert len(fake.requests["transaction"]) == 2
+    assert len(fake.requests["transaction"]) == 3
 
 
 def test_the_failure_cap_applies_within_a_turn_and_leads_are_still_recorded(
@@ -183,7 +252,7 @@ def test_the_failure_cap_applies_within_a_turn_and_leads_are_still_recorded(
 
     assert [c.tool for c in ledger.tool_calls] == ["get_chain", "record_lead"]
     assert ledger.notes == ["transaction: too many failed tool calls"]
-    assert len(fake.requests["transaction"]) == 1
+    assert len(fake.requests["transaction"]) == 2
 
 
 def test_budget_stops_the_loop(case: CaseData, monkeypatch: pytest.MonkeyPatch) -> None:

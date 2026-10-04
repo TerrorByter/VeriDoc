@@ -7,9 +7,16 @@ ends its turn; the step cap and the case's token budget stop one that does
 neither. The cap counts successful evidence calls only: a failed call does not
 use it (a mistyped argument costs nothing) but has its own cap of the same
 size, so a confused agent still stops. Recording a lead or drafting a question
-never uses the step cap, but a failed one counts towards the failed-call cap,
-and is still run in the turn that hits a cap. A stop is a note in the ledger,
-never an error: the team carries on with what it has.
+never uses the step cap, but a failed one counts towards the failed-call cap.
+Reaching a cap does not end the agent on the spot: the evidence found by its
+last call is worth recording. Every tool use of the turn is still answered
+(an evidence call past the cap is refused with an error result, not run), and
+the agent gets _GRACE_TURNS more model turns in which evidence calls are
+refused the same way while record_lead and draft_question still run. The tool
+list stays the same throughout, so the conversation stays valid. The agent
+then ends when it stops calling tools or the grace turns are used up; the
+token budget is still checked before every model call. A stop is a note in the
+ledger, never an error: the team carries on with what it has.
 """
 
 from __future__ import annotations
@@ -24,6 +31,22 @@ from gldb.schemas import AgentName
 
 #: Told what the agent is doing, "Transaction specialist: search_bank_transactions", just before each tool call
 Activity = Callable[[str], None]
+#: Model turns an agent gets after reaching a cap, to record its conclusions
+_GRACE_TURNS = 2
+#: The error result of an evidence call made once a cap is reached: it is not run
+_LIMIT_REACHED = (
+    "Step limit reached: no more evidence tools. Record your conclusions now with record_lead "
+    "(citing the R ids you already have) and draft_question, then end your turn."
+)
+
+
+def _limit(steps: int, failures: int) -> str | None:
+    """Why an agent with *steps* successful evidence calls and *failures* failed ones may run no more, if so."""
+    if steps >= AGENT_MAX_STEPS:
+        return "step limit reached"
+    if failures >= AGENT_MAX_STEPS:
+        return "too many failed tool calls"
+    return None
 
 
 def run_agent(
@@ -53,12 +76,15 @@ def run_agent(
 
     Returns:
         The finish tool's input when the agent called it; None when it ended
-        its turn without, or a cap or the token budget stopped it.
+        its turn without, or a cap (after its grace turns) or the token
+        budget stopped it.
     """
     messages: list[dict[str, Any]] = [{"role": "user", "content": [{"text": task}]}]
     # Closed over the case: the model can only name documents, invoices and findings that exist
     tools = specs_for(agent, finish, case, strict=model_id in AGENT_STRICT_TOOL_MODELS)
     steps = failures = 0
+    grace = _GRACE_TURNS
+    noted = False
     while True:
         if ledger.over_budget():
             ledger.note(f"{agent}: budget reached")
@@ -74,22 +100,25 @@ def run_agent(
         if answer is not None:
             return answer["input"]
         results: list[dict[str, Any]] = []
-        stopped = None
+        refused = False
         for tool_use in turn.tool_uses:
             evidence = tool_use["name"] not in RECEIPT_TOOLS
-            if evidence and steps >= AGENT_MAX_STEPS:
-                stopped = "step limit reached"
-                continue
-            if evidence and failures >= AGENT_MAX_STEPS:
-                stopped = "too many failed tool calls"
-                continue
-            on_activity(f"{TITLES[agent]}: {tool_use['name']}")
-            text, error = call_tool(agent, tool_use["name"], tool_use["input"], case, ledger)
-            steps += evidence and not error
-            failures += error
+            if evidence and _limit(steps, failures):
+                refused = True
+                text, error = _LIMIT_REACHED, True
+            else:
+                on_activity(f"{TITLES[agent]}: {tool_use['name']}")
+                text, error = call_tool(agent, tool_use["name"], tool_use["input"], case, ledger)
+                steps += evidence and not error
+                failures += error
             results.append({"toolResult": {"toolUseId": tool_use["toolUseId"], "content": [{"text": text}],
                                            **({"status": "error"} if error else {})}})
-        if stopped:
-            ledger.note(f"{agent}: {stopped}")
-            return None
         messages.append({"role": "user", "content": results})
+        limit = _limit(steps, failures)
+        if limit and not noted and (refused or not grace):
+            ledger.note(f"{agent}: {limit}")
+            noted = True
+        if limit:
+            if not grace:
+                return None
+            grace -= 1

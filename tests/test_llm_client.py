@@ -100,3 +100,17 @@ def test_turn_exposes_text_and_token_counts() -> None:
     assert turn.text == "all clear" and turn.tool_uses == [] and turn.stop_reason == "end_turn"
     assert (turn.input_tokens, turn.output_tokens) == (11, 7)
     assert turn.content == [{"text": "all "}, {"text": "clear"}]
+
+
+def test_default_client_retries_adaptively(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    monkeypatch.setattr(llm_client.boto3, "client", lambda *args, **kwargs: calls.append((args, kwargs)) or "c")
+    llm_client._default_client.cache_clear()
+    try:
+        assert llm_client._default_client() == "c" and llm_client._default_client() == "c"
+    finally:
+        llm_client._default_client.cache_clear()
+
+    ((args, kwargs),) = calls  # built once, then cached
+    assert args == ("bedrock-runtime",) and kwargs["region_name"] == llm_client.AWS_REGION
+    assert kwargs["config"].retries == {"mode": "adaptive", "max_attempts": 8}

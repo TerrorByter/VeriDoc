@@ -17,6 +17,7 @@ from functools import cache
 from typing import Any
 
 import boto3
+from botocore.config import Config
 from pydantic import BaseModel
 
 from gldb.config import AGENT_MAX_TOKENS, AWS_REGION, BEDROCK_MODEL_ID
@@ -24,6 +25,9 @@ from gldb.usage import log_usage
 
 MAX_TOKENS: int = 4096
 _TOOL_NAME = "emit"
+#: The four specialists call Bedrock in parallel: back off and retry on
+#: throttling (new accounts have low quotas) instead of failing the team
+_RETRY = Config(retries={"mode": "adaptive", "max_attempts": 8})
 
 
 class LLMResult(BaseModel):
@@ -64,7 +68,7 @@ def prompt_version(*parts: str) -> str:
 
 @cache
 def _default_client() -> Any:
-    return boto3.client("bedrock-runtime", region_name=AWS_REGION)
+    return boto3.client("bedrock-runtime", region_name=AWS_REGION, config=_RETRY)
 
 
 def _send(request: dict[str, Any], *, purpose: str, case_id: str, client: Any | None) -> dict[str, Any]:

@@ -1,10 +1,58 @@
+import { PATH_LABEL } from "../../catalogue";
 import type { StageProps } from "../workspace/StageDetail";
-import { BAND_TONE, Pill } from "../ui";
+import { BAND_TONE, PATH_TONE, Pill } from "../ui";
 import { Section } from "./common";
 
 /** Band edges, as in the server configuration (BAND_LOW_MAX, BAND_MEDIUM_MAX) */
 const LOW_MAX = 19;
 const MEDIUM_MAX = 49;
+
+/** The shadow scorer's proposed route and the route the gate would take, beside the rule route: an experiment
+ * that is logged and never used. */
+function ShadowCard({ kase }: Pick<StageProps, "kase">) {
+  const { shadow, gate, routing } = kase;
+  if (!shadow && !gate) return null;
+  return (
+    <Section title="Shadow score (experiment, not used)" aside="Logged beside the rule route; nothing reads it">
+      <dl className="facts">
+        <div>
+          <dt>Rule route (champion)</dt>
+          <dd>{routing ? <Pill tone={PATH_TONE[routing.path]}>{PATH_LABEL[routing.path]}</Pill> : "—"}</dd>
+        </div>
+        <div>
+          <dt>Shadow scorer proposes</dt>
+          <dd>
+            {shadow?.status === "ran" && shadow.route ? (
+              <>
+                <Pill tone={PATH_TONE[shadow.route]}>{PATH_LABEL[shadow.route]}</Pill>{" "}
+                <span className="muted small">{shadow.agrees_with_champion ? "agrees" : "disagrees"}</span>
+              </>
+            ) : shadow ? (
+              <span className="muted">Failed: {shadow.error}</span>
+            ) : (
+              <span className="muted">Not run</span>
+            )}
+          </dd>
+        </div>
+        {gate && (
+          <div>
+            <dt>Gate would route</dt>
+            <dd><Pill tone={PATH_TONE[gate.would_route]}>{PATH_LABEL[gate.would_route]}</Pill></dd>
+          </div>
+        )}
+      </dl>
+      {shadow?.status === "ran" && (
+        <ul className="reasons muted small">
+          {shadow.reasons.map((r, i) => (
+            <li key={i}><span className="mono">{r.code}</span>{r.evidence_ids.length > 0 && <> on <span className="mono">{r.evidence_ids.join(", ")}</span></>}</li>
+          ))}
+        </ul>
+      )}
+      {gate && <ul className="reasons muted small">{gate.reasons.map((r) => <li key={r}>{r}</li>)}</ul>}
+      {shadow && <p className="muted small">Model <span className="mono">{shadow.model}</span>, prompt <span className="mono">{shadow.prompt_version}</span>.</p>}
+    </Section>
+  );
+}
 
 export function ScoreStage({ kase, onView }: StageProps) {
   const { risk } = kase;
@@ -71,6 +119,8 @@ export function ScoreStage({ kase, onView }: StageProps) {
           </div>
         )}
       </Section>
+
+      <ShadowCard kase={kase} />
     </>
   );
 }

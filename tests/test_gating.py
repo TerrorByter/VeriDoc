@@ -22,6 +22,7 @@ import pytest
 from gldb import llm_client
 from gldb.ai_team import team as team_module
 from gldb.ai_team.checks import bank_rows, counterparties
+from gldb.ai_team.shadow import decide, shadow_input
 from gldb.ai_team.team import TeamModels, flagged, run_team
 from gldb.ai_team.tools import CaseData
 from gldb.intake import load_manifest
@@ -185,8 +186,14 @@ def test_false_positive_safety_invariant(name: str, monkeypatch: pytest.MonkeyPa
     memo = team.memo
     assert memo is not None
     cited = {i for p in memo.observations + memo.questions for i in p.evidence_ids}
+    non_flags = [lead for lead in team.leads if not flagged(lead)]
+    scorer_sees = {lead["lead_id"] for lead in shadow_input(_data(name), team.leads)["leads"]}
     for lead in team.leads:
         if lead.evidence_status in ("verified", "corroborated"):
             continue
         assert not flagged(lead), lead
         assert lead.lead_id not in cited, (lead.lead_id, lead.evidence_status, lead.check_reason)
+        assert lead.lead_id not in scorer_sees, lead.lead_id  # not in the shadow scorer's input
+    # Leads that are not flags never raise the gate's route
+    assert off.routing is not None
+    assert decide(off.routing, non_flags, None).would_route == off.routing.path

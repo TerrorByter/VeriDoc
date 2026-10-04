@@ -29,6 +29,7 @@ from typing import Any, Literal, TypeVar
 from botocore.exceptions import BotoCoreError, ClientError
 
 from gldb.ai_team.loop import Activity
+from gldb.ai_team.shadow import compared, decide, run_shadow
 from gldb.ai_team.team import CONFIGURED_TEAM, TeamModels, flagged, run_team
 from gldb.ai_team.tools import CaseData
 from gldb.audit import log_event
@@ -61,6 +62,8 @@ from gldb.schemas import (
     AuditEvent,
     CaseResult,
     ExtractedPack,
+    GateDecision,
+    ShadowScore,
     StageId,
     StageReport,
     StageState,
@@ -195,6 +198,16 @@ def team_ledger(team: AgentTeam | None) -> dict[str, Any]:
     } if team else None}
 
 
+def shadow_ledger(shadow: ShadowScore | None, gate: GateDecision | None) -> dict[str, Any]:
+    """What the shadow scorer proposed and the gate would do, for the audit
+    log: logged only, neither is applied. None when the scorer was off."""
+    return {"shadow": {
+        "status": shadow.status, "model": shadow.model, "prompt_version": shadow.prompt_version,
+        "route": shadow.route, "agrees_with_champion": shadow.agrees_with_champion, "error": shadow.error,
+        "gate_would_route": gate.would_route if gate else None,
+    } if shadow else None}
+
+
 def _team_or_failure(case: CaseData, team: TeamModels, on_activity: Activity) -> AgentTeam:
     """Run the AI team, turning any error into a failed team so the case
     still completes: the team only adds leads, it never gates a decision."""
@@ -269,7 +282,21 @@ def assess(
         )
     else:
         stages.off("ai_team")
-    stages.off("shadow_score")
+    shadow = gate = None
+    if ai_team is not None:
+        leads = ai_team.leads
+        if team and team.shadow and ai_team.status == "ran":
+            shadow = stages.run(
+                "shadow_score",
+                lambda: compared(run_shadow(CaseData(case_id, pack, evidence), leads, team.shadow or ""), routing),
+                version=team.shadow, status=lambda s: s.status,
+            )
+        else:
+            stages.off("shadow_score")
+        # Logged only: nothing below, and no earlier stage, reads the gate or the scorer
+        gate = decide(routing, leads, shadow)
+    else:
+        stages.off("shadow_score")
     chains, timeline, investigation = stages.run("projections", lambda: (
         build_chains(pack, evidence),
         build_timeline(pack, evidence),
@@ -288,6 +315,8 @@ def assess(
         timeline=timeline,
         investigation=investigation,
         ai_team=ai_team,
+        shadow=shadow,
+        gate=gate,
         stages=stages.reports,
     )
 
@@ -416,6 +445,7 @@ def run(
             "reference_data": reference_versions(),
             **model_ledger(pack.extraction_mode, result.ai_team),
             **team_ledger(result.ai_team),
+            **shadow_ledger(result.shadow, result.gate),
             **screen_ledger(pack.prompt_screen is not None),
             "evidence_coverage": coverage(evidence, pack),
             "evidence_count_by_category": category_counts,

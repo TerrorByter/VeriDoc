@@ -61,6 +61,8 @@ from gldb.config import (
     PACKS_DIR,
     POLICY_VERSION,
     PROMPT_SCREEN_ENABLED,
+    SHADOW_SCORE_ENABLED,
+    SHADOW_SCORER_MODEL,
     UPLOADS_DIR,
 )
 from gldb.evaluate import Report, load_saved
@@ -82,6 +84,7 @@ from gldb.schemas import (
     CaseStatus,
     DocMeta,
     Evidence,
+    GateDecision,
     InvestigationTask,
     OcrLine,
     PromptAttackHit,
@@ -89,6 +92,7 @@ from gldb.schemas import (
     ReasonCode,
     RiskResult,
     Routing,
+    ShadowScore,
     Signal,
     StageReport,
     TimelineEvent,
@@ -124,6 +128,9 @@ class CaseView(BaseModel):
     timeline: list[TimelineEvent]
     investigation: list[InvestigationTask]
     ai_team: AgentTeam | None
+    #: What a model would route the case to, and what the disposition gate would do: logged only
+    shadow: ShadowScore | None
+    gate: GateDecision | None
     extraction_mode: str
     status: CaseStatus
     allowed_actions: list[str]
@@ -163,7 +170,7 @@ class CaseSummary(BaseModel):
 class Capability(BaseModel):
     """An optional pipeline capability and whether this server has it on."""
 
-    name: Literal["ocr", "prompt_screen", "llm_extraction", "ai_team"]
+    name: Literal["ocr", "prompt_screen", "llm_extraction", "ai_team", "shadow_score"]
     enabled: bool
     detail: str
 
@@ -250,6 +257,8 @@ def _view(result: CaseResult) -> CaseView:
         timeline=result.timeline,
         investigation=result.investigation,
         ai_team=result.ai_team,
+        shadow=result.shadow,
+        gate=result.gate,
         extraction_mode=result.pack.extraction_mode,
         status=status,
         allowed_actions=lifecycle.allowed_actions(status),
@@ -595,6 +604,8 @@ def get_controls() -> Controls:
                        detail=BEDROCK_MODEL_ID),
             Capability(name="ai_team", enabled=AGENTS_ENABLED,
                        detail=f"{AGENT_SUPERVISOR_MODEL} + {AGENT_SPECIALIST_MODEL}"),
+            Capability(name="shadow_score", enabled=AGENTS_ENABLED and SHADOW_SCORE_ENABLED,
+                       detail=SHADOW_SCORER_MODEL),
         ],
         signals=list(SIGNALS),
         cost=_cost_summary(),

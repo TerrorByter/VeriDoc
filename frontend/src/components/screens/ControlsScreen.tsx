@@ -10,6 +10,7 @@ const CAPABILITY_LABEL: Record<Capability["name"], string> = {
   prompt_screen: "Prompt attack screen",
   llm_extraction: "Model extraction",
   ai_team: "AI agent team",
+  shadow_score: "Shadow case scorer",
 };
 
 const FAMILY_LABEL: Record<SignalFamily, string> = {

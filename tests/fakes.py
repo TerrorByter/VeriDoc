@@ -23,7 +23,8 @@ def use(name: str, **args: Any) -> dict[str, Any]:
 
 class ScriptedBedrock:
     """Plays back Converse responses per agent. The agent is recognised by the
-    tool names offered: submit_plan -> "plan", submit_memo -> "memo", else the
+    tool names offered: submit_plan -> "plan", submit_memo -> "memo",
+    submit_disposition -> "shadow", else the
     agent whose TOOLSET holds them all (a case may leave a tool out). An exhausted script answers end_turn "done".
 
     *scripts* maps each key to its responses in order, each the content blocks
@@ -56,4 +57,6 @@ class ScriptedBedrock:
             return "plan"
         if "submit_memo" in offered:
             return "memo"
+        if "submit_disposition" in offered:
+            return "shadow"
         return next(agent for agent, names in TOOLSETS.items() if offered <= set(names))

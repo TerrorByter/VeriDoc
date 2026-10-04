@@ -16,7 +16,7 @@ from botocore.exceptions import NoCredentialsError
 from fastapi.testclient import TestClient
 
 from gldb import api, pipeline
-from gldb.schemas import AgentTeam, Lead, LeadTest
+from gldb.schemas import AgentTeam, GateDecision, Lead, LeadTest, ShadowReason, ShadowScore
 
 PACKS = Path(__file__).parent.parent / "data" / "packs"
 
@@ -359,6 +359,23 @@ def test_case_view_has_ai_team_and_no_trace(client: TestClient) -> None:
         "Odd payment", "supported", "corroborated")
     assert sent["tests"] == [{"cites": ["R01"], "expected": "payer: the buyer", "observed": "Paid by a third party"}]
     assert "PAGE TEXT" not in response.text and "trace" not in response.json()["ai_team"]
+
+
+def test_case_view_has_shadow_and_gate(client: TestClient) -> None:
+    cid = _case(client)["case_id"]
+    assert client.get(f"/api/cases/{cid}").json()["shadow"] is None
+    shadow = ShadowScore(status="ran", route="standard_review", model="m", prompt_version="v",
+                         reasons=[ShadowReason(code="no_issue")], agrees_with_champion=False)
+    gate = GateDecision(would_route="standard_review", reasons=["Shadow scorer proposes standard_review"])
+    pipeline._persist(api._load(cid).model_copy(update={"shadow": shadow, "gate": gate}))
+    view = client.get(f"/api/cases/{cid}").json()
+    assert (view["shadow"]["route"], view["shadow"]["agrees_with_champion"]) == ("standard_review", False)
+    assert view["gate"] == {"would_route": "standard_review", "reasons": ["Shadow scorer proposes standard_review"]}
+
+
+def test_controls_lists_the_shadow_scorer_as_a_capability(client: TestClient) -> None:
+    names = {c["name"] for c in client.get("/api/controls").json()["capabilities"]}
+    assert "shadow_score" in names
 
 
 def test_progress_reports_activity_detail(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

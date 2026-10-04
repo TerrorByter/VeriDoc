@@ -22,7 +22,13 @@ from gldb.ai_team.loop import Activity, run_agent
 from gldb.ai_team.prompts import DEFAULT_BRIEF, PROMPT_VERSIONS, SPECIALIST, SUPERVISOR_MEMO, SUPERVISOR_PLAN
 from gldb.ai_team.tools import CaseData, Ledger, _case_overview, case_index, result_json
 from gldb.ai_team.verify import Known, check_lead, check_point, check_question, known
-from gldb.config import AGENT_SPECIALIST_MODEL, AGENT_SUPERVISOR_MODEL, AGENTS_ENABLED
+from gldb.config import (
+    AGENT_SPECIALIST_MODEL,
+    AGENT_SUPERVISOR_MODEL,
+    AGENTS_ENABLED,
+    SHADOW_SCORE_ENABLED,
+    SHADOW_SCORER_MODEL,
+)
 from gldb.schemas import AgentName, AgentTeam, Lead, Memo, ReviewPoint, SpecialistName
 
 _SPECIALISTS: tuple[SpecialistName, ...] = get_args(SpecialistName)
@@ -39,11 +45,14 @@ class TeamModels:
 
     supervisor: str
     specialist: str
+    #: The shadow case scorer's model; None leaves the scorer off
+    shadow: str | None = None
 
 
 #: The team as configured, or None when it is switched off
 CONFIGURED_TEAM: TeamModels | None = (
-    TeamModels(AGENT_SUPERVISOR_MODEL, AGENT_SPECIALIST_MODEL) if AGENTS_ENABLED else None
+    TeamModels(AGENT_SUPERVISOR_MODEL, AGENT_SPECIALIST_MODEL, SHADOW_SCORER_MODEL if SHADOW_SCORE_ENABLED else None)
+    if AGENTS_ENABLED else None
 )
 
 

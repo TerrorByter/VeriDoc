@@ -234,6 +234,11 @@ AGENT_SUPERVISOR_MODEL: str = os.getenv("AGENT_SUPERVISOR_MODEL", "global.anthro
 AGENT_SPECIALIST_MODEL: str = os.getenv(
     "AGENT_SPECIALIST_MODEL", "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 )
+#: Whether a model also proposes a route for each case, logged beside the rule
+#: route and never used by it (gldb.ai_team.shadow); needs the AI team. The model
+#: reads structured case data only, so a small one will do.
+SHADOW_SCORE_ENABLED: bool = _bool_env("SHADOW_SCORE_ENABLED", AGENTS_ENABLED)
+SHADOW_SCORER_MODEL: str = os.getenv("SHADOW_SCORER_MODEL", "global.anthropic.claude-haiku-4-5-20251001-v1:0")
 #: Models whose tool calls run in strict mode (comma-separated): the input
 #: always matches the tool's schema, so a closed argument cannot be invented.
 #: Support is per model and one without it rejects the request, so only listed

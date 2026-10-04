@@ -233,6 +233,30 @@ export interface LeadTest {
   observed: string;
 }
 
+export interface ShadowReason {
+  /** A rule's check id, a verified pattern, or "no_issue" */
+  code: string;
+  evidence_ids: string[];
+}
+
+/** What a model would route the case to: logged beside the rule route, never used by it */
+export interface ShadowScore {
+  status: "ran" | "failed";
+  route: ReviewPath | null;
+  reasons: ShadowReason[];
+  model: string;
+  prompt_version: string;
+  /** Worked out after the fact: the scorer never saw the rule route */
+  agrees_with_champion: boolean | null;
+  error: string | null;
+}
+
+/** The route the disposition gate would take: logged, never applied */
+export interface GateDecision {
+  would_route: ReviewPath;
+  reasons: string[];
+}
+
 export interface Memo {
   observations: ReviewPoint[];
   questions: ReviewPoint[];
@@ -320,6 +344,8 @@ export interface CaseView {
   investigation: InvestigationTask[];
   /** Null when the AI team was off */
   ai_team: AgentTeam | null;
+  shadow: ShadowScore | null;
+  gate: GateDecision | null;
   extraction_mode: string;
   status: CaseStatus;
   allowed_actions: string[];
@@ -410,7 +436,7 @@ export interface EvaluationReport {
 }
 
 export interface Capability {
-  name: "ocr" | "prompt_screen" | "llm_extraction" | "ai_team";
+  name: "ocr" | "prompt_screen" | "llm_extraction" | "ai_team" | "shadow_score";
   enabled: boolean;
   detail: string;
 }

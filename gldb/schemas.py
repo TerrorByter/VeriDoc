@@ -678,6 +678,35 @@ class Lead(BaseModel):
                 "evidence_status": "unverified" if data.get("outcome", "kept") == "kept" else None}
 
 
+class ShadowReason(BaseModel):
+    #: A rule's check id, a verified pattern, or "no_issue": from the case's own lists
+    code: str
+    #: Findings (E…) and verified leads (L…) the reason rests on
+    evidence_ids: list[str] = []
+
+
+class ShadowScore(BaseModel):
+    """What a model would route the case to, from the case context and the
+    leads code verified; logged beside the champion, never used by it."""
+
+    status: Literal["ran", "failed"]
+    route: ReviewPath | None = None
+    reasons: list[ShadowReason] = []
+    model: str
+    #: Content hash of the scorer's prompt and tool
+    prompt_version: str
+    #: Set after the fact, never shown to the scorer
+    agrees_with_champion: bool | None = None
+    error: str | None = None
+
+
+class GateDecision(BaseModel):
+    """The route the disposition gate would take: logged, never applied."""
+
+    would_route: ReviewPath
+    reasons: list[str]
+
+
 class Memo(BaseModel):
     observations: list[ReviewPoint] = []
     #: For the applicant or a counterparty
@@ -724,6 +753,9 @@ class CaseResult(BaseModel):
     investigation: list[InvestigationTask] = []
     #: None when the team is off
     ai_team: AgentTeam | None = None
+    #: None when the team or the scorer is off; the champion never reads either
+    shadow: ShadowScore | None = None
+    gate: GateDecision | None = None
     #: Empty only for results stored before stages were recorded
     stages: list[StageReport] = []
 

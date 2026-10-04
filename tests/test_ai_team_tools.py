@@ -193,10 +193,27 @@ def test_lead_fields_the_model_may_not_set_or_get_wrong_are_refused(clean: CaseD
     lead = {"kind": "triage", "title": "t", "detail": "d", "cites": ["R01"]}
     assert _error("kyc", "record_lead", {**lead, "outcome": "kept"}, clean, ledger)
     assert _error("kyc", "record_lead", {**lead, "lead_id": "L99"}, clean, ledger)
-    assert _error("kyc", "record_lead", {**lead, "kind": "gossip"}, clean, ledger)
-    assert _error("kyc", "record_lead", {**lead, "verdict": "guilty"}, clean, ledger)
-    assert _error("kyc", "record_lead", {**lead, "pattern": "made_up"}, clean, ledger)
     assert ledger.leads == []
+
+
+def test_a_value_outside_an_enum_names_the_allowed_ones(clean: CaseData) -> None:
+    lead = {"kind": "triage", "title": "t", "detail": "d", "cites": ["R01"]}
+    assert _error("kyc", "record_lead", {**lead, "kind": "gossip"}, clean) == "kind must be one of: triage, pattern"
+    assert _error("kyc", "record_lead", {**lead, "verdict": "guilty"}, clean) == \
+        "verdict must be one of: corroborated, possibly_innocent, unclear"
+    assert _error("kyc", "record_lead", {**lead, "pattern": "made_up"}, clean).startswith(
+        "pattern must be one of: third_party_payment, round_trip,")
+    assert _error("kyc", "record_lead", {**lead, "kind": 5}, clean) == "kind must be a string"
+
+
+def test_a_validation_error_comes_back_as_plain_field_messages(clean: CaseData,
+                                                                monkeypatch: pytest.MonkeyPatch) -> None:
+    def invalid(*_: Any) -> Any:
+        return Lead.model_validate({"agent": "kyc", "kind": "gossip", "title": "t", "cites": []})
+
+    monkeypatch.setitem(TOOLS, "get_score", replace(TOOLS["get_score"], fn=invalid))
+    message = _error("supervisor", "get_score", {}, clean)
+    assert message == "kind: Input should be 'triage' or 'pattern'; detail: Field required"
 
 
 # ---------------------------------------------------------------------------

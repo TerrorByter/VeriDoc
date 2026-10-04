@@ -23,6 +23,8 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, TypeVar, get_args
 
+from pydantic import ValidationError
+
 from gldb.checks import FORM_DOC_TYPES, PACK_DOC, incorporation
 from gldb.config import AGENT_MAX_RESULT_CHARS, AGENT_TOKEN_BUDGET, SCREENING_MATCH_THRESHOLD
 from gldb.intake import model_view
@@ -512,7 +514,7 @@ _JSON_TYPES: dict[str, tuple[tuple[type, ...], str]] = {
 
 def _check_args(schema: dict[str, Any], args: Args) -> None:
     """Raise ToolError unless *args* has every required argument, no unknown
-    one, and each of the right type."""
+    one, each of the right type, and each enum one of its values."""
     for key in schema.get("required", []):
         if key not in args:
             raise ToolError(f"missing argument: {key}")
@@ -524,6 +526,18 @@ def _check_args(schema: dict[str, Any], args: Args) -> None:
         valid = isinstance(value, accepted) and not isinstance(value, bool)
         if not valid or (kind == "array" and not all(isinstance(v, str) for v in value)):
             raise ToolError(f"{key} must be {label}")
+        allowed = schema["properties"][key].get("enum")
+        if allowed is not None and value not in allowed:
+            raise ToolError(f"{key} must be one of: {', '.join(allowed)}")
+
+
+def _plain(exc: Exception) -> str:
+    """An error as the model is told it: one plain line, no library dump."""
+    if isinstance(exc, KeyError):
+        return f"missing or unknown key: {exc}"
+    if isinstance(exc, ValidationError):
+        return "; ".join(f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors())
+    return str(exc)
 
 
 def _masked(text: str, manifest: ApplicationManifest | None) -> str:
@@ -557,7 +571,7 @@ def call_tool(agent: AgentName, name: str, args: Args, case: CaseData,
         summary = tool.summary(args, data)
         body, error = result_json(data), False
     except (ToolError, KeyError, ValueError, TypeError) as exc:
-        message = f"missing or unknown key: {exc}" if isinstance(exc, KeyError) else str(exc)
+        message = _plain(exc)
         summary, body, error = f"error: {message}", json.dumps({"error": message}, ensure_ascii=False), True
     manifest = case.pack.manifest
     # "<" is escaped so document text cannot close the wrapper below; the JSON means the same

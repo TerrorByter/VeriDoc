@@ -14,7 +14,7 @@ import json
 from typing import get_args
 
 from gldb.ai_team.tools import TITLES, specs_for
-from gldb.ai_team.verify import PATTERNS
+from gldb.ai_team.verify import PATTERN_SUBJECTS, PATTERNS
 from gldb.llm_client import prompt_version
 from gldb.schemas import AgentName, SpecialistName
 
@@ -75,6 +75,8 @@ _METHODS: dict[SpecialistName, str] = {
 def _specialist(agent: SpecialistName) -> str:
     patterns = "\n".join(f"  - {p}: {d}" for p, d in PATTERN_DEFINITIONS.items() if p in PATTERNS[agent])
     method = f"{_METHODS[agent]}\n" if agent in _METHODS else ""
+    subjects = "".join(f"A {p} lead names its subject: {', '.join(PATTERN_SUBJECTS[p])}, as your results give "
+                       "them. " for p in sorted(PATTERNS[agent]) if p in PATTERN_SUBJECTS)
     return (
         f"You are the {TITLES[agent]} on the bank's review team. {_CONTEXT}\n"
         f"Your domain is {_DOMAINS[agent]} Your task message is your brief from the Supervisor.\n"
@@ -84,12 +86,14 @@ def _specialist(agent: SpecialistName) -> str:
         f"{method}"
         "Record each triage and each pattern you checked with record_lead: the hypothesis, the tests (each "
         "citing the R ids it rests on, with the expected and the observed value copied from the results) and "
-        "a status:\n"
+        "an investigation_status:\n"
         "  - supported: a test's observed value differs from the expected one (for triage: the finding stands)\n"
         "  - refuted: the tests show it does not hold (a clear check, or an ordinary explanation for a "
         "finding); this is not a flag\n"
         "  - unresolved: the tests do not settle it; list the missing evidence\n"
-        "Never record a clear check as supported. record_lead checks each lead against your results: if it "
+        "Never record a clear check as supported. "
+        f"{subjects}"
+        "record_lead checks each lead against your results: if it "
         "returns an error, correct the lead and record it again. Use draft_question for what only the applicant or a "
         "counterparty can answer. "
         "Once you have triaged and hunted, end your turn with a one-line summary; do not keep calling tools.\n"

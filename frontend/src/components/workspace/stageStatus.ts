@@ -16,10 +16,10 @@ const byCheck = (kase: CaseView, ...checks: string[]) =>
 const keptLeads = (kase: CaseView) => kase.ai_team?.leads.filter((l) => l.outcome === "kept") ?? [];
 
 /** The AI team's leads that passed the verifier and need the analyst: supported or unresolved */
-export const aiLeads = (kase: CaseView) => keptLeads(kase).filter((l) => l.status !== "refuted");
+export const aiLeads = (kase: CaseView) => keptLeads(kase).filter((l) => l.investigation_status !== "refuted");
 
 /** Checks that passed the verifier and came back clear: a record, never a flag */
-export const clearChecks = (kase: CaseView) => keptLeads(kase).filter((l) => l.status === "refuted");
+export const clearChecks = (kase: CaseView) => keptLeads(kase).filter((l) => l.investigation_status === "refuted");
 
 /** The rail's view of one stage, from the stage record and the case's own outputs. */
 export function stageStatus(kase: CaseView, audit: AuditEvent[], id: RailStageId): StageStatus {

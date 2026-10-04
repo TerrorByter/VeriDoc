@@ -19,15 +19,15 @@ from typing import Any, get_args
 from gldb.ai_team.loop import Activity, run_agent
 from gldb.ai_team.prompts import DEFAULT_BRIEF, PROMPT_VERSIONS, SPECIALIST, SUPERVISOR_MEMO, SUPERVISOR_PLAN
 from gldb.ai_team.tools import CaseData, Ledger, _case_overview, case_index, result_json
-from gldb.ai_team.verify import Known, check_lead, check_point, check_question, known, strength
+from gldb.ai_team.verify import Known, check_lead, check_point, check_question, known
 from gldb.config import AGENT_SPECIALIST_MODEL, AGENT_SUPERVISOR_MODEL, AGENTS_ENABLED
 from gldb.schemas import AgentName, AgentTeam, Evidence, Lead, Memo, ReviewPoint, SpecialistName
 
 _SPECIALISTS: tuple[SpecialistName, ...] = get_args(SpecialistName)
 _PLAN_TASK = "Plan the investigation of this case."
 #: What the Supervisor is told of each kept lead when it reconciles
-_LEAD_FIELDS = {"lead_id", "agent", "kind", "finding_ids", "pattern", "hypothesis", "tests", "status",
-                "missing_evidence", "strength"}
+_LEAD_FIELDS = {"lead_id", "agent", "kind", "finding_ids", "pattern", "invoice_number", "transaction_ids",
+                "counterparty", "hypothesis", "tests", "investigation_status", "missing_evidence", "evidence_status"}
 
 
 @dataclass(frozen=True)
@@ -54,12 +54,12 @@ def _briefs(plan: dict[str, Any] | None) -> dict[SpecialistName, str]:
 
 
 def _verified(lead: Lead, ledger: Ledger, findings: dict[str, Evidence], index: str) -> Lead:
-    """*lead* with the verifier's outcome and, if kept, the strength code gives it."""
+    """*lead* with the verifier's outcome and, if kept, the evidence status code gives it."""
     reason = check_lead(lead, ledger.issued_to(lead.agent), ledger.citable(lead.agent), ledger.results, findings,
                         index)
     judged = lead.model_copy(update={"outcome": "kept" if reason is None else "withheld",
                                      "withheld_reason": reason})
-    return judged.model_copy(update={"strength": strength(judged)})
+    return judged.model_copy(update={"evidence_status": "unverified" if reason is None else None})
 
 
 def _verified_questions(ledger: Ledger, index: str) -> list[dict[str, Any]]:

@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 
 from gldb.ai_team import tools
+from gldb.ai_team.checks import bank_rows
 from gldb.ai_team.tools import (
     FINISH_TOOLS,
     TITLES,
@@ -122,7 +123,17 @@ def _lead_args(kind: str = "pattern", pattern: str = "third_party_payment", **fi
     test = {"cites": ["R01"], "expected": "payer: Bayview Marine Supplies", "observed": "payer: HARBOURLINE LOGISTICS"}
     return {"kind": kind, **({"pattern": pattern} if kind == "pattern" else {}),
             "hypothesis": "INV-1002 was paid by someone other than its buyer", "tests": [test],
-            "status": "supported", **fields}
+            "investigation_status": "supported", **fields}
+
+
+def _row_id(case: CaseData, text: str) -> str:
+    """The id of the case's bank row whose description holds *text*."""
+    return next(row_id for row_id, _, txn in bank_rows(case.pack) if text in txn.description)
+
+
+def _tpp(case: CaseData) -> dict[str, Any]:
+    """The subject of a third_party_payment lead on INV-1002."""
+    return {"invoice_number": "INV-1002", "transaction_ids": [_row_id(case, "INV-1002")]}
 
 
 def _names(agent: AgentName, finish: str | None = None) -> set[str]:
@@ -198,7 +209,8 @@ def test_an_unknown_document_error_lists_the_valid_ids(clean: CaseData) -> None:
 def test_lead_fields_the_model_may_not_set_or_get_wrong_are_refused(clean: CaseData) -> None:
     ledger = Ledger()
     lead = _lead_args(pattern="related_party")
-    for key, value in (("outcome", "kept"), ("lead_id", "L99"), ("strength", "corroborated"), ("cites", ["R01"])):
+    for key, value in (("outcome", "kept"), ("lead_id", "L99"), ("evidence_status", "verified"), ("check_facts", {}),
+                       ("cites", ["R01"])):
         assert _error("kyc", "record_lead", {**lead, key: value}, clean, ledger) == f"unknown argument: {key}"
     assert ledger.leads == []
 
@@ -219,8 +231,8 @@ def test_a_value_outside_an_enum_names_the_allowed_ones(tampered: CaseData) -> N
     lead = _lead_args(kind="triage")
     assert _error("kyc", "record_lead", {**lead, "kind": "gossip"}, tampered) == \
         "kind must be one of: triage, pattern"
-    assert _error("kyc", "record_lead", {**lead, "status": "guilty"}, tampered) == \
-        "status must be one of: supported, refuted, unresolved"
+    assert _error("kyc", "record_lead", {**lead, "investigation_status": "guilty"}, tampered) == \
+        "investigation_status must be one of: supported, refuted, unresolved"
     assert _error("kyc", "record_lead", {**lead, "pattern": "made_up"}, tampered) == \
         "pattern must be one of: related_party, business_mismatch"
     assert _error("kyc", "record_lead", {**lead, "kind": 5}, tampered) == "kind must be a string"
@@ -233,7 +245,7 @@ def test_a_validation_error_comes_back_as_plain_field_messages(clean: CaseData,
 
     monkeypatch.setitem(TOOLS, "get_score", replace(TOOLS["get_score"], fn=invalid))
     message = _error("supervisor", "get_score", {}, clean)
-    assert message == "kind: Input should be 'triage' or 'pattern'; status: Field required"
+    assert message == "kind: Input should be 'triage' or 'pattern'; investigation_status: Field required"
 
 
 # ---------------------------------------------------------------------------
@@ -483,7 +495,7 @@ def test_search_and_registry(clean: CaseData) -> None:
     rows = _rows({"amount": 18530}, clean)
     assert [(r["date"], r["credit"]) for r in rows] == [("2026-07-12", "18530.00")]
     assert "BAYVIEW" in rows[0]["description"] and rows[0]["debit"] is None
-    assert set(rows[0]) == {"doc_id", "page", "date", "description", "debit", "credit"}
+    assert set(rows[0]) == {"id", "doc_id", "page", "date", "description", "debit", "credit"}
 
     near = {"amount": 18000, "tolerance_pct": 5}
     assert len(_rows(near, clean)) == 1
@@ -521,7 +533,7 @@ def test_parties_let_kyc_find_a_shared_officer(related_party_result: CaseResult,
     assert raw and not any(r in json.dumps(parties) or mask_id(r) in json.dumps(parties) for r in raw)
 
     counterparties = parties["counterparties"]
-    assert all(set(p) == {"doc_id", "role", "name", "uen"} for p in counterparties)
+    assert all(set(p) == {"id", "doc_id", "role", "name", "uen"} for p in counterparties)
     assert {p["role"] for p in counterparties} == {"seller", "buyer", "shipper", "consignee"}
     assert {p["doc_id"] for p in counterparties} <= {d.doc_id for d in case.pack.docs}
     seabright = [p for p in counterparties if p["name"] == "Seabright Provisions Pte. Ltd."]
@@ -573,16 +585,17 @@ def test_record_lead_assigns_ids(tampered: CaseData) -> None:
     ledger = Ledger()
     call_tool("transaction", "search_bank_transactions", {"text": "INV"}, tampered, ledger)  # R01
     call_tool("kyc", "get_parties", {}, tampered, ledger)  # R02
-    lead = _lead_args()
+    lead = _lead_args(**_tpp(tampered))
     assert _run("transaction", "record_lead", lead, tampered, ledger) == {"lead_id": "L01"}
-    triage = _lead_args(kind="triage", finding_ids=["E01"], status="unresolved", missing_evidence=["remitter"],
+    triage = _lead_args(kind="triage", finding_ids=["E01"], investigation_status="unresolved",
+                        missing_evidence=["remitter"],
                         tests=[{**lead["tests"][0], "cites": ["R02"]}])
     assert _run("kyc", "record_lead", triage, tampered, ledger) == {"lead_id": "L02"}
     assert [(x.lead_id, x.agent, x.kind) for x in ledger.leads] == \
         [("L01", "transaction", "pattern"), ("L02", "kyc", "triage")]
     assert ledger.leads[0].pattern == "third_party_payment" and ledger.leads[0].outcome == "kept"
     assert ledger.leads[0].tests[0].observed == "payer: HARBOURLINE LOGISTICS" and ledger.leads[0].cites == ["R01"]
-    assert ledger.leads[1].finding_ids == ["E01"] and ledger.leads[1].status == "unresolved"
+    assert ledger.leads[1].finding_ids == ["E01"] and ledger.leads[1].investigation_status == "unresolved"
     assert ledger.leads[1].missing_evidence == ["remitter"]
     assert [c.tool for c in ledger.tool_calls] == ["search_bank_transactions", "get_parties", "record_lead",
                                                    "record_lead"]
@@ -595,13 +608,38 @@ def test_a_lead_is_checked_when_recorded_so_the_agent_can_correct_it(tampered: C
         "cites a tool result it did not receive: R01"
     call_tool("transaction", "search_bank_transactions", {"text": "INV"}, tampered, ledger)  # R02
     test = {"cites": ["R02"], "expected": "payer: the buyer", "observed": "payer: HARBOURLINE LOGISTICS"}
-    no_pattern = {k: v for k, v in _lead_args(tests=[test]).items() if k != "pattern"}
+    no_pattern = {k: v for k, v in _lead_args(tests=[test], **_tpp(tampered)).items() if k != "pattern"}
     assert _error("transaction", "record_lead", no_pattern, tampered, ledger) == "a pattern lead needs its pattern"
-    stray = _lead_args(tests=[{**test, "observed": "paid 14 days late"}])
+    stray = _lead_args(tests=[{**test, "observed": "paid 98765 days late"}], **_tpp(tampered))
     assert _error("transaction", "record_lead", stray, tampered, ledger) == \
-        "uses a number not in its cited results: 14"
+        "uses a number not in its cited results: 98765"
     assert ledger.leads == []
-    assert _run("transaction", "record_lead", _lead_args(tests=[test]), tampered, ledger) == {"lead_id": "L01"}
+    assert _run("transaction", "record_lead", _lead_args(tests=[test], **_tpp(tampered)), tampered,
+                ledger) == {"lead_id": "L01"}
+
+
+def test_search_rows_carry_stable_transaction_ids(tampered: CaseData) -> None:
+    ids = [row_id for row_id, _, _ in bank_rows(tampered.pack)]
+    assert ids[:3] == ["T01", "T02", "T03"] and len(ids) == len(set(ids))
+    wide = _run("transaction", "search_bank_transactions", {"text": "INV"}, tampered)["rows"]
+    narrow = _run("transaction", "search_bank_transactions", {"text": "INV-1002"}, tampered)["rows"]
+    assert {r["id"] for r in narrow} <= {r["id"] for r in wide}
+    assert [r["id"] for r in narrow] == [_row_id(tampered, "INV-1002")]
+
+
+def test_record_lead_subjects_are_closed_per_case(tampered: CaseData) -> None:
+    lead = _schemas("transaction", tampered)["record_lead"]["properties"]
+    assert lead["invoice_number"]["enum"] == ["INV-1001", "INV-1002"]
+    assert lead["transaction_ids"]["items"]["enum"] == [row_id for row_id, _, _ in bank_rows(tampered.pack)]
+    parties = _run("kyc", "get_parties", {}, tampered)["counterparties"]
+    ids = list(dict.fromkeys(p["id"] for p in parties if p["id"]))
+    assert ids[0] == "P01" and _schemas("kyc", tampered)["record_lead"]["properties"]["counterparty"]["enum"] == ids
+    # The applicant (the seller on its own invoices) is not a counterparty of itself
+    applicant = tampered.pack.manifest.company_name if tampered.pack.manifest else ""
+    assert all(p["id"] is None for p in parties if p["name"] == applicant) and any(p["name"] == applicant for p in parties)
+    # One id per counterparty: the same name on two documents has the same id
+    by_name = {p["name"]: p["id"] for p in parties}
+    assert all(by_name[p["name"]] == p["id"] for p in parties)
 
 
 def test_draft_question_is_kept_with_its_asker(clean: CaseData) -> None:
@@ -627,7 +665,7 @@ def test_citable_is_each_agents_successful_evidence_calls(clean: CaseData) -> No
     ledger = Ledger()
     call_tool("kyc", "registry_lookup", {"uen": "202301234K"}, clean, ledger)  # R01 evidence
     call_tool("kyc", "registry_lookup", {}, clean, ledger)  # R02 error
-    call_tool("kyc", "record_lead", _lead_args(pattern="related_party"), clean, ledger)  # R03 receipt
+    call_tool("kyc", "record_lead", _lead_args(pattern="business_mismatch"), clean, ledger)  # R03 receipt
     call_tool("kyc", "draft_question", {"text": "q", "cites": ["R01"]}, clean, ledger)  # R04 receipt
     call_tool("timeline", "get_incorporation", {}, clean, ledger)  # R05 another agent's
     assert ledger.citable("kyc") == {"R01"}
@@ -725,7 +763,7 @@ def test_triage_is_offered_only_on_the_cases_risky_findings(tampered: CaseData) 
     lead = _schemas("kyc", tampered)["record_lead"]["properties"]
     assert risky and lead["finding_ids"]["items"]["enum"] == risky
     assert lead["kind"]["enum"] == ["triage", "pattern"]
-    assert lead["status"]["enum"] == ["supported", "refuted", "unresolved"]
+    assert lead["investigation_status"]["enum"] == ["supported", "refuted", "unresolved"]
     triage = _lead_args(kind="triage")
     assert _error("kyc", "record_lead", {**triage, "finding_ids": [risky[0], "E99"]}, tampered) == \
         f"finding_ids must be one of: {', '.join(risky)}"

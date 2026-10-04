@@ -579,11 +579,12 @@ AgentName = Literal["supervisor", "forensics", "transaction", "kyc", "timeline"]
 SpecialistName = Literal["forensics", "transaction", "kyc", "timeline"]
 #: What a lead's tests show, as its specialist proposes it. Triage: the finding
 #: stands / has an ordinary explanation / is not settled. Pattern: found /
-#: checked and clear / not settled.
-LeadStatus = Literal["supported", "refuted", "unresolved"]
-#: How strong a kept, supported lead's evidence is: assigned by the verifier's
-#: code, never by a model (see gldb.ai_team.verify.strength)
-Strength = Literal["corroborated", "unverified"]
+#: checked and clear / not settled. It never decides anything.
+InvestigationStatus = Literal["supported", "refuted", "unresolved"]
+#: What code establishes about a kept lead's pattern from the case data
+#: (gldb.ai_team.checks), never a model: only verified and corroborated
+#: leads may become flags, memo points or questions
+EvidenceStatus = Literal["verified", "corroborated", "unverified", "contradicted"]
 #: Fraud pattern families
 Pattern = Literal[
     "third_party_payment",
@@ -619,8 +620,8 @@ class LeadTest(BaseModel):
     observed: str
 
 
-#: A stored lead's verdict (before the lead contract) -> its status
-_LEGACY_STATUS: dict[str | None, LeadStatus] = {
+#: A stored lead's verdict (before the lead contract) -> its investigation status
+_LEGACY_STATUS: dict[str | None, InvestigationStatus] = {
     "corroborated": "supported", "possibly_innocent": "refuted", "unclear": "unresolved", None: "supported",
 }
 
@@ -635,17 +636,25 @@ class Lead(BaseModel):
     finding_ids: list[str] = []
     #: Set for pattern leads
     pattern: Pattern | None = None
+    #: The subject: what a code check reads (gldb.ai_team.verify.PATTERN_SUBJECTS)
+    invoice_number: str | None = None
+    #: Bank rows, T01…
+    transaction_ids: list[str] = []
+    #: A counterparty, P01…
+    counterparty: str | None = None
     #: The claim tested, e.g. "INV-1002 was paid by someone other than its buyer"
     hypothesis: str
     tests: list[LeadTest]
-    status: LeadStatus
+    investigation_status: InvestigationStatus
     #: What would settle an unresolved lead
     missing_evidence: list[str] = []
     #: Set by the verifier; withheld leads stay on the record with the reason
     outcome: Literal["kept", "withheld"] = "kept"
     withheld_reason: str | None = None
-    #: Set by the verifier for a kept, supported lead
-    strength: Strength | None = None
+    #: Set by code for a kept lead, with the facts its check read and why
+    evidence_status: EvidenceStatus | None = None
+    check_facts: dict[str, str] = {}
+    check_reason: str | None = None
 
     @property
     def cites(self) -> list[str]:
@@ -654,13 +663,19 @@ class Lead(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _stored_before_the_contract(cls, data: Any) -> Any:
-        """A lead saved before the lead contract (title, detail, cites, verdict)
-        still loads: its detail becomes its one test's observation."""
-        if not isinstance(data, dict) or "hypothesis" in data or "title" not in data:
+    def _stored_earlier(cls, data: Any) -> Any:
+        """A lead saved before the lead contract (title, detail, cites, verdict:
+        its detail becomes its one test's observation) or before the status
+        split (status, strength) still loads, unverified if kept."""
+        if not isinstance(data, dict) or "investigation_status" in data:
             return data
-        return {**data, "hypothesis": data["title"], "status": _LEGACY_STATUS.get(data.get("verdict"), "unresolved"),
-                "tests": [{"cites": data.get("cites", []), "expected": "", "observed": data.get("detail", "")}]}
+        if "hypothesis" not in data and "title" in data:
+            data = {**data, "hypothesis": data["title"], "status": _LEGACY_STATUS.get(data.get("verdict"), "unresolved"),
+                    "tests": [{"cites": data.get("cites", []), "expected": "", "observed": data.get("detail", "")}]}
+        if "status" not in data:
+            return data
+        return {**data, "investigation_status": data["status"],
+                "evidence_status": "unverified" if data.get("outcome", "kept") == "kept" else None}
 
 
 class Memo(BaseModel):

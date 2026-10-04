@@ -30,6 +30,7 @@ from typing import Any, TypeVar, get_args
 
 from pydantic import ValidationError
 
+from gldb.ai_team.checks import bank_rows, counterparties, counterparty_id
 from gldb.ai_team.verify import PATTERNS, check_lead
 from gldb.checks import FORM_DOC_TYPES, PACK_DOC, incorporation
 from gldb.config import AGENT_MAX_RESULT_CHARS, AGENT_TOKEN_BUDGET, SCREENING_MATCH_THRESHOLD
@@ -47,8 +48,8 @@ from gldb.schemas import (
     Evidence,
     ExtractedPack,
     Invoice,
+    InvestigationStatus,
     Lead,
-    LeadStatus,
     Pattern,
     PurchaseOrder,
     SpecialistName,
@@ -240,7 +241,7 @@ def _parties(case: CaseData, *_: Any) -> Any:
         "doc_id": PACK_DOC, "name": manifest.company_name, "uen": manifest.uen,
         "guarantors": [g.name for g in manifest.guarantors], "signatories": manifest.authorised_signatories,
     }
-    counterparties = [
+    parties = [
         *(p for i in pack.invoices for p in (_party(i.doc_id, "seller", i.seller_name, i.seller_uen),
                                              _party(i.doc_id, "buyer", i.buyer_name))),
         *(p for o in pack.purchase_orders for p in (_party(o.doc_id, "buyer", o.buyer_name),
@@ -248,7 +249,9 @@ def _parties(case: CaseData, *_: Any) -> Any:
         *(p for b in pack.bills_of_lading for p in (_party(b.doc_id, "shipper", b.shipper_name),
                                                     _party(b.doc_id, "consignee", b.consignee_name))),
     ]
-    return {"applicant": applicant, "counterparties": counterparties}
+    # One id per company (P01...), the subject of a related_party lead; the applicant has none
+    return {"applicant": applicant,
+            "counterparties": [{"id": counterparty_id(pack, p["name"]), **p} for p in parties]}
 
 
 def _case_overview(case: CaseData, args: Args, agent: AgentName, ledger: Ledger) -> Any:
@@ -313,10 +316,9 @@ def _search_bank_transactions(case: CaseData, args: Args, agent: AgentName, ledg
         raise ToolError("give at least one of amount, date_from, date_to, text")
     margin = Decimal(str(args.get("tolerance_pct", _DEFAULT_TOLERANCE_PCT))) / 100 * abs(amount or 0)
     rows = [
-        {"doc_id": stmt.doc_id, "page": stmt.page, "date": txn.date, "description": txn.description,
+        {"id": row_id, "doc_id": stmt.doc_id, "page": stmt.page, "date": txn.date, "description": txn.description,
          "debit": txn.debit, "credit": txn.credit}
-        for stmt in case.pack.bank_statements
-        for txn in stmt.transactions
+        for row_id, stmt, txn in bank_rows(case.pack)
         if (amount is None
             or any(v is not None and abs(v - amount) <= margin for v in (txn.debit, txn.credit)))
         and (start is None or txn.date >= start)
@@ -493,6 +495,10 @@ TOOLS: dict[str, Tool] = {
             "finding_ids": {"type": "array", "items": {"type": "string"},
                             "description": "Finding ids (E01...) a triage lead judges"},
             "pattern": _string("For pattern; one of your own pattern list", enum=list(get_args(Pattern))),
+            "invoice_number": _string("The invoice the lead is about"),
+            "transaction_ids": {"type": "array", "items": {"type": "string"},
+                                "description": "The bank rows (T01...) the lead is about, as search results give them"},
+            "counterparty": _string("The counterparty (P01...) the lead is about, as get_parties gives it"),
             "hypothesis": _string("The claim you tested, e.g. INV-1002 was paid by someone other than its buyer; "
                                   "for triage, that the finding stands"),
             "tests": {"type": "array", "description": "Each check you made, citing the results it rests on",
@@ -501,13 +507,13 @@ TOOLS: dict[str, Tool] = {
                           "expected": _string("What the documents say should hold, copied from the results"),
                           "observed": _string("What the cited results show, copied exactly"),
                       }, "cites", "expected", "observed")},
-            "status": _string("supported: the tests show it (an observed value differs from the expected one); "
-                              "refuted: they show it does not hold; unresolved: they do not settle it",
-                              enum=list(get_args(LeadStatus))),
+            "investigation_status": _string(
+                "supported: the tests show it (an observed value differs from the expected one); refuted: they "
+                "show it does not hold; unresolved: they do not settle it", enum=list(get_args(InvestigationStatus))),
             "missing_evidence": {"type": "array", "items": {"type": "string"},
                                  "description": "Required when unresolved: the documents or records that would "
                                                 "settle it"},
-        }, "kind", "hypothesis", "tests", "status"),
+        }, "kind", "hypothesis", "tests", "investigation_status"),
         _record_lead),
     "draft_question": Tool(
         "Draft a question for the analyst to put to the applicant or a counterparty.",
@@ -588,6 +594,9 @@ _CASE_VALUES: dict[str, dict[str, Values]] = {
         # Without a risky finding there is nothing to triage: only a pattern lead can be recorded
         "kind": lambda c, a: [k for k in _KINDS if k != "triage" or c.risky],
         "finding_ids": lambda c, a: [e.evidence_id for e in c.risky],
+        "invoice_number": lambda c, a: _invoice_numbers(c),
+        "transaction_ids": lambda c, a: [row_id for row_id, _, _ in bank_rows(c.pack)],
+        "counterparty": lambda c, a: list(counterparties(c.pack).values()),
         "pattern": lambda c, a: [p for p in get_args(Pattern) if p in PATTERNS.get(a, ())],
     },
 }

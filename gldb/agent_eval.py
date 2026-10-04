@@ -152,7 +152,7 @@ def _pack_result(folder: Path, truth: dict, models: TeamModels, stamp: str) -> A
     refused = sum(c.tool == "record_lead" and c.error for c in team.tool_calls) if team else 0
     expected = [f"{lead['agent']}:{lead['pattern']}" for lead in truth["expected_leads"]]
     # A refuted or unresolved lead records a check, not a pattern found
-    found = [f"{lead.agent}:{lead.pattern}" for lead in kept if lead.kind == "pattern" and lead.status == "supported"]
+    found = [f"{lead.agent}:{lead.pattern}" for lead in kept if lead.kind == "pattern" and lead.investigation_status == "supported"]
     checks = {e.evidence_id: e.check_id for e in evidence}
     expected_triage = truth["expected_triage"]
     cost = case_cost(case_id)
@@ -163,7 +163,7 @@ def _pack_result(folder: Path, truth: dict, models: TeamModels, stamp: str) -> A
         triage_expected=len(expected_triage),
         triage_correct=sum(
             any(
-                lead.kind == "triage" and lead.status == want["status"]
+                lead.kind == "triage" and lead.investigation_status == want["status"]
                 and any(checks.get(f) == want["check_id"] for f in lead.finding_ids)
                 for lead in kept
             )

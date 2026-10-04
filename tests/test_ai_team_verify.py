@@ -16,10 +16,10 @@ from typing import get_args
 
 import pytest
 
-from gldb.ai_team.verify import PATTERNS, Known, check_lead, check_point, check_question, known, numbers, strength
+from gldb.ai_team.verify import PATTERNS, Known, check_lead, check_point, check_question, known, numbers
 from gldb.schemas import Evidence, Lead, Pattern, ReviewPoint
 
-_ROW = '{"date": "2026-07-12", "credit": "18530.00", "description": "GIRO CR HARBOURLINE LOGISTICS INV-1002"}'
+_ROW = '{"id": "T05", "date": "2026-07-12", "credit": "18530.00", "description": "GIRO CR HARBOURLINE LOGISTICS INV-1002"}'
 _FIELDS = '{"invoice_number": "INV-1002", "buyer_name": "Bayview Marine Supplies", "total": "18530.00"}'
 _RESULTS = {"R01": _ROW, "R02": _FIELDS}
 _INDEX = "Documents in this case:\n- invoice_INV-1001 (invoice, 1 pages)\n- invoice_INV-1002 (invoice, 1 pages)\n" \
@@ -41,8 +41,9 @@ def _test(cites: list[str] | None = None, expected: str = "payer: Bayview Marine
 def _lead(**fields: object) -> Lead:
     base: dict[str, object] = {
         "agent": "transaction", "kind": "pattern", "pattern": "third_party_payment",
+        "invoice_number": "INV-1002", "transaction_ids": ["T05"],
         "hypothesis": "INV-1002 was paid by someone other than its buyer", "tests": [_test()],
-        "status": "supported",
+        "investigation_status": "supported",
     }
     return Lead.model_validate(base | fields)
 
@@ -113,6 +114,18 @@ def test_a_result_not_received_is_reported_before_one_that_is_not_evidence() -> 
     assert reason == "cites a tool result it did not receive: R09"
 
 
+def test_a_checked_pattern_needs_its_subject() -> None:
+    assert _check(_lead(transaction_ids=[])) == "third_party_payment needs invoice_number and transaction_ids"
+    assert _check(_lead(invoice_number=None)) == "third_party_payment needs invoice_number and transaction_ids"
+    # A triage lead or an unchecked pattern needs none
+    assert _check(_lead(pattern="split_payment", invoice_number=None, transaction_ids=[])) is None
+
+
+def test_a_subject_id_must_appear_in_a_cited_result() -> None:
+    assert _check(_lead(transaction_ids=["T05", "T09"])) == "subject T09 is not in its cited results"
+    assert _check(_lead(tests=[_test(["R02"])])) == "subject T05 is not in its cited results"
+
+
 def test_triage_lead_citing_an_unknown_finding_is_withheld() -> None:
     lead = _lead(kind="triage", pattern=None, finding_ids=["E01", "E99"])
     assert _check(lead, {"E01": _finding()}) == "cites an unknown finding: E99"
@@ -153,18 +166,18 @@ def test_supported_lead_needs_a_test_whose_observed_differs_from_its_expected() 
 
 def test_refuted_lead_records_a_clear_check() -> None:
     same = _test(expected="payer: Bayview Marine Supplies", observed="payer: Bayview Marine Supplies")
-    assert _check(_lead(tests=[same], status="refuted")) is None
+    assert _check(_lead(tests=[same], investigation_status="refuted")) is None
 
 
 def test_unresolved_lead_needs_missing_evidence() -> None:
-    assert _check(_lead(status="unresolved")) == "unresolved without missing evidence"
-    assert _check(_lead(status="unresolved", missing_evidence=["The remitter's name on the GIRO credit"])) is None
+    assert _check(_lead(investigation_status="unresolved")) == "unresolved without missing evidence"
+    assert _check(_lead(investigation_status="unresolved", missing_evidence=["The remitter's name on the GIRO credit"])) is None
 
 
 def test_verdict_language_is_withheld_wherever_it_appears() -> None:
     assert _check(_lead(hypothesis="INV-1002 looks FRAUDULENT")) == "uses verdict language: fraudulent"
     assert _check(_lead(tests=[_test(observed="please approve")])) == "uses verdict language: approve"
-    assert _check(_lead(status="unresolved", missing_evidence=["proof before we reject it"])) == \
+    assert _check(_lead(investigation_status="unresolved", missing_evidence=["proof before we reject it"])) == \
         "uses verdict language: reject"
 
 
@@ -175,7 +188,9 @@ def test_number_absent_from_cited_results_is_withheld() -> None:
 
 def test_a_test_s_numbers_must_come_from_its_own_citations() -> None:
     # 18530 is in R01 and R02; the date 2026-07-12 only in R01, so a test citing R02 alone cannot state it
-    assert _check(_lead(tests=[_test(["R02"], observed="SGD 18,530.00 credited on 2026-07-12")])) == \
+    lead = _lead(pattern="split_payment", invoice_number=None, transaction_ids=[],
+                 tests=[_test(["R02"], observed="SGD 18,530.00 credited on 2026-07-12")])
+    assert _check(lead) == \
         "uses a number not in its cited results: 2026"
 
 
@@ -206,18 +221,10 @@ def test_result_finding_and_lead_ids_are_references() -> None:
     results = {"R05": '[{"credit": "10000.00"}, {"credit": "8530.00"}]'}
     test = _test(["R05"], expected="one credit of the invoice total", observed="R05 shows 10,000.00 and 8,530.00")
     lead = _lead(agent="transaction", pattern="split_payment", hypothesis="Paid in parts (see E04 and L01)",
-                 tests=[test])
+                 tests=[test], invoice_number=None, transaction_ids=[])
     assert check_lead(lead, {"R05"}, {"R05"}, results, {}, _INDEX) is None
     assert check_question("Who sent the credits in R05 (see finding E04)?", ["R05"], {"R05"}, {"R05"}, results,
                           _INDEX) is None
-
-
-def test_strength_is_assigned_by_code_for_kept_supported_leads_only() -> None:
-    assert strength(_lead(kind="triage", pattern=None, finding_ids=["E01"])) == "corroborated"
-    assert strength(_lead()) == "unverified"
-    assert strength(_lead(status="refuted")) is None
-    assert strength(_lead(status="unresolved")) is None
-    assert strength(_lead(outcome="withheld")) is None
 
 
 def test_point_needs_known_ids_numbers_and_identifiers() -> None:
@@ -262,7 +269,17 @@ def test_lead_stored_before_the_contract_still_loads() -> None:
            "verdict": "possibly_innocent", "title": "Paid in two parts", "detail": "Two credits", "cites": ["R01"],
            "outcome": "kept"}
     lead = Lead.model_validate(old)
-    assert (lead.hypothesis, lead.status, lead.cites) == ("Paid in two parts", "refuted", ["R01"])
+    assert (lead.hypothesis, lead.investigation_status, lead.cites) == ("Paid in two parts", "refuted", ["R01"])
+    assert lead.evidence_status == "unverified"
     assert lead.tests[0].observed == "Two credits"
     pattern = Lead.model_validate({**old, "kind": "pattern", "pattern": "split_payment", "verdict": None})
-    assert pattern.status == "supported"
+    assert pattern.investigation_status == "supported"
+
+
+def test_lead_stored_before_the_status_rename_still_loads() -> None:
+    old = {"lead_id": "L01", "agent": "transaction", "kind": "pattern", "pattern": "split_payment",
+           "hypothesis": "h", "tests": [], "status": "supported", "strength": "corroborated", "outcome": "kept"}
+    lead = Lead.model_validate(old)
+    assert (lead.investigation_status, lead.evidence_status) == ("supported", "unverified")
+    withheld = Lead.model_validate({**old, "outcome": "withheld", "strength": None})
+    assert withheld.evidence_status is None

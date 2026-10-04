@@ -11,6 +11,7 @@ import json
 import logging
 import shutil
 from decimal import Decimal
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,7 @@ import pytest
 
 from gldb import agent_eval, llm_client
 from gldb.agent_eval import AgentEvalRow, AgentPackResult
+from gldb.ai_team.checks import bank_rows
 from gldb.ai_team.team import TeamModels
 from gldb.intake import load_manifest
 from gldb.pipeline import assess
@@ -63,13 +65,22 @@ def _test(cites: list[str]) -> dict[str, Any]:
 
 def _lead(cites: list[str], **fields: Any) -> list[dict[str, Any]]:
     args = {"kind": "pattern", "pattern": "split_payment", "hypothesis": "An invoice was settled by several credits",
-            "tests": [_test(cites)], "status": "supported", **fields}
+            "tests": [_test(cites)], "investigation_status": "supported", **fields}
     return [use("record_lead", **args)]
+
+
+@cache
+def _tpp() -> dict[str, Any]:
+    """The subject of the planted third-party payment: INV-1002 and its bank row."""
+    folder = PACKS / "third_party_payment"
+    pack = assess("tpp", sorted(folder.glob("*.pdf")), load_manifest(folder), team=None).pack
+    row = next(row_id for row_id, _, txn in bank_rows(pack) if "INV-1002" in txn.description)
+    return {"invoice_number": "INV-1002", "transaction_ids": [row]}
 
 
 def _triage(cites: list[str], finding: str, status: str) -> list[dict[str, Any]]:
     return [use("record_lead", kind="triage", hypothesis="The payment differs from the invoice",
-                tests=[_test(cites)], finding_ids=[finding], status=status,
+                tests=[_test(cites)], finding_ids=[finding], investigation_status=status,
                 missing_evidence=["the remitter's statement"])]
 
 
@@ -93,7 +104,7 @@ def test_metrics_count_recall_noise_and_withheld(monkeypatch: pytest.MonkeyPatch
         # clean: a pattern lead that matches nothing planted
         _search(), _lead(["R01"]), DONE,
         # third_party_payment: the planted lead, and one that names a verdict, so is refused when recorded
-        _search(), _lead(["R01"], pattern="third_party_payment"),
+        _search(), _lead(["R01"], pattern="third_party_payment", **_tpp()),
         _lead(["R01"], pattern="round_trip", hypothesis="Possible fraud on the invoice"), DONE,
     ])
 
@@ -120,7 +131,7 @@ def test_metrics_count_recall_noise_and_withheld(monkeypatch: pytest.MonkeyPatch
 def test_a_clear_check_is_neither_a_found_pattern_nor_noise(monkeypatch: pytest.MonkeyPatch,
                                                               tmp_path: Path) -> None:
     same = {"cites": ["R01"], "expected": "paid by the buyer", "observed": "paid by the buyer"}
-    _script(monkeypatch, [_search(), _lead(["R01"], tests=[same], status="refuted"), DONE])
+    _script(monkeypatch, [_search(), _lead(["R01"], tests=[same], investigation_status="refuted"), DONE])
 
     (clean,) = agent_eval.evaluate_team(MODELS, _packs(tmp_path, "clean")).packs
 
@@ -317,7 +328,7 @@ def test_main_prints_a_row_per_pack_with_status(
 ) -> None:
     packs = _packs(tmp_path, "clean", "third_party_payment")
     monkeypatch.setattr(agent_eval, "PACKS_DIR", str(packs))
-    _script(monkeypatch, [_search(), _lead(["R01"]), DONE, _search(), _lead(["R01"], pattern="third_party_payment"), DONE])
+    _script(monkeypatch, [_search(), _lead(["R01"]), DONE, _search(), _lead(["R01"], pattern="third_party_payment", **_tpp()), DONE])
 
     assert agent_eval.main([]) == 0
 

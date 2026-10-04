@@ -175,10 +175,10 @@ export interface ReviewPoint {
 
 export type AgentName = "supervisor" | "forensics" | "transaction" | "kyc" | "timeline";
 export type SpecialistName = Exclude<AgentName, "supervisor">;
-/** What a lead's tests show, as its specialist proposes it */
-export type LeadStatus = "supported" | "refuted" | "unresolved";
-/** How strong a kept, supported lead's evidence is: set by code, never by a model */
-export type Strength = "corroborated" | "unverified";
+/** What a lead's tests show, as its specialist proposes it; it never decides anything */
+export type InvestigationStatus = "supported" | "refuted" | "unresolved";
+/** What code establishes from the case data, never a model: only verified and corroborated leads are flags */
+export type EvidenceStatus = "verified" | "corroborated" | "unverified" | "contradicted";
 export type Pattern =
   | "third_party_payment"
   | "round_trip"
@@ -208,15 +208,22 @@ export interface Lead {
   kind: "triage" | "pattern";
   finding_ids: string[];
   pattern: Pattern | null;
+  /** The subject a code check reads: an invoice, bank rows (T01…), a counterparty (P01…) */
+  invoice_number: string | null;
+  transaction_ids: string[];
+  counterparty: string | null;
   /** The claim tested */
   hypothesis: string;
   tests: LeadTest[];
-  status: LeadStatus;
+  investigation_status: InvestigationStatus;
   /** What would settle an unresolved lead */
   missing_evidence: string[];
   outcome: "kept" | "withheld";
   withheld_reason: string | null;
-  strength: Strength | null;
+  evidence_status: EvidenceStatus | null;
+  /** The facts the code check read, and why it decided as it did */
+  check_facts: Record<string, string>;
+  check_reason: string | null;
 }
 
 export interface LeadTest {

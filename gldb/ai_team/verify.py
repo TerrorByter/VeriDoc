@@ -11,7 +11,7 @@ missing), neither accuses nor decides, and states only numbers and
 identifiers found in what it rests on. An identifier (INV-1001, BL-3002,
 202205551D) is a name, not a quantity: it may also come from the case index.
 Its R, E and L ids are references. A memo point faces the same grounding
-rules. The strength of a kept lead is assigned here too. Anything that fails
+rules. Anything that fails
 is withheld with a reason the analyst can read; nothing here asks a model.
 """
 
@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from gldb.schemas import Evidence, Lead, ReviewPoint, SpecialistName, Strength
+from gldb.schemas import Evidence, Lead, Pattern, ReviewPoint, SpecialistName
 
 _NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
 #: Result, finding and lead ids (R05, E04, L01): references, not numbers
@@ -41,6 +41,12 @@ PATTERNS: dict[SpecialistName, frozenset[str]] = {
     "kyc": frozenset({"related_party", "business_mismatch"}),
     "forensics": frozenset({"document_inconsistency"}),
     "timeline": frozenset({"sequence_anomaly"}),
+}
+#: The subject fields a pattern lead must give for its pattern's code check (gldb.ai_team.checks)
+PATTERN_SUBJECTS: dict[Pattern, tuple[str, ...]] = {
+    "third_party_payment": ("invoice_number", "transaction_ids"),
+    "sequence_anomaly": ("invoice_number",),
+    "related_party": ("counterparty",),
 }
 
 
@@ -132,9 +138,15 @@ def _same(expected: str, observed: str) -> bool:
     return _NOT_WORD.sub(" ", expected).casefold().strip() == _NOT_WORD.sub(" ", observed).casefold().strip()
 
 
-def _contract_reason(lead: Lead, findings: dict[str, Evidence], issued: set[str], citable: set[str]) -> str | None:
+def _subject_ids(lead: Lead) -> list[str]:
+    """The ids a lead's subject names, in field order."""
+    return [i for i in (lead.invoice_number, *lead.transaction_ids, lead.counterparty) if i]
+
+
+def _contract_reason(lead: Lead, findings: dict[str, Evidence], issued: set[str], citable: set[str],
+                     results: dict[str, str]) -> str | None:
     """Why *lead* breaks the lead contract (tests, citations, findings,
-    pattern, status), or None."""
+    pattern, subject, status), or None."""
     if not lead.tests:
         return "no tests"
     if any(not test.cites for test in lead.tests):
@@ -149,9 +161,16 @@ def _contract_reason(lead: Lead, findings: dict[str, Evidence], issued: set[str]
         return "a pattern lead needs its pattern"
     if (lead.kind == "pattern" or lead.pattern is not None) and lead.pattern not in PATTERNS[lead.agent]:
         return f"pattern not in this specialist's list: {lead.pattern}"
-    if lead.status == "supported" and all(_same(t.expected, t.observed) for t in lead.tests):
+    needed = PATTERN_SUBJECTS.get(lead.pattern, ()) if lead.kind == "pattern" and lead.pattern else ()
+    if any(not getattr(lead, field) for field in needed):
+        return f"{lead.pattern} needs {' and '.join(needed)}"
+    # The agent saw each subject: it is named in a result the lead cites
+    seen = known(*(results.get(c, "") for c in lead.cites)).identifiers
+    if (unseen := next((i for i in _subject_ids(lead) if i.casefold() not in seen), None)) is not None:
+        return f"subject {unseen} is not in its cited results"
+    if lead.investigation_status == "supported" and all(_same(t.expected, t.observed) for t in lead.tests):
         return "supported without a test whose observed differs from its expected"
-    if lead.status == "unresolved" and not lead.missing_evidence:
+    if lead.investigation_status == "unresolved" and not lead.missing_evidence:
         return "unresolved without missing evidence"
     return None
 
@@ -162,7 +181,7 @@ def check_lead(lead: Lead, issued: set[str], citable: set[str], results: dict[st
     results its agent received, `citable` those that are evidence (see
     Ledger.citable), `results` their text, `findings` the case's and `index`
     the case index its agent was given (its identifiers may be named)."""
-    if reason := _contract_reason(lead, findings, issued, citable):
+    if reason := _contract_reason(lead, findings, issued, citable, results):
         return reason
     judged = known(*(s for f in lead.finding_ids
                      for s in (findings[f].explanation, findings[f].expected, findings[f].observed) if s))
@@ -174,16 +193,6 @@ def check_lead(lead: Lead, issued: set[str], citable: set[str], results: dict[st
                for t in lead.tests),
              *((m, everything) for m in lead.missing_evidence)]
     return next((r for text, grounding in texts if (r := _wording_reason(text, grounding))), None)
-
-
-def strength(lead: Lead) -> Strength | None:
-    """How strong a kept, supported lead's evidence is, by rule: a triage lead
-    backs a rule finding with AI evidence (corroborated); a pattern lead has
-    no code check of its pattern yet (unverified). Refuted, unresolved and
-    withheld leads have none."""
-    if lead.outcome != "kept" or lead.status != "supported":
-        return None
-    return "corroborated" if lead.kind == "triage" else "unverified"
 
 
 def check_question(text: str, cites: list[str], issued: set[str], citable: set[str],

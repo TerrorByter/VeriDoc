@@ -1,5 +1,6 @@
 import type {
-  AgentName, CaseStatus, Lead, LeadStatus, Pattern, RailStageId, ReviewPath, SpecialistName, StageId, Strength,
+  AgentName, CaseStatus, EvidenceStatus, InvestigationStatus, Lead, Pattern, RailStageId, ReviewPath, SpecialistName,
+  StageId,
 } from "./types";
 
 export type StageGroup = "Read" | "Check" | "Decide" | "Explain" | "Record";
@@ -92,14 +93,17 @@ export const AGENT_TITLE: Record<AgentName, string> = {
 };
 
 /** A lead's status as the analyst reads it: triage judges a finding, a pattern lead reports a hunt */
-export const LEAD_STATUS_LABEL: Record<Lead["kind"], Record<LeadStatus, string>> = {
+export const LEAD_STATUS_LABEL: Record<Lead["kind"], Record<InvestigationStatus, string>> = {
   triage: { supported: "Finding stands", refuted: "Ordinary explanation", unresolved: "Unresolved" },
   pattern: { supported: "Pattern found", refuted: "Checked, clear", unresolved: "Unresolved" },
 };
 
-export const STRENGTH_LABEL: Record<Strength, { label: string; title: string }> = {
-  corroborated: { label: "Corroborated", title: "A rule finding, backed by the AI's cited evidence" },
-  unverified: { label: "Unverified", title: "No code check of this pattern yet: cited evidence only" },
+/** What code established, as the analyst reads it */
+export const EVIDENCE_LABEL: Record<EvidenceStatus, { label: string; title: string }> = {
+  verified: { label: "Verified by code", title: "A code check of the case data holds" },
+  corroborated: { label: "Corroborated", title: "Verified by code, and an independent rule source agrees" },
+  unverified: { label: "Not checked", title: "No code check could establish it: the AI's cited evidence only" },
+  contradicted: { label: "Contradicted by code", title: "A code check of the case data shows it does not hold" },
 };
 
 export const PATTERN_LABEL: Record<Pattern, string> = {

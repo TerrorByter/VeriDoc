@@ -164,7 +164,7 @@ def _bad() -> dict[str, Any]:
 def _lead(cite: str = "R01") -> dict[str, Any]:
     test = {"cites": [cite], "expected": "one credit", "observed": "two credits"}
     return use("record_lead", kind="pattern", pattern="split_payment", hypothesis="h", tests=[test],
-               status="supported")
+               investigation_status="supported")
 
 
 def test_leads_and_questions_do_not_count_towards_the_step_cap(case: CaseData,

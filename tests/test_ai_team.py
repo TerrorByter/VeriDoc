@@ -65,7 +65,7 @@ def _plan() -> list[list[dict[str, Any]]]:
 def _lead(cites: list[str], **fields: Any) -> dict[str, Any]:
     test = {"cites": cites, "expected": "one credit of the invoice total", "observed": "several smaller credits"}
     args = {"kind": "pattern", "pattern": "split_payment", "hypothesis": "An invoice was settled by several credits",
-            "tests": [test], "status": "supported", **fields}
+            "tests": [test], "investigation_status": "supported", **fields}
     return use("record_lead", **args)
 
 
@@ -231,23 +231,24 @@ def test_unsupported_leads_are_refused_and_stay_in_the_trace(tampered: CaseData)
     assert json.loads(reconcile)["leads"] == [] and "fraud" not in reconcile
 
 
-def test_leads_carry_status_and_code_assigned_strength_to_the_supervisor(clean: CaseData) -> None:
-    # A clear check is kept as refuted with no strength; a supported pattern lead is unverified; INV-1001
+def test_leads_carry_both_statuses_to_the_supervisor(clean: CaseData) -> None:
+    # Without a code check every kept lead is unverified, whatever the agent concluded; INV-1001
     # is named from the case index although no cited result holds it
     same = {"cites": ["R01"], "expected": "one credit of the invoice total", "observed": "one credit of the invoice total"}
     fake = ScriptedBedrock({
         "plan": _plan(),
         "transaction": [[use("search_bank_transactions", text="INV")],
                         [_lead(["R01"], hypothesis="INV-1002, unlike INV-1001, was settled by several credits"),
-                         _lead(["R01"], tests=[same], status="refuted")]],
+                         _lead(["R01"], tests=[same], investigation_status="refuted")]],
     })
 
     team = _run(fake, clean)
 
-    assert [(lead.outcome, lead.status, lead.strength) for lead in team.leads] == [
-        ("kept", "supported", "unverified"), ("kept", "refuted", None)]
+    assert [(lead.outcome, lead.investigation_status, lead.evidence_status) for lead in team.leads] == [
+        ("kept", "supported", "unverified"), ("kept", "refuted", "unverified")]
     sent = json.loads(_first_text(fake.requests["memo"][0]))["leads"]
-    assert [(lead["status"], lead["strength"]) for lead in sent] == [("supported", "unverified"), ("refuted", None)]
+    assert [(lead["investigation_status"], lead["evidence_status"]) for lead in sent] == [
+        ("supported", "unverified"), ("refuted", "unverified")]
     assert sent[0]["tests"] == [{"cites": ["R01"], "expected": "one credit of the invoice total",
                                  "observed": "several smaller credits"}]
 

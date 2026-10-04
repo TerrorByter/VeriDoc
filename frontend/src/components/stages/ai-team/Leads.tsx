@@ -1,19 +1,21 @@
 import { Fragment } from "react";
-import { AGENT_TITLE, LEAD_STATUS_LABEL, PATTERN_LABEL, STRENGTH_LABEL } from "../../../catalogue";
+import { AGENT_TITLE, EVIDENCE_LABEL, LEAD_STATUS_LABEL, PATTERN_LABEL } from "../../../catalogue";
 import type { Evidence, Lead, ViewTarget } from "../../../types";
 import { Empty, LEAD_STATUS_TONE, Pill } from "../../ui";
 import { findingTarget } from "../Findings";
 
-/** The tags that mark a lead as AI output: kind, specialist, status, pattern and the strength code gave it. */
+/** The tags that mark a lead as AI output: kind, specialist, the agent's status, pattern and what code established. */
 export function LeadTags({ lead }: { lead: Lead }) {
-  const strength = lead.strength && STRENGTH_LABEL[lead.strength];
+  const evidence = lead.evidence_status && EVIDENCE_LABEL[lead.evidence_status];
   return (
     <>
       <Pill tone="brand">AI lead</Pill>
       <span className="muted small">{lead.kind === "triage" ? "Triage" : "Pattern"}, {AGENT_TITLE[lead.agent]}</span>
-      <Pill tone={LEAD_STATUS_TONE[lead.status]}>{LEAD_STATUS_LABEL[lead.kind][lead.status]}</Pill>
+      <Pill tone={LEAD_STATUS_TONE[lead.investigation_status]}>
+        {LEAD_STATUS_LABEL[lead.kind][lead.investigation_status]}
+      </Pill>
       {lead.pattern && <Pill tone="neutral">{PATTERN_LABEL[lead.pattern]}</Pill>}
-      {strength && <span className="muted small" title={strength.title}>{strength.label}</span>}
+      {evidence && <span className="muted small" title={evidence.title}>{evidence.label}</span>}
     </>
   );
 }

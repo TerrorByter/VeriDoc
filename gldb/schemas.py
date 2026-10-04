@@ -594,72 +594,60 @@ Pattern = Literal[
 class ToolCall(BaseModel):
     #: R01…
     call_id: str
-    #: Agent that made the call
     agent: AgentName
-    #: Tool name
     tool: str
-    #: Tool arguments
     args: dict[str, Any]
     #: Short, masked; never page text
     summary: str
-    #: Milliseconds taken
     duration_ms: int
-    #: Whether the call raised an error
+    #: The call came back as an error result
     error: bool = False
 
 
 class Lead(BaseModel):
     #: L01…, assigned when recorded
     lead_id: str = ""
-    #: Specialist that surfaced this lead
     agent: SpecialistName
-    #: Triage (routine finding) or pattern (one we're watching)
+    #: triage: a judgement on a risky finding; pattern: a gap-hunt hit
     kind: Literal["triage", "pattern"]
-    #: Evidence IDs (E…) supporting this lead
+    #: The findings (E…) a triage lead judges
     finding_ids: list[str] = []
-    #: Verdict on the lead (None until verified)
+    #: Set for triage leads only
     verdict: Verdict | None = None
-    #: Pattern, if kind is "pattern"
+    #: Set for pattern leads
     pattern: Pattern | None = None
-    #: Brief title
     title: str
-    #: Detailed explanation
     detail: str
-    #: R ids (tool call IDs) that support this lead
+    #: The tool results (R…) the lead rests on
     cites: list[str]
-    #: Whether the lead is kept or withheld in the final output
+    #: Set by the verifier; withheld leads stay on the record with the reason
     outcome: Literal["kept", "withheld"] = "kept"
-    #: Reason for withholding (None if kept)
     withheld_reason: str | None = None
 
 
 class Memo(BaseModel):
-    #: Observations made by the supervisor
     observations: list[ReviewPoint] = []
-    #: Questions for the applicant
+    #: For the applicant or a counterparty
     questions: list[ReviewPoint] = []
     #: Memo points dropped by the verifier
     withheld: int = 0
 
 
 class AgentTeam(BaseModel):
-    #: Whether the team's run completed ("ran") or hit an error ("failed")
     status: Literal["ran", "failed"]
-    #: Brief per specialist (specialist -> brief)
+    #: Specialist -> its brief
     plan: dict[str, str] = {}
-    #: Tool calls made during the run
     tool_calls: list[ToolCall] = []
-    #: Leads surfaced and verified
+    #: Every lead recorded, kept or withheld
     leads: list[Lead] = []
-    #: Supervisor's reconciliation
+    #: The Supervisor's reconciliation
     memo: Memo | None = None
-    #: Model IDs used: {"supervisor": id, "specialist": id}
+    #: {"supervisor": id, "specialist": id}
     models: dict[str, str] = {}
-    #: Prompt versions used
     prompt_versions: dict[str, str] = {}
-    #: Notes (e.g. "transaction: step limit reached", "budget reached")
+    #: E.g. "transaction: step limit reached", "kyc: budget reached"
     notes: list[str] = []
-    #: Error message if status is "failed"
+    #: Why the team failed, when status is "failed"
     error: str | None = None
     #: call_id -> full tool result text; server-only (agent_trace.json), never serialised
     trace: dict[str, str] = Field(default_factory=dict, exclude=True)

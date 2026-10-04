@@ -215,7 +215,7 @@ PROMPT_SCREEN_ENABLED: bool = _bool_env("PROMPT_SCREEN_ENABLED", False)
 GUARDRAIL_ID: str = os.getenv("GUARDRAIL_ID", "")
 GUARDRAIL_VERSION: str = os.getenv("GUARDRAIL_VERSION", "")
 
-#: Whether to run the AI agent team (gldb.agents): a Supervisor and specialists
+#: Whether to run the AI agent team (gldb.ai_team): a Supervisor and specialists
 #: on Bedrock that investigate each case and write leads for the analyst.
 AGENTS_ENABLED: bool = _bool_env("AGENTS_ENABLED", False)
 #: Bedrock model IDs (cross-region inference profiles) for the Supervisor and
@@ -224,7 +224,8 @@ AGENT_SUPERVISOR_MODEL: str = os.getenv("AGENT_SUPERVISOR_MODEL", "global.anthro
 AGENT_SPECIALIST_MODEL: str = os.getenv(
     "AGENT_SPECIALIST_MODEL", "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 )
-#: Model calls one agent may make before it must answer
+#: Tool calls one specialist may make before it is stopped (recording a lead
+#: or drafting a question does not count)
 AGENT_MAX_STEPS: int = int(os.getenv("AGENT_MAX_STEPS", "8"))
 #: Longest tool result (characters) handed back to a model
 AGENT_MAX_RESULT_CHARS: int = int(os.getenv("AGENT_MAX_RESULT_CHARS", "8000"))

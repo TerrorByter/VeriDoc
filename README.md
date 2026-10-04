@@ -72,7 +72,9 @@ python -m gldb.evaluate --save                 # also keep the report for the UI
 To score the AI team (champion vs challenger) on the same packs:
 
 ```bash
-python -m gldb.agent_eval [--save]             # Bedrock, whatever AGENTS_ENABLED says; about US$1-3 per run
+python -m gldb.agent_eval [--supervisor M] [--specialist M] [--save]
+# One model setup per run (defaults: the configured models). Calls Bedrock whatever
+# AGENTS_ENABLED says; about US$1-3 per run. Run it again with other models for the challenger.
 ```
 
 ### 6. Run the app
@@ -99,7 +101,7 @@ gldb/               Core package
   data_factory.py   Generates synthetic PDF document packs
   intake.py         File validation, hashing, metadata, text extraction, classification
   extract_stub.py   Deterministic parser for generated document layout
-  llm_client.py     The only AWS Bedrock wrapper (Converse API, temperature 0)
+  llm_client.py     The only AWS Bedrock wrapper (Converse API; extraction at temperature 0, agent turns send none)
   extract_llm.py    LLM-based field extraction
   extract.py        Dispatcher: routes to stub or LLM extractor
   checks.py         Deterministic checks grouped into agents; run_agents() merges Evidence

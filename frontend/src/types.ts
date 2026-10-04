@@ -201,7 +201,7 @@ export interface Lead {
   /** L01… */
   lead_id: string;
   agent: SpecialistName;
-  /** Triage: a verdict on a finding. Pattern: one we are watching for */
+  /** Triage: a judgement on a risky finding (finding_ids and verdict set). Pattern: a gap-hunt hit (pattern set) */
   kind: "triage" | "pattern";
   finding_ids: string[];
   verdict: Verdict | null;

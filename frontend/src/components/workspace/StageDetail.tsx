@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { duration, PATH_LABEL, STAGE_BY_ID, STAGES, usd } from "../../catalogue";
 import { href } from "../../route";
-import type { AuditEvent, CaseView, FlagDecision, RailStageId, ReasonCode, ViewTarget } from "../../types";
+import type { AuditEvent, CaseView, FlagDecision, RailStageId, ReasonCode, StageId, ViewTarget } from "../../types";
 import { AgentsStage } from "../stages/AgentsStage";
 import { AuditStage } from "../stages/AuditStage";
 import { ExtractStage } from "../stages/ExtractStage";
@@ -79,7 +79,14 @@ export function StageDetail(props: StageProps & { stage: RailStageId }) {
   const off = status.state === "off";
   const prev = STAGES[info.n - 2];
   const next = STAGES[info.n];
-  const cost = kase.cost?.usd_by_stage[stage];
+  // Stage 5 runs two steps (the rule agents and the AI team): its time and cost are both together
+  const steps: StageId[] = info.steps ?? [stage];
+  const reports = kase.stages.filter((s) => steps.includes(s.stage_id));
+  const costs = steps.flatMap((id) => kase.cost?.usd_by_stage[id] ?? []);
+  const cost = costs.length ? String(costs.reduce((n, c) => n + Number(c), 0)) : undefined;
+  // Only the AI team calls Bedrock in stage 5
+  const team = steps.includes("ai_team") ? kase.ai_team : undefined;
+  const serviceOff = off || (steps.includes("ai_team") && !team);
 
   return (
     <section className="detail" aria-labelledby="stage-title">
@@ -87,7 +94,8 @@ export function StageDetail(props: StageProps & { stage: RailStageId }) {
         <div className="stage-meta">
           <span className="muted">Stage {info.n} of {STAGES.length}, {info.group.toLowerCase()}</span>
           {off ? <Pill tone="neutral">Switched off</Pill> : status.state === "flag" ? <Pill tone="high">Needs attention</Pill> : <Pill tone="low">Ran</Pill>}
-          {info.service && <ServiceTag service={info.service} off={off} />}
+          {team?.status === "failed" && <Pill tone="med">AI team failed</Pill>}
+          {info.service && <ServiceTag service={info.service} off={serviceOff} />}
         </div>
         <h2 id="stage-title">{info.name}</h2>
         <p className="stage-what">{info.what}</p>
@@ -98,7 +106,7 @@ export function StageDetail(props: StageProps & { stage: RailStageId }) {
           <div>
             <dt>Time and cost</dt>
             <dd className="mono">
-              {status.report && !off ? duration(status.report.duration_ms) : "—"}
+              {reports.length && !off ? duration(reports.reduce((n, r) => n + r.duration_ms, 0)) : "—"}
               {cost ? `, ${usd(cost, 4)}` : ""}
             </dd>
           </div>

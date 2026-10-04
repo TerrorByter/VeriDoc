@@ -44,6 +44,8 @@ export function AiTeam({ kase, onView }: StageProps) {
   const kept = keptLeads(kase);
   const withheld = team.leads.filter((l) => l.outcome === "withheld");
   const memo = team.memo;
+  /** The team's note when the Supervisor ended without calling submit_memo */
+  const noMemo = team.notes.includes("supervisor: no memo submitted");
 
   /** Jump to a cited call, switching to its agent's tab first. */
   const cite = (callId: string) => {
@@ -99,7 +101,7 @@ export function AiTeam({ kase, onView }: StageProps) {
           </Section>
 
           <Section title="AI leads" aside="Each lead cites the tool calls it rests on">
-            <KeptLeads leads={kept} evidence={kase.evidence} onCite={cite} onView={onView} />
+            <KeptLeads leads={kept} withheld={withheld.length} evidence={kase.evidence} onCite={cite} onView={onView} />
           </Section>
 
           {withheld.length > 0 && (
@@ -128,7 +130,13 @@ export function AiTeam({ kase, onView }: StageProps) {
                 )}
               </>
             ) : (
-              <p className="muted">The Supervisor wrote no memo points that passed the verifier.</p>
+              <p className="muted">
+                {noMemo
+                  ? "The Supervisor submitted no memo."
+                  : memo && memo.withheld > 0
+                    ? "Every memo point was withheld by the verifier."
+                    : "The Supervisor's memo had no points."}
+              </p>
             )}
           </Section>
         </>

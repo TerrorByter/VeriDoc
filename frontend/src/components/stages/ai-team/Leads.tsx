@@ -35,14 +35,18 @@ function Refs({ label, ids, open }: { label: string; ids: string[]; open: (id: s
 }
 
 /** Kept leads, each citing the tool calls it rests on and the findings it is about. */
-export function KeptLeads({ leads, evidence, onCite, onView }: {
+export function KeptLeads({ leads, withheld, evidence, onCite, onView }: {
   leads: Lead[];
+  /** How many leads the verifier withheld, to tell "none raised" from "none passed" */
+  withheld: number;
   evidence: Evidence[];
   /** Show a cited call in the trace */
   onCite: (callId: string) => void;
   onView: (target: ViewTarget) => void;
 }) {
-  if (leads.length === 0) return <Empty title="No AI leads">No lead passed the verifier.</Empty>;
+  if (leads.length === 0) {
+    return <Empty title="No AI leads">{withheld ? "No lead passed the verifier." : "The AI team raised no leads."}</Empty>;
+  }
   const openFinding = (id: string) => {
     const ev = evidence.find((e) => e.evidence_id === id);
     const target = ev && findingTarget(ev);

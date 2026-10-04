@@ -699,4 +699,5 @@ table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
 }
 .run-row.failed { background: var(--crit-soft); }
 .run-row.failed .run-icon, .run-row.failed .run-name { color: var(--crit); font-weight: 500; }
+.run-row.partial .run-icon { color: var(--med); }
 .data td.mono, .data td.num { white-space: nowrap; }

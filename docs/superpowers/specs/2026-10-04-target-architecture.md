@@ -66,7 +66,7 @@ identical with the team on and off.
 
 **Rule score**
 - Computed from deterministic findings only.
-- Computed before AI execution (step order Planned; independence Built and tested).
+- Computed before AI execution (Built and tested: the pipeline runs score, readiness and route first).
 - AI cannot modify it: no tool writes it, and leads are a separate record type `score()` never reads.
 
 **Specialists**
@@ -78,7 +78,9 @@ identical with the team on and off.
 **Verifier**
 - Code, not another LLM. No generic "logical validity" model.
 - Validates provenance, numbers, identifiers, the lead contract (section 3)
-  and, when built, pattern-specific evidence rules.
+  and, per pattern, the code evidence checks of
+  `2026-10-05-evidence-verification-and-shadow-scoring-design.md` (three of
+  seven patterns so far; the rest stay unverified).
 - Produces verified leads; withheld leads stay on the record with the reason.
 
 **Shadow score**
@@ -100,11 +102,14 @@ Lead
 ├── kind               triage (judges risky findings) | pattern (one of its own patterns)
 ├── finding_ids[]      triage: the risky findings it judges
 ├── pattern            pattern: one of the specialist's patterns
+├── invoice_number, transaction_ids[] (T01...), counterparty (P01...)
+│                      typed subject from closed per-case enums; what code checks read
 ├── hypothesis         what was tested, e.g. "INV-1002 was paid by its buyer"
 ├── tests[]            each: cites[R...], expected, observed
-├── status             supported | refuted | unresolved     (proposed by the model)
+├── investigation_status  supported | refuted | unresolved   (the agent's; decides nothing)
 ├── missing_evidence[] required when unresolved
-├── strength           set by code, kept supported leads only
+├── evidence_status    verified | corroborated | unverified | contradicted   (code only)
+├── check_facts, check_reason   what the code check read, and why   (code only)
 ├── outcome            kept | withheld (+ withheld_reason)  (set by code)
 └── cites              derived: every R id its tests cite
 ```
@@ -124,11 +129,19 @@ Lead
 - **Checked when recorded, and again at the end.** `record_lead` runs the
   verifier and returns its reason as a tool error, so the agent corrects the
   lead in the same run (validate and retry); the refusal stays in the trace.
-- **Strength (code):** `corroborated` for a supported triage lead (a rule
-  finding plus AI evidence that it stands); `unverified` for a supported
-  pattern lead until its pattern's evidence check exists, which then adds
-  `verified`. Refuted and unresolved leads have no strength. The gate reads
-  strength, never the model's wording.
+- **Evidence status (code only).** A pattern's code check reads the case data
+  through the lead's subject and sets `verified` (the pattern holds),
+  `contradicted` (the case data shows it does not), or `unverified` (no check
+  for the pattern, or a condition it needs cannot be established);
+  `corroborated` only from `verified`, with an independent rule finding. It is
+  set whatever the agent concluded. The gate reads evidence status, never the
+  model's wording. Triage leads are `unverified` observations.
+- **Downstream text rests on code-built facts.** A drafted question names the
+  lead it follows from (`lead_id`) and reaches the analyst only if that lead
+  is a flag; a question or a memo point states only numbers and identifiers
+  that lead's `check_facts`, `check_reason` and subject hold (a memo point:
+  those of the findings and flags it cites). The Supervisor is given the
+  flags' code-built fields, never an agent's prose or a whole tool result.
 - **Numbers and identifiers.** Identifiers (INV-1001, BL-3002, 202205551D,
   invoice_INV-1001) are not quantities: each must appear in the lead's cited
   results or the case index. Every other number must appear in the cited

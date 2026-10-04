@@ -181,6 +181,8 @@ PAYER_DIFFERENT_THRESHOLD: float = 0.60
 PAYMENT_CHANNELS: tuple[str, ...] = ("GIRO", "FAST", "TT", "IBG", "MEPS")
 #: Payers that name no one
 GENERIC_PAYERS: tuple[str, ...] = ("CUSTOMER RECEIPTS", "CASH DEPOSIT", "TRANSFER", "INTEREST", "REVERSAL")
+#: Fewest letters a payer's name has
+PAYER_MIN_LETTERS: int = 2
 
 # ---------------------------------------------------------------------------
 # Environment / runtime settings (with safe defaults)

@@ -64,17 +64,18 @@ export function RunScreen({ caseId }: { caseId: string }) {
     const st = states.get(id) ?? "pending";
     return st === "running" && progress?.state === "failed" ? "failed" : st;
   };
-  // The AI team failing never stops the run: its row still finishes, flagged but not as a failure
-  const teamFailed = states.get("ai_team") === "failed";
-  /** A row's state from its steps: stage 5 runs both the rule agents and the AI team */
+  // The AI team and the shadow scorer failing never stop the run: their rows still finish, flagged but not as a failure
+  const isAi = (id: StageId) => id === "ai_team" || id === "shadow_score";
+  const aiFailed = (id: StageId) => isAi(id) && states.get(id) === "failed";
+  /** A row's state from its steps: stage 5 runs the rule agents and the AI team, stage 6 the score and the shadow scorer */
   const rowOf = (s: StageInfo): RowState => {
     const ids = s.steps ?? [s.id];
-    const steps = ids.map((id) => (id === "ai_team" && teamFailed ? "ran" : stateOf(id)));
+    const steps = ids.map((id) => (aiFailed(id) ? "ran" : stateOf(id)));
     if (steps.includes("failed")) return "failed";
     if (steps.includes("running")) return "running";
     if (steps.every((st) => st === "off")) return "off";
     if (!steps.every((st) => st === "ran" || st === "off")) return "pending";
-    return teamFailed && ids.includes("ai_team") ? "partial" : "ran";
+    return ids.some(aiFailed) ? "partial" : "ran";
   };
   const finished = STAGES.filter((s) => ["ran", "off", "partial"].includes(rowOf(s))).length;
   const current = progress?.current ? stageOf(progress.current) : undefined;

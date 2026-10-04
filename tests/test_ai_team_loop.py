@@ -170,15 +170,16 @@ def _lead(cite: str = "R01") -> dict[str, Any]:
 def test_leads_and_questions_do_not_count_towards_the_step_cap(case: CaseData,
                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(loop, "AGENT_MAX_STEPS", 1)
-    question = use("draft_question", text="q", cites=["R01"])
-    fake = ScriptedBedrock({"transaction": [[question], [_search()], [_lead("R02"), _lead("R02")], [{"text": "done"}]]})
+    question = use("draft_question", text="q", cites=["R01"], lead_id="L01")
+    fake = ScriptedBedrock({"transaction": [[_search()], [_lead("R01"), question, _lead("R01")],
+                                            [{"text": "done"}]]})
     ledger = Ledger()
 
     assert _run(fake, case, ledger) is None
 
-    assert [c.tool for c in ledger.tool_calls] == ["draft_question", "search_bank_transactions", "record_lead",
+    assert [c.tool for c in ledger.tool_calls] == ["search_bank_transactions", "record_lead", "draft_question",
                                                    "record_lead"]
-    assert ledger.notes == [] and len(ledger.leads) == 2
+    assert ledger.notes == [] and len(ledger.leads) == 2 and len(ledger.questions) == 1
 
 
 def test_leads_are_recorded_even_in_the_turn_that_hits_the_cap(case: CaseData,

@@ -139,6 +139,7 @@ def test_the_disposition_is_closed_over_the_case() -> None:
     ("standard_review", [{"code": "third_party_payment", "evidence_ids": ["L09"]}], "unknown evidence id: L09"),
     ("approve", [{"code": "no_issue", "evidence_ids": []}], "unknown route: approve"),
     ("fast_track", [], "no reasons"),
+    ("enhanced_review", [{"code": "no_issue", "evidence_ids": []}], "no_issue means fast_track"),
 ])
 def test_an_invalid_disposition_is_stored_failed(route: str, reasons: list[dict[str, Any]], error: str) -> None:
     case, team = _team()
@@ -195,12 +196,13 @@ def _assess(name: str, team: TeamModels | None, monkeypatch: pytest.MonkeyPatch,
 
 
 def test_shadow_never_changes_the_champion(monkeypatch: pytest.MonkeyPatch) -> None:
-    fake = ScriptedBedrock({"shadow": _disposition("enhanced_review", [{"code": "no_issue"}])})
+    fake = ScriptedBedrock({"shadow": _disposition("fast_track", [{"code": "no_issue"}])})
     on = _assess("tampered", MODELS, monkeypatch, fake)
     off = _assess("tampered", None, monkeypatch)
     assert (on.risk, on.readiness, on.routing) == (off.risk, off.readiness, off.routing)
-    assert on.shadow is not None and on.shadow.status == "ran" and on.shadow.route == "enhanced_review"
-    assert on.shadow.agrees_with_champion == (on.routing is not None and on.routing.path == "enhanced_review")
+    assert on.shadow is not None and on.shadow.status == "ran" and on.shadow.route == "fast_track"
+    # The tampered pack's rule route is above fast track: the scorer disagrees, and the champion is untouched
+    assert on.routing is not None and on.routing.path != "fast_track" and on.shadow.agrees_with_champion is False
     stages = {s.stage_id: s.status for s in on.stages}
     assert stages["shadow_score"] == "ran"
     assert off.shadow is None and off.gate is None
@@ -220,6 +222,19 @@ def test_the_scorer_is_off_when_the_team_is_off_or_has_no_scorer_model(monkeypat
         result = _assess("clean", team, monkeypatch, ScriptedBedrock({}))
         assert result.shadow is None
         assert {s.stage_id: s.status for s in result.stages}["shadow_score"] == "off"
+
+
+def test_the_audit_entry_logs_the_gate_even_when_the_scorer_is_off() -> None:
+    from gldb.pipeline import shadow_ledger
+    from gldb.schemas import GateDecision
+    gate = GateDecision(would_route="standard_review", reasons=["a flag"])
+    assert shadow_ledger(None, gate) == {"shadow": None, "gate_would_route": "standard_review"}
+    ran = ShadowScore(status="ran", route="fast_track", model="m", prompt_version="v", agrees_with_champion=True)
+    logged = shadow_ledger(ran, gate)
+    assert logged["gate_would_route"] == "standard_review"
+    assert logged["shadow"] == {"status": "ran", "model": "m", "prompt_version": "v", "route": "fast_track",
+                                "agrees_with_champion": True, "error": None}
+    assert shadow_ledger(None, None) == {"shadow": None, "gate_would_route": None}
 
 
 # ---------------------------------------------------------------------------

@@ -196,7 +196,7 @@ def test_bad_arguments_return_error_result(clean: CaseData) -> None:
     assert "must be an integer" in _error("forensics", "get_page_text",
                                           {"doc_id": "invoice_INV-1001", "page": "1"}, clean)
     assert "missing argument: page" in _error("forensics", "get_page_text", {"doc_id": "x"}, clean)
-    assert "must be a list of strings" in _error("kyc", "draft_question", {"text": "q", "cites": [1]}, clean)
+    assert "must be a list of strings" in _error("kyc", "draft_question", {"text": "q", "cites": [1], "lead_id": "L01"}, clean)
     assert all(c.error for c in ledger.tool_calls)
 
 
@@ -642,12 +642,20 @@ def test_record_lead_subjects_are_closed_per_case(tampered: CaseData) -> None:
     assert all(by_name[p["name"]] == p["id"] for p in parties)
 
 
-def test_draft_question_is_kept_with_its_asker(clean: CaseData) -> None:
+def test_draft_question_is_kept_with_its_asker_and_its_lead(clean: CaseData) -> None:
     ledger = Ledger()
-    assert _run("timeline", "draft_question", {"text": "Why was the PO raised after the invoice?",
-                                               "cites": ["R02"]}, clean, ledger) == {"ok": True}
-    assert ledger.questions == [{"agent": "timeline", "text": "Why was the PO raised after the invoice?",
-                                 "cites": ["R02"]}]
+    call_tool("kyc", "registry_lookup", {"uen": "202301234K"}, clean, ledger)  # R01
+    question = {"text": "Why is the register silent?", "cites": ["R01"], "lead_id": "L01"}
+    # A question follows from a lead the agent recorded: record it first
+    assert _error("kyc", "draft_question", question, clean, ledger) == \
+        "lead_id must be a lead you recorded: none yet, record the lead first"
+    _run("kyc", "record_lead", _lead_args(pattern="business_mismatch"), clean, ledger)  # R03, L01
+    assert _run("kyc", "draft_question", question, clean, ledger) == {"ok": True}
+    assert ledger.questions == [{"agent": "kyc", "text": "Why is the register silent?", "cites": ["R01"],
+                                 "lead_id": "L01"}]
+    # Another agent's lead is not its own
+    assert _error("timeline", "draft_question", question, clean, ledger) == \
+        "lead_id must be a lead you recorded: none yet, record the lead first"
 
 
 def test_issued_to_covers_each_agents_calls_including_errors(clean: CaseData) -> None:
@@ -666,7 +674,7 @@ def test_citable_is_each_agents_successful_evidence_calls(clean: CaseData) -> No
     call_tool("kyc", "registry_lookup", {"uen": "202301234K"}, clean, ledger)  # R01 evidence
     call_tool("kyc", "registry_lookup", {}, clean, ledger)  # R02 error
     call_tool("kyc", "record_lead", _lead_args(pattern="business_mismatch"), clean, ledger)  # R03 receipt
-    call_tool("kyc", "draft_question", {"text": "q", "cites": ["R01"]}, clean, ledger)  # R04 receipt
+    call_tool("kyc", "draft_question", {"text": "q", "cites": ["R01"], "lead_id": "L01"}, clean, ledger)  # R04 receipt
     call_tool("timeline", "get_incorporation", {}, clean, ledger)  # R05 another agent's
     assert ledger.citable("kyc") == {"R01"}
     assert ledger.issued_to("kyc") == {"R01", "R02", "R03", "R04"}

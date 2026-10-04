@@ -465,8 +465,12 @@ export interface AgentPackResult {
   planted: boolean;
   shadow_route: ReviewPath | null;
   would_route: ReviewPath | null;
-  /** A planted fraud the gate would send to fast track */
+  /** A planted fraud the shadow scorer or the gate would send to fast track */
   miss: boolean;
+  /** A planted fraud the shadow scorer alone would send to fast track */
+  shadow_miss: boolean;
+  shadow_agrees_champion: boolean | null;
+  shadow_matches_truth: boolean | null;
 }
 
 /** One saved AI team evaluation, for one model setup */
@@ -477,15 +481,19 @@ export interface AgentEvalRow {
   shadow: string | null;
   packs: AgentPackResult[];
   supported_recall: number;
-  verified_recall: number;
   triage_accuracy: number;
   noise: number;
-  flag_noise: number;
   withheld_rate: number;
-  /** Planted frauds the gate would send to fast track / planted frauds */
-  miss_rate: number;
+  /** The rest were not measured by rows saved before they existed: null there */
+  verified_recall: number | null;
+  flag_noise: number | null;
+  /** Planted frauds the shadow scorer or the gate would send to fast track / planted frauds */
+  miss_rate: number | null;
+  shadow_miss_rate: number | null;
   /** Packs the gate would send to fast track / packs */
-  auto_clear_rate: number;
+  auto_clear_rate: number | null;
+  shadow_champion_agreement: number | null;
+  shadow_truth_agreement: number | null;
   usd_per_case: Usd | null;
   seconds_per_case: number;
 }

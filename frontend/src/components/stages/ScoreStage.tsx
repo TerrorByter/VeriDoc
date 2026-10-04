@@ -25,7 +25,9 @@ function ShadowCard({ kase }: Pick<StageProps, "kase">) {
             {shadow?.status === "ran" && shadow.route ? (
               <>
                 <Pill tone={PATH_TONE[shadow.route]}>{PATH_LABEL[shadow.route]}</Pill>{" "}
-                <span className="muted small">{shadow.agrees_with_champion ? "agrees" : "disagrees"}</span>
+                {shadow.agrees_with_champion !== null && (
+                  <span className="muted small">{shadow.agrees_with_champion ? "agrees" : "disagrees"}</span>
+                )}
               </>
             ) : shadow ? (
               <span className="muted">Failed: {shadow.error}</span>

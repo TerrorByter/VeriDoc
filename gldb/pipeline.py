@@ -200,12 +200,12 @@ def team_ledger(team: AgentTeam | None) -> dict[str, Any]:
 
 def shadow_ledger(shadow: ShadowScore | None, gate: GateDecision | None) -> dict[str, Any]:
     """What the shadow scorer proposed and the gate would do, for the audit
-    log: logged only, neither is applied. None when the scorer was off."""
+    log: logged only, neither is applied. shadow is None when the scorer was
+    off; the gate is logged whenever the AI team ran, scorer or not."""
     return {"shadow": {
         "status": shadow.status, "model": shadow.model, "prompt_version": shadow.prompt_version,
         "route": shadow.route, "agrees_with_champion": shadow.agrees_with_champion, "error": shadow.error,
-        "gate_would_route": gate.would_route if gate else None,
-    } if shadow else None}
+    } if shadow else None, "gate_would_route": gate.would_route if gate else None}
 
 
 def _team_or_failure(case: CaseData, team: TeamModels, on_activity: Activity) -> AgentTeam:

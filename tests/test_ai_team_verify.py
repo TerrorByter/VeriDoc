@@ -6,8 +6,8 @@ cites tool results its agent received and that are evidence, it cites known
 findings, stays inside its specialist's patterns, avoids verdict words, keeps
 to the lead contract (a supported lead shows a difference, an unresolved one
 names what is missing) and states only numbers and identifiers found in what
-it rests on. Strength is assigned here, by code. A memo point faces the same
-grounding rules. Offline; no AWS.
+it rests on. A question rests on the code-built facts of a lead code verified,
+never on a whole tool result. Offline; no AWS.
 """
 
 from __future__ import annotations
@@ -105,7 +105,7 @@ def test_lead_citing_a_receipt_or_an_error_is_withheld() -> None:
     for receipt in ("R03", "R04"):
         reason = _check(_lead(tests=[_test(["R01", receipt])]), issued=issued)
         assert reason == f"cites a result that is not evidence: {receipt}"
-        reason = check_question("Who paid?", ["R01", receipt], issued, _ALL, _RESULTS, _INDEX)
+        reason = check_question("Who paid?", ["R01", receipt], issued, _ALL, _flag())
         assert reason == f"cites a result that is not evidence: {receipt}"
 
 
@@ -223,8 +223,6 @@ def test_result_finding_and_lead_ids_are_references() -> None:
     lead = _lead(agent="transaction", pattern="split_payment", hypothesis="Paid in parts (see E04 and L01)",
                  tests=[test], invoice_number=None, transaction_ids=[])
     assert check_lead(lead, {"R05"}, {"R05"}, results, {}, _INDEX) is None
-    assert check_question("Who sent the credits in R05 (see finding E04)?", ["R05"], {"R05"}, {"R05"}, results,
-                          _INDEX) is None
 
 
 def test_point_needs_known_ids_numbers_and_identifiers() -> None:
@@ -239,28 +237,48 @@ def test_point_needs_known_ids_numbers_and_identifiers() -> None:
     assert check_point(ReviewPoint(text="L01 and E04 agree", evidence_ids=["L01", "E04"]), {"L01", "E04"}, grounding)
 
 
+def _flag() -> Lead:
+    """A lead code verified, with the facts its check read."""
+    return _lead(evidence_status="verified", check_reason="T05: payer HARBOURLINE LOGISTICS is not the buyer",
+                 check_facts={"invoice": "INV-1002", "buyer": "Bayview Marine Supplies Pte. Ltd.",
+                              "payer": "HARBOURLINE LOGISTICS", "transaction": "T05", "amount": "18530.00",
+                              "date": "2026-07-12"})
+
+
 def test_grounded_question_is_kept() -> None:
-    assert check_question("Who sent the SGD 18,530.00 credit for INV-1001?", ["R01"], _ALL, _ALL, _RESULTS,
-                          _INDEX) is None
+    question = "Who sent the SGD 18,530.00 credit for INV-1002 on 2026-07-12?"
+    assert check_question(question, ["R01"], _ALL, _ALL, _flag()) is None
 
 
 def test_question_without_citations_is_withheld() -> None:
-    assert check_question("Who paid?", [], _ALL, _ALL, _RESULTS, _INDEX) == "no citations"
+    assert check_question("Who paid?", [], _ALL, _ALL, _flag()) == "no citations"
 
 
 def test_question_citing_a_result_its_agent_did_not_receive_is_withheld() -> None:
-    reason = check_question("Who paid?", ["R01"], {"R02"}, {"R02"}, _RESULTS, _INDEX)
+    reason = check_question("Who paid?", ["R01"], {"R02"}, {"R02"}, _flag())
     assert reason == "cites a tool result it did not receive: R01"
 
 
+def test_question_that_follows_from_no_verified_lead_is_withheld() -> None:
+    assert check_question("Who paid?", ["R01"], _ALL, _ALL, None) == "no verified lead rests on it"
+
+
 def test_question_with_verdict_language_is_withheld() -> None:
-    reason = check_question("Should this be declined?", ["R01"], _ALL, _ALL, _RESULTS, _INDEX)
+    reason = check_question("Should this be declined?", ["R01"], _ALL, _ALL, _flag())
     assert reason == "uses verdict language: declined"
 
 
-def test_question_number_absent_from_cited_results_is_withheld() -> None:
-    reason = check_question("Why SGD 18,531?", ["R01"], _ALL, _ALL, _RESULTS, _INDEX)
+def test_question_number_absent_from_the_leads_facts_is_withheld() -> None:
+    reason = check_question("Why SGD 18,531?", ["R01"], _ALL, _ALL, _flag())
     assert reason == "uses a number not in its cited results: 18531"
+
+
+def test_question_about_another_invoice_in_the_same_result_is_withheld() -> None:
+    # Run 5's review: R01 held both invoices' rows, but only INV-1002's is what code verified
+    named = check_question("Why was INV-1001 paid by Orchid Lane?", ["R01"], _ALL, _ALL, _flag())
+    assert named == "uses an identifier not in its cited results: INV-1001"
+    dated = check_question("Why was it paid on 2026-06-18?", ["R01"], _ALL, _ALL, _flag())
+    assert dated == "uses a number not in its cited results: 06"
 
 
 def test_lead_stored_before_the_contract_still_loads() -> None:

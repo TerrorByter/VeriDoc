@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 
 from gldb.ai_team.checks import Outcome, bank_rows, check_pattern, corroborate, counterparties
+from gldb.checks import check_temp_trade_sequence as check_trade_rules
 from gldb.intake import load_manifest
 from gldb.pipeline import assess
 from gldb.schemas import Evidence, ExtractedPack, Lead
@@ -107,6 +108,50 @@ def test_tpp_preconditions_not_met_are_unverified(fields: dict[str, Any], reason
     assert outcome.status == "unverified" and reason in outcome.reason, outcome
 
 
+@pytest.mark.parametrize("description", [
+    "FAST CR CASH DEPOSIT ATM INV-1002",  # a generic payer, with more words than the list's phrase
+    "GIRO CR TRANSFER FROM ACC 12345 INV-1002",
+    "GIRO CR REVERSAL OF INV-1002",
+    "TT CR SGD 18530.00 INV-1002",  # an amount, not a name
+    "GIRO CR HARBOURLINE REF 77 INV-1002",
+])
+def test_tpp_review_formats_are_unverified_not_verified(description: str) -> None:
+    pack, _ = _case("third_party_payment")
+    row = _rows(pack, "HARBOURLINE LOGISTICS INV-1002")[0]
+    edited, lead = _edited("third_party_payment", row, description=description)
+    outcome = check_pattern(lead, edited, [])
+    assert outcome.status == "unverified", (description, outcome)
+
+
+def test_tpp_two_invoices_in_one_transfer_is_not_a_third_party() -> None:
+    # The buyer paying INV-1001 and INV-1002 together: the "payer" would read as "ACME INV-1001"
+    pack, _ = _case("third_party_payment")
+    row = _rows(pack, "HARBOURLINE LOGISTICS INV-1002")[0]
+    edited, lead = _edited("third_party_payment", row, description="GIRO CR BAYVIEW MARINE SUPPLIES INV-1001 INV-1002")
+    assert check_pattern(lead, edited, []).status == "unverified"
+
+
+def test_tpp_the_case_data_decides_not_the_agents_choice_of_rows() -> None:
+    # The buyer paid part (T-row listed by the agent); Harbourline paid the rest (not listed): not "clear"
+    pack, _ = _case("innocent_split")
+    parts = _rows(pack, "INV-1002 PART")
+    statements = []
+    for statement in pack.bank_statements:
+        txns = [t.model_copy(update={"description": "GIRO CR HARBOURLINE LOGISTICS INV-1002 PART 2"})
+                if rid == parts[1] else t for rid, s, t in bank_rows(pack) if s is statement]
+        statements.append(statement.model_copy(update={"transactions": txns}))
+    edited = pack.model_copy(update={"bank_statements": statements})
+    only_the_buyers = _tpp(pack, "INV-1002", [parts[0]])
+    outcome = check_pattern(only_the_buyers, edited, [])
+    assert outcome.status == "verified" and outcome.facts["transaction"] == parts[1]
+
+
+def test_tpp_facts_carry_the_amount_and_date_a_question_may_state() -> None:
+    pack, _ = _case("third_party_payment")
+    outcome = _check("third_party_payment", _tpp(pack, "INV-1002", _rows(pack, "HARBOURLINE LOGISTICS INV-1002")))
+    assert (outcome.facts["amount"], outcome.facts["date"]) == ("18530.00", "2026-07-12")
+
+
 # ---------------------------------------------------------------------------
 # sequence_anomaly
 # ---------------------------------------------------------------------------
@@ -135,6 +180,18 @@ def test_seq_payment_before_invoice_only_is_unverified() -> None:
         if i is invoice else i for i in pack.invoices]})
     outcome = check_pattern(_lead("sequence_anomaly", "timeline", invoice_number="INV-1002"), early, [])
     assert outcome.status == "unverified" and "payment before invoice" in outcome.reason
+
+
+def test_seq_every_bill_of_lading_of_the_trade_counts() -> None:
+    # A second bill of lading for INV-1002, shipped before its purchase order: the rule raises it, so must the check
+    pack, evidence = _case("third_party_payment")
+    first = next(b for b in pack.bills_of_lading if b.invoice_reference == "INV-1002")
+    extra = first.model_copy(update={"bl_number": "BL-EXTRA", "doc_id": "bill_of_lading_BL-EXTRA",
+                                     "shipped_date": first.shipped_date.replace(month=6, day=11)})
+    edited = pack.model_copy(update={"bills_of_lading": [*pack.bills_of_lading, extra]})
+    lead = _lead("sequence_anomaly", "timeline", invoice_number="INV-1002")
+    assert check_pattern(lead, edited, []).status == "verified"
+    assert any(e.check_id == "TEMP_TRADE_SEQUENCE" for e in check_trade_rules(edited))  # the rule agrees
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +228,29 @@ def test_rp_ambiguous_register_match_is_unverified(monkeypatch: pytest.MonkeyPat
 # ---------------------------------------------------------------------------
 # The rest
 # ---------------------------------------------------------------------------
+
+
+def test_rp_no_shared_officer_is_not_clear_when_the_applicant_is_not_in_the_register(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    from gldb.ai_team import checks
+    pack, _ = _case("third_party_payment")
+    real = checks.registry()
+    without_applicant = {u: e for u, e in real.entities.items() if u != "202301234K"}
+    monkeypatch.setattr(checks, "registry", lambda: real.model_copy(update={"entities": without_applicant}))
+    outcome = check_pattern(_lead("related_party", "kyc", counterparty=_party(pack, "Orchid Lane Retail Pte. Ltd.")),
+                            pack, [])
+    assert outcome.status == "unverified" and "officers of both sides" in outcome.reason
+
+
+def test_corroboration_documents_follow_the_patterns_own_subject_fields() -> None:
+    pack, evidence = _case("third_party_payment")
+    lead = _tpp(pack, "INV-1002", _rows(pack, "HARBOURLINE LOGISTICS INV-1002"))
+    verified = check_pattern(lead, pack, list(evidence))
+    elsewhere = _finding(next(i.doc_id for i in pack.invoices if i.invoice_number == "INV-1001"),
+                         "META_MOD_AFTER_CREATE")
+    widened = lead.model_copy(update={"counterparty": _party(pack, "Orchid Lane Retail Pte. Ltd.")})
+    # The agent set a counterparty that third_party_payment does not use: it widens nothing
+    assert corroborate(widened, verified, pack, [elsewhere]).status == "verified"
 
 
 @pytest.mark.parametrize(("pattern", "agent"), [("document_inconsistency", "forensics"),  # run 5's L02

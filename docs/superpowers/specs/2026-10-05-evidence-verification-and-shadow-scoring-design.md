@@ -255,9 +255,18 @@ stay unverified, so they become analyst observations only.
 - The Supervisor's memo task receives verified and corroborated leads only.
   Memo points are verified against E ids plus those L ids only, so a point
   citing an unverified lead is dropped.
-- A specialist's drafted question reaches the Supervisor only if every R id
-  it cites is cited by one of that agent's verified or corroborated leads.
-  Otherwise it is withheld with a note.
+- A specialist's drafted question names the lead it follows from
+  (`draft_question.lead_id`, one the agent recorded) and reaches the
+  Supervisor only if that lead is a flag, the question cites results its agent
+  received, and every number and identifier in its text is one the lead's
+  code-built facts hold (`check_facts`, `check_reason`, subject ids). Otherwise
+  it is withheld with a note. This replaced "every R id it cites is cited by a
+  flag" (final review B1): one search result holds many invoices' rows, so
+  result ids let the subject of an unverified or contradicted lead ride in.
+- The Supervisor's memo task holds the flags' code-built fields only (subject,
+  `check_reason`, `check_facts`): never an agent's hypothesis, tests or a tool
+  result. A memo point is grounded in the evidence it cites alone: the facts
+  of the flags and the records of the findings it names.
 
 ## 7. Shadow case scorer
 
@@ -388,8 +397,11 @@ recorded.
 
 Risks:
 - **Payer parsing depends on the description format.** Other banks' formats
-  give `unverified`, never a false `verified`, by design. Coverage grows by
-  adding formats, each with a fixture.
+  give `unverified`, never a false `verified`, by design: a payer that holds
+  a digit, or any word of a generic payer ("CASH DEPOSIT ATM", "REVERSAL OF"),
+  is not read. Coverage grows by adding formats, each with a fixture. The
+  check also reads every other credit naming the invoice, so the agent's
+  choice of rows cannot make a third-party payment read as clear.
 - **Name similarity thresholds are untested on real names.** The band
   between 0.60 and 0.90 is `unverified` on purpose.
 - **Scorer inputs carry applicant-controlled names** (parties, payers).

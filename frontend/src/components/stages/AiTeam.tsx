@@ -105,6 +105,7 @@ export function AiTeam({ kase, onView }: StageProps) {
 
           <Section title="AI leads" aside="Verified by code against the case data">
             <KeptLeads leads={leads} withheld={withheld.length} unchecked={unchecked.length + clear.length}
+              confirmed={confirmed.length}
               evidence={kase.evidence} onCite={cite} onView={onView} />
             {confirmed.length > 0 && <RuleConfirmations leads={confirmed} evidence={kase.evidence} />}
           </Section>

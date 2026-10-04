@@ -174,9 +174,14 @@ class Ledger:
             self.leads.append(lead.model_copy(update={"lead_id": lead_id}))
         return lead_id
 
-    def add_question(self, agent: AgentName, text: str, cites: list[str]) -> None:
+    def add_question(self, agent: AgentName, text: str, cites: list[str], lead_id: str) -> None:
         with self._lock:
-            self.questions.append({"agent": agent, "text": text, "cites": cites})
+            self.questions.append({"agent": agent, "text": text, "cites": cites, "lead_id": lead_id})
+
+    def leads_of(self, agent: AgentName) -> list[str]:
+        """Ids of the leads *agent* has recorded."""
+        with self._lock:
+            return [lead.lead_id for lead in self.leads if lead.agent == agent]
 
     def add_tokens(self, n: int) -> None:
         with self._lock:
@@ -385,7 +390,11 @@ def _record_lead(case: CaseData, args: Args, agent: AgentName, ledger: Ledger) -
 
 
 def _draft_question(case: CaseData, args: Args, agent: AgentName, ledger: Ledger) -> Any:
-    ledger.add_question(agent, args["text"], args["cites"])
+    # A question follows from a lead: only one code verified can reach the analyst, so record the lead first
+    mine = ledger.leads_of(agent)
+    if args["lead_id"] not in mine:
+        raise ToolError(f"lead_id must be a lead you recorded: {', '.join(mine) or 'none yet, record the lead first'}")
+    ledger.add_question(agent, args["text"], args["cites"], args["lead_id"])
     return {"ok": True}
 
 
@@ -516,8 +525,11 @@ TOOLS: dict[str, Tool] = {
         }, "kind", "hypothesis", "tests", "investigation_status"),
         _record_lead),
     "draft_question": Tool(
-        "Draft a question for the analyst to put to the applicant or a counterparty.",
-        _schema({"text": _string("The question"), "cites": _CITES}, "text", "cites"), _draft_question),
+        "Draft a question for the analyst to put to the applicant or a counterparty, following from a lead you "
+        "recorded. Only a question following from a lead that code verifies reaches the analyst.",
+        _schema({"text": _string("The question"), "cites": _CITES,
+                 "lead_id": _string("The lead (L01...) it follows from, as record_lead gave it")},
+                "text", "cites", "lead_id"), _draft_question),
 }
 
 #: The tools each agent may call

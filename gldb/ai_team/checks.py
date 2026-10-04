@@ -19,10 +19,12 @@ from gldb.checks import incorporation, matching_po
 from gldb.config import (
     GENERIC_PAYERS,
     PAYER_DIFFERENT_THRESHOLD,
+    PAYER_MIN_LETTERS,
     PAYER_SAME_THRESHOLD,
     PAYMENT_CHANNELS,
     SCREENING_MATCH_THRESHOLD,
 )
+from gldb.ai_team.verify import PATTERN_SUBJECTS
 from gldb.ordering import TradeDates, undetermined, violations
 from gldb.reference import registry
 from gldb.schemas import BankStatement, EvidenceStatus, Evidence, ExtractedPack, Invoice, Lead, Pattern, Transaction
@@ -74,13 +76,16 @@ def names(number: str) -> re.Pattern[str]:
 
 
 def trade_dates(invoice: Invoice, pack: ExtractedPack, incorporated: date | None) -> TradeDates:
-    """*invoice*'s trade: its matching purchase order, the bill of lading that
-    references it, and the earliest credit whose description names it."""
+    """*invoice*'s trade: its matching purchase order, its earliest shipment
+    (the rules check every bill of lading that references it, and a breach by
+    any is one by the earliest) and the earliest credit whose description
+    names it."""
     po = matching_po(invoice, pack)
-    bl = next((b for b in pack.bills_of_lading if b.invoice_reference == invoice.invoice_number), None)
+    shipped = min((b.shipped_date for b in pack.bills_of_lading if b.invoice_reference == invoice.invoice_number),
+                  default=None)
     named = names(invoice.invoice_number)
     credits = [txn.date for _, _, txn in bank_rows(pack) if txn.credit is not None and named.search(txn.description)]
-    return TradeDates(purchase_order=po.po_date if po else None, shipped=bl.shipped_date if bl else None,
+    return TradeDates(purchase_order=po.po_date if po else None, shipped=shipped,
                       invoice=invoice.invoice_date, payment=min(credits, default=None), incorporated=incorporated)
 
 
@@ -106,19 +111,42 @@ def _invoice(lead: Lead, pack: ExtractedPack) -> Invoice | None:
     return next((i for i in pack.invoices if i.invoice_number == lead.invoice_number), None)
 
 
+_WORDS = re.compile(r"[A-Z0-9]+")
+
+
 def _payer_reader(invoice_number: str) -> re.Pattern[str]:
     """Reads the payer from "<CHANNEL> CR <PAYER> <INVOICE NUMBER>[ <suffix>]"."""
     channels = "|".join(map(re.escape, PAYMENT_CHANNELS))
     return re.compile(rf"^(?:{channels}) CR (?P<payer>.+?) {re.escape(invoice_number)}(?: .*)?$", re.IGNORECASE)
 
 
-_GENERIC = frozenset(screening_key(g) for g in GENERIC_PAYERS)
+_GENERIC_WORDS = frozenset(w for phrase in GENERIC_PAYERS for w in _WORDS.findall(phrase.upper()))
+
+
+def _payer(description: str, reader: re.Pattern[str]) -> tuple[str | None, str]:
+    """The payer a bank description names, or None with why it cannot be
+    relied on: not in the known format, a generic payer (any word of one), or
+    something with a digit in it (an amount, an account, another invoice)."""
+    read = reader.match(description.strip())
+    if read is None:
+        return None, "the payer cannot be read from its description"
+    payer = read["payer"].strip()
+    words = _WORDS.findall(payer.upper())
+    if any(w in _GENERIC_WORDS for w in words):
+        return None, f"generic payer {payer}"
+    if any(ch.isdigit() for ch in payer):
+        return None, f"payer {payer} holds a number, not only a name"
+    if len(re.findall(r"[A-Za-z]", payer)) < PAYER_MIN_LETTERS:
+        return None, f"payer {payer} is too short to be a name"
+    return payer, ""
 
 
 def _third_party_payment(lead: Lead, pack: ExtractedPack, evidence: list[Evidence]) -> Outcome:
-    """An invoice paid by someone other than its buyer: each subject row a
-    credit naming the invoice, its payer read reliably and compared with the
-    invoice's buyer. Verified if any row's payer is someone else."""
+    """An invoice paid by someone other than its buyer. Every row of the lead
+    is a credit naming the invoice with its payer read reliably, and so are the
+    other credits that name it: the case data decides, not the agent's choice
+    of rows. Verified if any such credit is paid by someone else; contradicted
+    only if every one is paid by the buyer; unverified otherwise."""
     invoice = _invoice(lead, pack)
     if invoice is None:
         return _unverified(f"invoice {lead.invoice_number} is not in the pack")
@@ -127,7 +155,6 @@ def _third_party_payment(lead: Lead, pack: ExtractedPack, evidence: list[Evidenc
     rows = {row_id: txn for row_id, _, txn in bank_rows(pack)}
     named, reader = names(invoice.invoice_number), _payer_reader(invoice.invoice_number)
     facts = {"invoice": invoice.invoice_number, "buyer": invoice.buyer_name}
-    payers: list[tuple[str, str, bool]] = []
     for row_id in lead.transaction_ids:
         txn = rows.get(row_id)
         if txn is None:
@@ -136,21 +163,33 @@ def _third_party_payment(lead: Lead, pack: ExtractedPack, evidence: list[Evidenc
             return _unverified(f"{row_id} is not a credit", **facts)
         if not named.search(txn.description):
             return _unverified(f"{row_id} does not name {invoice.invoice_number}", **facts)
-        if (read := reader.match(txn.description.strip())) is None:
-            return _unverified(f"{row_id}: the payer cannot be read from its description", **facts)
-        payer = read["payer"].strip()
-        if len(re.findall(r"[A-Za-z]", payer)) < 2 or screening_key(payer) in _GENERIC:
-            return _unverified(f"{row_id}: generic payer {payer}", **facts)
+    # The lead's rows, then every other credit that names the invoice
+    credits = [(row_id, txn) for row_id, txn in rows.items()
+               if row_id in lead.transaction_ids
+               or (txn.credit is not None and txn.credit > 0 and named.search(txn.description))]
+    different: tuple[str, str, Transaction] | None = None
+    same: tuple[str, str, Transaction] | None = None
+    for row_id, txn in credits:
+        payer, why = _payer(txn.description, reader)
+        if payer is None:
+            return _unverified(f"{row_id}: {why}", **facts)
         score = similarity(payer, invoice.buyer_name)
         if PAYER_DIFFERENT_THRESHOLD < score < PAYER_SAME_THRESHOLD:
             return _unverified(f"{row_id}: cannot tell whether payer {payer} is the buyer", **facts, payer=payer)
-        payers.append((row_id, payer, score >= PAYER_SAME_THRESHOLD))
-    other = next(((r, p) for r, p, same in payers if not same), None)
-    if other is None:
-        return Outcome("contradicted", f"paid by the buyer {invoice.buyer_name}", {**facts, "payer": payers[0][1]})
-    row_id, payer = other
+        if score >= PAYER_SAME_THRESHOLD:
+            same = same or (row_id, payer, txn)
+        else:
+            different = different or (row_id, payer, txn)
+    if different is None:
+        if same is None:
+            return _unverified("no credit names the invoice", **facts)
+        row_id, payer, txn = same
+        return Outcome("contradicted", f"paid by the buyer {invoice.buyer_name}",
+                       {**facts, "payer": payer, "transaction": row_id, "amount": str(txn.credit), "date": str(txn.date)})
+    row_id, payer, txn = different
     return Outcome("verified", f"{row_id}: payer {payer} is not the buyer {invoice.buyer_name}",
-                   {**facts, "payer": payer, "transaction": row_id})
+                   {**facts, "payer": payer, "transaction": row_id, "amount": str(txn.credit),
+                    "date": str(txn.date)})
 
 
 def _sequence_anomaly(lead: Lead, pack: ExtractedPack, evidence: list[Evidence]) -> Outcome:
@@ -217,6 +256,9 @@ def _related_party(lead: Lead, pack: ExtractedPack, evidence: list[Evidence]) ->
     shared = next(((o.name, people[p]) for o in entity.officers for p in people
                    if similarity(o.name, p) >= SCREENING_MATCH_THRESHOLD), None)
     if shared is None:
+        # "None in common" needs both lists: an applicant missing from the register, or an entity with no officers, is not that
+        if not entity.officers or registry().entities.get(pack.manifest.uen if pack.manifest else "") is None:
+            return _unverified("the register does not list the officers of both sides", **facts)
         return Outcome("contradicted", f"no officer of {entity.name} is among the applicant's people", facts)
     officer, role = shared
     return Outcome("verified", f"{officer} is an officer of {entity.name} and the applicant's {role}",
@@ -246,10 +288,12 @@ def check_pattern(lead: Lead, pack: ExtractedPack, evidence: list[Evidence]) -> 
 
 
 def _subject_documents(lead: Lead, pack: ExtractedPack) -> set[str]:
-    """The documents a lead's subject is on."""
-    invoice = _invoice(lead, pack)
+    """The documents a lead's subject is on, by the subject fields its pattern
+    uses: others the agent may have set widen nothing."""
+    subjects = PATTERN_SUBJECTS.get(lead.pattern, ()) if lead.pattern else ()
+    invoice = _invoice(lead, pack) if "invoice_number" in subjects else None
     docs = _trade_documents(invoice, pack) if invoice else set()
-    if lead.counterparty:
+    if "counterparty" in subjects and lead.counterparty:
         docs |= {d for d, n in _party_documents(pack) if counterparty_id(pack, n) == lead.counterparty}
     return docs
 

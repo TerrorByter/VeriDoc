@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import functools
 import json
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -325,41 +326,48 @@ def test_memo_points_citing_withheld_leads_are_dropped(tampered: CaseData) -> No
     assert team.memo.withheld == 5
 
 
-def test_only_verified_questions_reach_the_supervisor(tampered: CaseData) -> None:
-    # Only the transaction specialist calls tools: R01 is its search, R02 to R04 its drafts
+def test_only_verified_questions_reach_the_supervisor(tpp: CaseData) -> None:
+    # Only the transaction specialist calls tools: R01 its search, R02 L01 (verified), R03 L02 (unverified),
+    # R04 to R07 its questions
     fake = ScriptedBedrock({
         "plan": _plan(),
-        "transaction": [[use("search_bank_transactions", text="INV")],
-                        [use("draft_question", text="Who made the payments in 2026?", cites=["R01"]),
-                         use("draft_question", text="Is this a laundering scheme?", cites=["R01"]),
-                         use("draft_question", text="Why was 98765432 paid?", cites=["R01"])]],
+        "transaction": [[use("search_bank_transactions", text="INV-1002")],
+                        [_lead(["R01"], pattern="third_party_payment", invoice_number="INV-1002",
+                               transaction_ids=[_harbourline(tpp)]),
+                         _lead(["R01"]),
+                         use("draft_question", text="Who is Harbourline Logistics?", cites=["R01"], lead_id="L01"),
+                         use("draft_question", text="Is this a laundering scheme?", cites=["R01"], lead_id="L01"),
+                         use("draft_question", text="Why was 98765432 paid?", cites=["R01"], lead_id="L01"),
+                         use("draft_question", text="Who paid in parts?", cites=["R01"], lead_id="L02")]],
     })
 
-    team = _run(fake, tampered)
+    team = _run(fake, tpp)
 
     reconcile = json.loads(_first_text(fake.requests["memo"][0]))
-    # None rests on a verified lead; the second and third also break the wording rules
-    assert reconcile["questions"] == []
+    assert [q["text"] for q in reconcile["questions"]] == ["Who is Harbourline Logistics?"]
     assert team.notes == [
-        "transaction: question withheld (no verified lead rests on it)",
         "transaction: question withheld (uses verdict language: laundering)",
         "transaction: question withheld (uses a number not in its cited results: 98765432)",
+        "transaction: question withheld (no verified lead rests on it)",
         "supervisor: no memo submitted",
     ]
 
 
-def test_question_citing_another_agents_result_is_withheld(clean: CaseData) -> None:
-    # Two calls in all, one each: whichever order they run in, kyc cites transaction's
+def test_question_citing_another_agents_result_is_withheld(clean: CaseData,
+                                                           monkeypatch: pytest.MonkeyPatch) -> None:
+    # One at a time, so the ids are fixed: R01 transaction's search, R02 kyc's parties, R03 its lead
+    monkeypatch.setattr("gldb.ai_team.team.ThreadPoolExecutor", lambda max_workers: ThreadPoolExecutor(1))
     fake = ScriptedBedrock({
         "plan": _plan(),
         "transaction": [[use("search_bank_transactions", text="INV")]],
-        "kyc": [[use("draft_question", text="Who is the payer?", cites=["R01", "R02"])]],
+        "kyc": [[use("get_parties")],
+                [_lead(["R02"], pattern="business_mismatch"),
+                 use("draft_question", text="Who is the payer?", cites=["R01", "R02"], lead_id="L01")]],
     })
 
     team = _run(fake, clean)
 
-    (transaction_id,) = {c.call_id for c in team.tool_calls if c.agent == "transaction"}
-    assert team.notes == [f"kyc: question withheld (cites a tool result it did not receive: {transaction_id})",
+    assert team.notes == ["kyc: question withheld (cites a tool result it did not receive: R01)",
                           "supervisor: no memo submitted"]
     reconcile = _first_text(fake.requests["memo"][0])
     assert json.loads(reconcile)["questions"] == [] and "Who is the payer?" not in reconcile

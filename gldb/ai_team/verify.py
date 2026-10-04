@@ -195,16 +195,35 @@ def check_lead(lead: Lead, issued: set[str], citable: set[str], results: dict[st
     return next((r for text, grounding in texts if (r := _wording_reason(text, grounding))), None)
 
 
+def lead_grounding(lead: Lead) -> Known:
+    """What text about a flag may state: the numbers and identifiers of what
+    code established (its check's facts and reason) and of its subject, never
+    of the agent's prose or of a whole tool result, which can hold other
+    leads' subjects."""
+    return known(lead.check_reason or "", *lead.check_facts.values(), *_subject_ids(lead))
+
+
+def finding_grounding(finding: Evidence) -> Known:
+    """What text about a rule finding may state: its own record."""
+    return known(finding.check_id, finding.document, finding.explanation, finding.expected or "",
+                 finding.observed or "")
+
+
 def check_question(text: str, cites: list[str], issued: set[str], citable: set[str],
-                   results: dict[str, str], index: str) -> str | None:
-    """Why a drafted question is withheld, or None to keep it: the same
-    citation, wording, identifier and number rules as a lead."""
-    grounding = known(*(results.get(c, "") for c in cites)) | _identifiers_only(known(index))
-    return _cite_reason(cites, issued, citable) or _wording_reason(text, grounding)
+                   lead: Lead | None) -> str | None:
+    """Why a drafted question is withheld, or None to keep it: it cites
+    results its agent received, follows from a lead code verified (*lead*) and
+    states no verdict, number or identifier beyond that lead's code-built facts."""
+    if reason := _cite_reason(cites, issued, citable):
+        return reason
+    if lead is None:
+        return "no verified lead rests on it"
+    return _wording_reason(text, lead_grounding(lead))
 
 
 def check_point(point: ReviewPoint, known_ids: set[str], grounding: Known) -> bool:
     """Whether the point cites only known findings or leads, states only the
-    numbers and identifiers of *grounding* and neither accuses nor decides."""
+    numbers and identifiers of *grounding* (what the evidence it cites
+    establishes) and neither accuses nor decides."""
     return (bool(point.evidence_ids) and set(point.evidence_ids) <= known_ids
             and _wording_reason(point.text, grounding) is None)

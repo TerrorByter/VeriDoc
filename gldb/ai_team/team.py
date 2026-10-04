@@ -13,6 +13,7 @@ the pipeline turns them into a failed team.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, get_args
@@ -20,8 +21,8 @@ from typing import Any, get_args
 from gldb.ai_team.checks import check_pattern, corroborate
 from gldb.ai_team.loop import Activity, run_agent
 from gldb.ai_team.prompts import DEFAULT_BRIEF, PROMPT_VERSIONS, SPECIALIST, SUPERVISOR_MEMO, SUPERVISOR_PLAN
-from gldb.ai_team.tools import CaseData, Ledger, _case_overview, case_index, result_json
-from gldb.ai_team.verify import Known, check_lead, check_point, check_question, known
+from gldb.ai_team.tools import CaseData, Ledger, case_index
+from gldb.ai_team.verify import Known, check_lead, check_point, check_question, finding_grounding, lead_grounding
 from gldb.config import (
     AGENT_SPECIALIST_MODEL,
     AGENT_SUPERVISOR_MODEL,
@@ -33,10 +34,9 @@ from gldb.schemas import AgentName, AgentTeam, Lead, Memo, ReviewPoint, Speciali
 
 _SPECIALISTS: tuple[SpecialistName, ...] = get_args(SpecialistName)
 _PLAN_TASK = "Plan the investigation of this case."
-#: What the Supervisor is told of each kept lead when it reconciles
+#: What the Supervisor is told of each flag when it reconciles: what code established, never the agent's prose
 _LEAD_FIELDS = {"lead_id", "agent", "kind", "finding_ids", "pattern", "invoice_number", "transaction_ids",
-                "counterparty", "hypothesis", "tests", "investigation_status", "missing_evidence", "evidence_status",
-                "check_facts"}
+                "counterparty", "evidence_status", "check_reason", "check_facts"}
 
 
 @dataclass(frozen=True)
@@ -87,27 +87,28 @@ def flagged(lead: Lead) -> bool:
             and "rule_finding" not in lead.check_facts)
 
 
-def _verified_questions(ledger: Ledger, index: str, flags: list[Lead]) -> list[dict[str, Any]]:
-    """The drafted questions that pass the verifier and rest only on results a
-    flag of the same agent cites; a note for each that does not."""
+def _verified_questions(ledger: Ledger, flags: list[Lead]) -> list[dict[str, Any]]:
+    """The drafted questions that pass the verifier: each follows from a flag
+    of its agent and states only what code established about it. A note for
+    each that does not."""
+    by_id = {lead.lead_id: lead for lead in flags}
     passed = []
     for question in ledger.questions:
         agent, text, cites = question["agent"], question["text"], question["cites"]
-        reason = check_question(text, cites, ledger.issued_to(agent), ledger.citable(agent), ledger.results,
-                                index)
-        backed = {c for lead in flags if lead.agent == agent for c in lead.cites}
-        if reason is None and not set(cites) <= backed:
-            reason = "no verified lead rests on it"
+        lead = by_id.get(question["lead_id"])
+        reason = check_question(text, cites, ledger.issued_to(agent), ledger.citable(agent),
+                                lead if lead and lead.agent == agent else None)
         if reason is None:
-            passed.append(question)
+            passed.append({k: question[k] for k in ("agent", "text", "cites")})
         else:
             ledger.note(f"{agent}: question withheld ({reason})")
     return passed
 
 
-def _points(raw: Any, known_ids: set[str], grounding: Known) -> tuple[list[ReviewPoint], int]:
+def _points(raw: Any, known_ids: set[str], grounding_of: Callable[[list[str]], Known]
+            ) -> tuple[list[ReviewPoint], int]:
     """The well-formed points of one memo list that pass the verifier, and how
-    many were dropped."""
+    many were dropped. A point is grounded in the evidence it cites alone."""
     items = raw if isinstance(raw, list) else []
     kept: list[ReviewPoint] = []
     for item in items:
@@ -117,14 +118,14 @@ def _points(raw: Any, known_ids: set[str], grounding: Known) -> tuple[list[Revie
         if not isinstance(text, str) or not isinstance(cites, list) or not all(isinstance(c, str) for c in cites):
             continue
         point = ReviewPoint(text=text, evidence_ids=cites)
-        if check_point(point, known_ids, grounding):
+        if check_point(point, known_ids, grounding_of(cites)):
             kept.append(point)
     return kept, len(items) - len(kept)
 
 
-def _memo(raw: dict[str, Any], known_ids: set[str], grounding: Known) -> Memo:
-    observations, dropped_observations = _points(raw.get("observations"), known_ids, grounding)
-    questions, dropped_questions = _points(raw.get("questions"), known_ids, grounding)
+def _memo(raw: dict[str, Any], known_ids: set[str], grounding_of: Callable[[list[str]], Known]) -> Memo:
+    observations, dropped_observations = _points(raw.get("observations"), known_ids, grounding_of)
+    questions, dropped_questions = _points(raw.get("questions"), known_ids, grounding_of)
     return Memo(observations=observations, questions=questions,
                 withheld=dropped_observations + dropped_questions)
 
@@ -157,16 +158,23 @@ def run_team(case: CaseData, models: TeamModels, *, on_activity: Activity = lamb
 
     # The Supervisor sees the flags and the questions resting on them, never a tool result or an unverified lead
     task = json.dumps({"leads": [lead.model_dump(mode="json", include=_LEAD_FIELDS) for lead in flags],
-                       "questions": _verified_questions(ledger, index, flags)}, ensure_ascii=False)
+                       "questions": _verified_questions(ledger, flags)}, ensure_ascii=False)
     raw = run("supervisor", models.supervisor, SUPERVISOR_MEMO, task, "submit_memo")
     if raw is None:
         ledger.note("supervisor: no memo submitted")
         memo = Memo()
     else:
-        known_ids = set(findings) | {lead.lead_id for lead in flags}
-        overview = result_json(_case_overview(case, {}, "supervisor", ledger))
-        cited = " ".join(ledger.results[c] for lead in flags for c in lead.cites)
-        memo = _memo(raw, known_ids, known(overview, cited, index))
+        by_id = {lead.lead_id: lead for lead in flags}
+        known_ids = set(findings) | set(by_id)
+
+        def grounding_of(cites: list[str]) -> Known:
+            """What a point citing *cites* may state: what those findings and flags establish."""
+            grounds = [finding_grounding(findings[c]) if c in findings else lead_grounding(by_id[c])
+                       for c in cites if c in known_ids]
+            return Known(frozenset().union(*(g.numbers for g in grounds)),
+                         frozenset().union(*(g.identifiers for g in grounds)))
+
+        memo = _memo(raw, known_ids, grounding_of)
 
     return AgentTeam(
         status="ran", plan=dict(briefs), tool_calls=ledger.tool_calls, leads=leads, memo=memo,

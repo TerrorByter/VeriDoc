@@ -94,8 +94,13 @@ class AgentPackResult(BaseModel):
     shadow_route: ReviewPath | None = None
     #: The route the log-only gate would take
     would_route: ReviewPath | None = None
-    #: A planted fraud the gate would send to fast track
+    #: A planted fraud the shadow scorer or the gate would send to fast track
     miss: bool = False
+    #: A planted fraud the shadow scorer alone would send to fast track
+    shadow_miss: bool = False
+    #: The scorer's route against the rule route, and against the pack's expected route; None if it did not run
+    shadow_agrees_champion: bool | None = None
+    shadow_matches_truth: bool | None = None
     #: The team's own cost (stage ai_team); None when unknown
     usd: Decimal | None
     seconds: float
@@ -112,14 +117,20 @@ class AgentEvalRow(BaseModel):
     packs: list[AgentPackResult]
     #: Expected leads reported as supported / expected leads (saved before verification as pattern_recall)
     supported_recall: float = Field(validation_alias=AliasChoices("supported_recall", "pattern_recall"))
+    #: The rest were not measured by rows saved before they existed: None there, never a zero
     #: Expected leads code verified / expected leads
-    verified_recall: float = 0.0
+    verified_recall: float | None = None
     #: Flags matching nothing planted
-    flag_noise: int = 0
-    #: Packs with planted fraud the gate would send to fast track / packs with planted fraud
-    miss_rate: float = 0.0
+    flag_noise: int | None = None
+    #: Packs with planted fraud the scorer or the gate would send to fast track / packs with planted fraud
+    miss_rate: float | None = None
+    #: The same for the scorer alone
+    shadow_miss_rate: float | None = None
     #: Packs the gate would send to fast track / packs
-    auto_clear_rate: float = 0.0
+    auto_clear_rate: float | None = None
+    #: The scorer's route is the rule route / the expected route, over the packs it ran on
+    shadow_champion_agreement: float | None = None
+    shadow_truth_agreement: float | None = None
     #: Correct / expected triage
     triage_accuracy: float
     noise: int
@@ -182,12 +193,14 @@ def _pack_result(folder: Path, truth: dict, models: TeamModels, stamp: str) -> A
     team: AgentTeam | None = None
     evidence: list[Evidence] = []
     shadow_route: ReviewPath | None = None
+    agrees: bool | None = None
     would_route: ReviewPath | None = None
     start = perf_counter()
     try:
         result = assess(case_id, sorted(folder.glob("*.pdf")), load_manifest(folder), team=models)
         team, evidence = result.ai_team, result.evidence
         shadow_route = result.shadow.route if result.shadow else None
+        agrees = result.shadow.agrees_with_champion if result.shadow else None
         would_route = result.gate.would_route if result.gate else None
         if team is None:
             status = "error: no AI team result"
@@ -232,7 +245,10 @@ def _pack_result(folder: Path, truth: dict, models: TeamModels, stamp: str) -> A
         planted=planted,
         shadow_route=shadow_route,
         would_route=would_route,
-        miss=planted and would_route == "fast_track",
+        miss=planted and "fast_track" in (would_route, shadow_route),
+        shadow_miss=planted and shadow_route == "fast_track",
+        shadow_agrees_champion=agrees,
+        shadow_matches_truth=shadow_route == truth["expected_path"] if shadow_route else None,
         usd=cost.usd_by_stage.get("ai_team") if cost else None,
         seconds=seconds,
         status=status,
@@ -264,7 +280,12 @@ def evaluate_team(models: TeamModels, packs_dir: Path) -> AgentEvalRow:
         verified_recall=_ratio(sum(_verified(r) for r in results), sum(len(r.expected_leads) for r in results)),
         flag_noise=sum(r.flag_noise for r in results),
         miss_rate=_ratio(sum(r.miss for r in results), sum(r.planted for r in results)),
+        shadow_miss_rate=_ratio(sum(r.shadow_miss for r in results), sum(r.planted for r in results)),
         auto_clear_rate=_ratio(sum(r.would_route == "fast_track" for r in results), len(results)),
+        shadow_champion_agreement=_ratio(sum(r.shadow_agrees_champion is True for r in results),
+                                         sum(r.shadow_agrees_champion is not None for r in results)),
+        shadow_truth_agreement=_ratio(sum(r.shadow_matches_truth is True for r in results),
+                                      sum(r.shadow_matches_truth is not None for r in results)),
         triage_accuracy=_ratio(sum(r.triage_correct for r in results), sum(r.triage_expected for r in results)),
         noise=sum(r.noise for r in results),
         withheld_rate=_ratio(sum(r.withheld for r in results), sum(r.leads for r in results)),
@@ -275,6 +296,10 @@ def evaluate_team(models: TeamModels, packs_dir: Path) -> AgentEvalRow:
 
 def _usd(amount: Decimal | None) -> str:
     return f"{amount:.4f}" if amount is not None else "-"
+
+
+def _rate(value: float | None) -> str:
+    return f"{value:.2f}" if value is not None else "-"
 
 
 def _print(row: AgentEvalRow) -> None:
@@ -293,10 +318,12 @@ def _print(row: AgentEvalRow) -> None:
             f"{r.shadow_route or '-':<18}{gate:<18}{_usd(r.usd):<10}{r.seconds:<9.1f}{r.status}"
         )
     print(
-        f"\nsupported recall {row.supported_recall:.2f}  verified recall {row.verified_recall:.2f}  "
+        f"\nsupported recall {row.supported_recall:.2f}  verified recall {_rate(row.verified_recall)}  "
         f"triage accuracy {row.triage_accuracy:.2f}  noise {row.noise}  flag noise {row.flag_noise}  "
         f"withheld rate {row.withheld_rate:.2f}\n"
-        f"miss rate {row.miss_rate:.2f}  auto-clear rate {row.auto_clear_rate:.2f}  "
+        f"miss rate {_rate(row.miss_rate)} (scorer alone {_rate(row.shadow_miss_rate)})  "
+        f"auto-clear rate {_rate(row.auto_clear_rate)}  scorer agrees with the rules "
+        f"{_rate(row.shadow_champion_agreement)}, with the expected route {_rate(row.shadow_truth_agreement)}\n"
         f"USD per case {_usd(row.usd_per_case)}  seconds per case {row.seconds_per_case:.1f}"
     )
 

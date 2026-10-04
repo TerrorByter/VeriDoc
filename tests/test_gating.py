@@ -63,6 +63,11 @@ def _memo(ids: list[str]) -> list[list[dict[str, Any]]]:
     return [[use("submit_memo", observations=points, questions=points)]]
 
 
+def _sent(fake: ScriptedBedrock) -> dict[str, Any]:
+    """What the Supervisor was given to write the memo from."""
+    return json.loads(fake.requests["memo"][0]["messages"][0]["content"][0]["text"])
+
+
 def _harbourline(case: CaseData) -> str:
     return next(r for r, _, t in bank_rows(case.pack) if "HARBOURLINE LOGISTICS INV-1002" in t.description)
 
@@ -95,7 +100,8 @@ def test_question_resting_only_on_unverified_evidence_is_withheld() -> None:
     fake = ScriptedBedrock({
         "plan": [[use("submit_plan", briefs=BRIEFS)]],
         "transaction": [[use("search_bank_transactions", text="INV-1002")],
-                        [_lead("R01", "split_payment"), use("draft_question", text="Who paid?", cites=["R01"])]],
+                        [_lead("R01", "split_payment"),
+                         use("draft_question", text="Who paid?", cites=["R01"], lead_id="L01")]],
     })
 
     team = run_team(case, MODELS, client=fake)
@@ -111,13 +117,47 @@ def test_question_resting_on_a_verified_lead_reaches_the_supervisor() -> None:
         "transaction": [[use("search_bank_transactions", text="INV-1002")],
                         [_lead("R01", "third_party_payment", invoice_number="INV-1002",
                                transaction_ids=[_harbourline(case)]),
-                         use("draft_question", text="Who is Harbourline Logistics?", cites=["R01"])]],
+                         use("draft_question", text="Who is Harbourline Logistics?", cites=["R01"], lead_id="L01")]],
     })
 
     run_team(case, MODELS, client=fake)
 
     sent = json.loads(fake.requests["memo"][0]["messages"][0]["content"][0]["text"])["questions"]
     assert [q["text"] for q in sent] == ["Who is Harbourline Logistics?"]
+
+
+def test_content_about_a_contradicted_leads_subject_does_not_ride_in_on_a_shared_result() -> None:
+    # Run 5's review: one search result holds both invoices' rows; L01 (INV-1002) is verified, L02 (INV-1001)
+    # is not. Nothing about INV-1001 may reach a question or a memo point because L01 cites the same result.
+    case = _data("third_party_payment")
+    orchid = next(r for r, _, t in bank_rows(case.pack) if t.description.endswith("INV-1001"))
+    fake = ScriptedBedrock({
+        "plan": [[use("submit_plan", briefs=BRIEFS)]],
+        "transaction": [[use("search_bank_transactions", text="INV")],
+                        [_lead("R01", "third_party_payment", invoice_number="INV-1002",
+                               transaction_ids=[_harbourline(case)]),
+                         _lead("R01", "third_party_payment", invoice_number="INV-1001", transaction_ids=[orchid]),
+                         use("draft_question", text="Why was INV-1001 paid by Orchid Lane Retail?", cites=["R01"],
+                             lead_id="L01"),
+                         use("draft_question", text="Why was it paid on 2026-06-18?", cites=["R01"], lead_id="L01"),
+                         use("draft_question", text="Who is Harbourline Logistics?", cites=["R01"], lead_id="L01")]],
+        "memo": [[use("submit_memo", questions=[], observations=[
+            {"text": "INV-1001 was paid by Orchid Lane Retail on 2026-06-18.", "cites": ["L01"]},
+            {"text": "INV-1002 was paid by HARBOURLINE LOGISTICS, not its buyer.", "cites": ["L01"]}])]],
+    })
+
+    team = run_team(case, MODELS, client=fake)
+
+    assert [lead.evidence_status for lead in team.leads] == ["verified", "contradicted"]
+    assert [q["text"] for q in _sent(fake)["questions"]] == ["Who is Harbourline Logistics?"]
+    assert team.memo is not None
+    assert [p.text for p in team.memo.observations] == ["INV-1002 was paid by HARBOURLINE LOGISTICS, not its buyer."]
+    assert team.memo.withheld == 1
+    # The Supervisor sees what code established about the flag and none of the agent's prose
+    (sent,) = _sent(fake)["leads"]
+    assert set(sent) == {"lead_id", "agent", "kind", "finding_ids", "pattern", "invoice_number", "transaction_ids",
+                         "counterparty", "evidence_status", "check_reason", "check_facts"}
+    assert sent["check_facts"]["amount"] == "18530.00" and sent["check_facts"]["date"] == "2026-07-12"
 
 
 def test_rule_confirmed_sequence_lead_is_not_a_flag() -> None:

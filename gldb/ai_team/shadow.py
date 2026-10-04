@@ -123,6 +123,8 @@ def _validated(raw: dict[str, Any], case: CaseData, leads: list[Lead]) -> tuple[
         reasons.append(ShadowReason(code=code, evidence_ids=cited))
     if any(r.code == NO_ISSUE for r in reasons) and len(reasons) > 1:
         raise ValueError("no_issue cannot sit beside another reason")
+    if reasons[0].code == NO_ISSUE and route != "fast_track":
+        raise ValueError("no_issue means fast_track")
     return route, reasons
 
 

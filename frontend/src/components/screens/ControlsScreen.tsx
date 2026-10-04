@@ -27,7 +27,7 @@ const FAMILY_LABEL: Record<SignalFamily, string> = {
 const ACRONYMS = /\b(uen|po|ocr|bl)\b/gi;
 const sentence = (s: string) =>
   s.replace(/_/g, " ").replace(ACRONYMS, (m) => m.toUpperCase()).replace(/^./, (c) => c.toUpperCase());
-const pct = (x: number) => x.toFixed(2);
+const pct = (x: number | null) => (x === null ? "-" : x.toFixed(2));
 const pathLabel = (p: string) => PATH_LABEL[p as ReviewPath] ?? p;
 
 function Evaluation({ report }: { report: EvaluationReport }) {
@@ -118,8 +118,11 @@ function AgentEvaluation({ rows }: { rows: AgentEvalRow[] }) {
             <th scope="col" className="num" title="Supported leads matching nothing planted, before code checks">Noise</th>
             <th scope="col" className="num" title="Leads code verified that match nothing planted: the false flags an analyst would get">Flag noise</th>
             <th scope="col" className="num">Withheld rate</th>
-            <th scope="col" className="num" title="Planted frauds the log-only gate would send to fast track">Miss rate</th>
+            <th scope="col" className="num" title="Planted frauds the shadow scorer or the log-only gate would send to fast track">Miss rate</th>
             <th scope="col" className="num" title="Packs the log-only gate would send to fast track">Auto-clear rate</th>
+            <th scope="col" className="num" title="Planted frauds the shadow scorer alone would send to fast track">Scorer miss rate</th>
+            <th scope="col" className="num" title="How often the shadow scorer's route is the rule route">Scorer agrees with rules</th>
+            <th scope="col" className="num" title="How often the shadow scorer's route is the pack's expected route">Scorer matches expected</th>
             <th scope="col" className="num">Cost per case</th>
             <th scope="col" className="num">Time per case</th>
             <th scope="col">Evaluated</th>
@@ -137,10 +140,13 @@ function AgentEvaluation({ rows }: { rows: AgentEvalRow[] }) {
               <td className="num mono">{pct(r.verified_recall)}</td>
               <td className="num mono">{pct(r.triage_accuracy)}</td>
               <td className="num mono">{r.noise}</td>
-              <td className="num mono">{r.flag_noise}</td>
+              <td className="num mono">{r.flag_noise ?? "-"}</td>
               <td className="num mono">{pct(r.withheld_rate)}</td>
               <td className="num mono">{pct(r.miss_rate)}</td>
               <td className="num mono">{pct(r.auto_clear_rate)}</td>
+              <td className="num mono">{pct(r.shadow_miss_rate)}</td>
+              <td className="num mono">{pct(r.shadow_champion_agreement)}</td>
+              <td className="num mono">{pct(r.shadow_truth_agreement)}</td>
               <td className="num mono">{usd(r.usd_per_case)}</td>
               <td className="num mono">{duration(Math.round(r.seconds_per_case * 1000))}</td>
               <td className="nowrap muted">{when(r.evaluated_at)}</td>

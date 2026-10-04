@@ -60,8 +60,8 @@ def _lead(cite: str, pattern: str, status: str = "supported", **subject: Any) ->
                investigation_status=status, **subject)
 
 
-def _question(cite: str, text: str) -> dict[str, Any]:
-    return use("draft_question", text=text, cites=[cite])
+def _question(cite: str, text: str, lead_id: str = "L01") -> dict[str, Any]:
+    return use("draft_question", text=text, cites=[cite], lead_id=lead_id)
 
 
 def _team(name: str, scripts: dict[str, list[list[dict[str, Any]]]], memo: list[dict[str, Any]] | None = None

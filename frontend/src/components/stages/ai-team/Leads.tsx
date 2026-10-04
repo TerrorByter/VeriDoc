@@ -87,15 +87,18 @@ function LeadCard({ lead, evidence, onCite, onView }: LeadProps & { lead: Lead }
 }
 
 /** Flags: kept leads code verified or corroborated. */
-export function KeptLeads({ leads, withheld, unchecked, ...props }: LeadProps & {
+export function KeptLeads({ leads, withheld, unchecked, confirmed, ...props }: LeadProps & {
   leads: Lead[];
+  /** How many verified leads only confirm an existing rule finding */
+  confirmed: number;
   /** How many leads the verifier withheld, to tell "none raised" from "none passed" */
   withheld: number;
   /** How many kept leads code did not verify (observations and clear checks) */
   unchecked: number;
 }) {
   if (leads.length === 0) {
-    const why = unchecked ? "No lead was verified by code; what the AI team recorded is below."
+    const why = confirmed ? "The only leads code verified confirm rule findings that already stand (below)."
+      : unchecked ? "No lead was verified by code; what the AI team recorded is below."
       : withheld ? "No lead passed the verifier." : "The AI team raised no leads.";
     return <Empty title="No AI leads">{why}</Empty>;
   }

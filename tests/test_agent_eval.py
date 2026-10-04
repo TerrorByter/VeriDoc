@@ -194,6 +194,22 @@ def test_a_planted_fraud_the_gate_sends_to_fast_track_is_a_miss(monkeypatch: pyt
     assert (row.miss_rate, row.auto_clear_rate, row.verified_recall) == (1.0, 1.0, 0.0)
 
 
+def test_the_scorer_alone_sending_a_planted_fraud_to_fast_track_is_a_miss_too(monkeypatch: pytest.MonkeyPatch,
+                                                                              tmp_path: Path) -> None:
+    # Code verifies the planted payment, so the gate raises the case; the scorer, which saw the flag, still said fast_track
+    packs = _packs(tmp_path, "third_party_payment")
+    _script_all(monkeypatch, _both_statuses(planted_found=True), [[_disposition("fast_track", "no_issue")[0]]])
+
+    row = agent_eval.evaluate_team(replace(MODELS, shadow="shadow-model"), packs)
+
+    (third,) = row.packs
+    assert (third.would_route, third.shadow_route) == ("standard_review", "fast_track")
+    assert (third.miss, third.shadow_miss) == (True, True)
+    assert (third.shadow_agrees_champion, third.shadow_matches_truth) == (True, True)  # fast_track is the rule route
+    assert (row.miss_rate, row.shadow_miss_rate) == (1.0, 1.0)
+    assert (row.shadow_champion_agreement, row.shadow_truth_agreement) == (1.0, 1.0)
+
+
 def test_a_flag_matching_nothing_planted_is_flag_noise(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     packs = _packs(tmp_path, "clean")
     _script_all(monkeypatch, [_search(), _lead(["R01"], pattern="third_party_payment", **_tpp()), DONE], [])
@@ -207,7 +223,9 @@ def test_a_row_saved_before_the_new_metrics_still_loads() -> None:
            "pattern_recall": 0.5, "triage_accuracy": 1.0, "noise": 2, "withheld_rate": 0.0, "usd_per_case": None,
            "seconds_per_case": 1.0}
     row = AgentEvalRow.model_validate(old)
-    assert (row.supported_recall, row.verified_recall, row.flag_noise, row.shadow) == (0.5, 0.0, 0, None)
+    # Not measured then: None, never a zero that reads as a result
+    assert (row.supported_recall, row.verified_recall, row.flag_noise, row.shadow) == (0.5, None, None, None)
+    assert (row.miss_rate, row.shadow_miss_rate, row.auto_clear_rate) == (None, None, None)
     pack = {"pack": "clean", "expected_leads": [], "found_leads": [], "triage_expected": 0, "triage_correct": 0,
             "noise": 0, "withheld": 0, "leads": 0, "usd": None, "seconds": 1.0, "status": "ran"}
     assert AgentPackResult.model_validate(pack).shadow_route is None

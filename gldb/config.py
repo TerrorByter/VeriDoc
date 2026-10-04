@@ -215,6 +215,26 @@ PROMPT_SCREEN_ENABLED: bool = _bool_env("PROMPT_SCREEN_ENABLED", False)
 GUARDRAIL_ID: str = os.getenv("GUARDRAIL_ID", "")
 GUARDRAIL_VERSION: str = os.getenv("GUARDRAIL_VERSION", "")
 
+#: Whether to run the AI agent team (gldb.agents): a Supervisor and specialists
+#: on Bedrock that investigate each case and write leads for the analyst.
+AGENTS_ENABLED: bool = _bool_env("AGENTS_ENABLED", False)
+#: Bedrock model IDs (cross-region inference profiles) for the Supervisor and
+#: for the specialists it dispatches
+AGENT_SUPERVISOR_MODEL: str = os.getenv("AGENT_SUPERVISOR_MODEL", "global.anthropic.claude-sonnet-4-6")
+AGENT_SPECIALIST_MODEL: str = os.getenv(
+    "AGENT_SPECIALIST_MODEL", "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+)
+#: Model calls one agent may make before it must answer
+AGENT_MAX_STEPS: int = int(os.getenv("AGENT_MAX_STEPS", "8"))
+#: Longest tool result (characters) handed back to a model
+AGENT_MAX_RESULT_CHARS: int = int(os.getenv("AGENT_MAX_RESULT_CHARS", "3000"))
+#: Input plus output tokens the whole team may spend on one case
+AGENT_TOKEN_BUDGET: int = int(os.getenv("AGENT_TOKEN_BUDGET", "400000"))
+#: Output cap per agent call
+AGENT_MAX_TOKENS: int = 2048
+#: Where the agent evaluation report is kept (the API's controls page shows it)
+AGENT_EVAL_PATH: str = os.getenv("AGENT_EVAL_PATH", "logs/agent_eval.json")
+
 #: Whether to run the Semantic Review Agent (LLM synthesis over the verified
 #: findings, gldb.semantic_review).
 SEMANTIC_REVIEW_ENABLED: bool = _bool_env("SEMANTIC_REVIEW_ENABLED", False)
@@ -244,6 +264,9 @@ TEXTRACT_USD_PER_PAGE: Decimal = Decimal("0.0015")
 #: Bedrock model ID -> (USD per 1M input tokens, USD per 1M output tokens)
 MODEL_USD_PER_M_TOKENS: dict[str, tuple[Decimal, Decimal]] = {
     "global.anthropic.claude-sonnet-4-6": (Decimal("3"), Decimal("15")),
+    "global.anthropic.claude-haiku-4-5-20251001-v1:0": (Decimal("1"), Decimal("5")),
+    "global.anthropic.claude-opus-4-6-v1": (Decimal("5"), Decimal("25")),
+    "apac.amazon.nova-pro-v1:0": (Decimal("1.08"), Decimal("4.32")),
 }
 
 #: Bedrock Guardrails content filters (incl. prompt attack), per text unit

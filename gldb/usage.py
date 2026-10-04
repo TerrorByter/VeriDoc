@@ -91,8 +91,12 @@ def _model(model_id: str) -> str:
 
 def stage_of(purpose: str) -> str:
     """The pipeline stage a metered call belongs to: purposes are named after
-    stages, with extraction metered per document type (extract_invoice, ...)."""
-    return "extract" if purpose.startswith("extract") else purpose
+    stages, with extraction metered per document type (extract_invoice, ...)
+    and the AI agent team per agent (ai_team_supervisor, ai_team_kyc, ...)."""
+    for stage in ("extract", "ai_team"):
+        if purpose.startswith(stage):
+            return stage
+    return purpose
 
 
 def report(records: list[dict[str, Any]]) -> list[CaseCost]:

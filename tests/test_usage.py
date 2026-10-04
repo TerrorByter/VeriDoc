@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 
 from gldb import llm_client, ocr, usage
+from gldb.config import MODEL_USD_PER_M_TOKENS
 
 PACKS = Path(__file__).parent.parent / "data" / "packs"
 SONNET = "global.anthropic.claude-sonnet-4-6"
@@ -94,3 +95,14 @@ def test_case_cost_finds_one_case() -> None:
     cost = usage.case_cost("CASE-E")
     assert cost is not None and cost.usd == Decimal("0.003")
     assert usage.case_cost("CASE-NONE") is None
+
+
+def test_ai_team_purposes_map_to_the_ai_team_stage() -> None:
+    assert usage.stage_of("ai_team_supervisor") == "ai_team"
+    assert usage.stage_of("ai_team_kyc") == "ai_team"
+
+
+def test_agent_models_are_priced() -> None:
+    for model in ("global.anthropic.claude-haiku-4-5-20251001-v1:0", "global.anthropic.claude-opus-4-6-v1",
+                  "apac.amazon.nova-pro-v1:0"):
+        assert model in MODEL_USD_PER_M_TOKENS

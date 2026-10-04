@@ -3,7 +3,8 @@ gldb/llm_client.py
 ------------------
 The only AWS Bedrock wrapper in the gldb-prototype.
 
-Every LLM call goes through converse(): Bedrock Converse API, temperature 0.
+Every LLM call goes through converse() (one call, temperature 0) or
+converse_turn() (one turn of an agent's tool loop): Bedrock Converse API.
 Each call is metered in the usage log (gldb.usage) against its case: token
 counts only, never prompt or response text, so document contents cannot leak
 into logs.
@@ -18,7 +19,7 @@ from typing import Any
 import boto3
 from pydantic import BaseModel
 
-from gldb.config import AWS_REGION, BEDROCK_MODEL_ID
+from gldb.config import AGENT_MAX_TOKENS, AWS_REGION, BEDROCK_MODEL_ID
 from gldb.usage import log_usage
 
 MAX_TOKENS: int = 4096
@@ -34,6 +35,25 @@ class LLMResult(BaseModel):
     output_tokens: int
 
 
+class Turn(BaseModel):
+    """One model turn in an agent's tool loop. *content* is the assistant
+    message's blocks as returned, ready to append to the conversation."""
+
+    content: list[dict[str, Any]]
+    stop_reason: str
+    input_tokens: int
+    output_tokens: int
+
+    @property
+    def tool_uses(self) -> list[dict[str, Any]]:
+        """The model's tool calls: toolUseId, name and input of each."""
+        return [b["toolUse"] for b in self.content if "toolUse" in b]
+
+    @property
+    def text(self) -> str:
+        return "".join(b["text"] for b in self.content if "text" in b)
+
+
 def prompt_version(*parts: str) -> str:
     """A short content hash of a prompt's parts (system prompt, output
     schema). Logged with each case so a result can be tied to the exact
@@ -45,6 +65,15 @@ def prompt_version(*parts: str) -> str:
 @cache
 def _default_client() -> Any:
     return boto3.client("bedrock-runtime", region_name=AWS_REGION)
+
+
+def _send(request: dict[str, Any], *, purpose: str, case_id: str, client: Any | None) -> dict[str, Any]:
+    """Send one Converse request and meter it against its case."""
+    response: dict[str, Any] = (client or _default_client()).converse(**request)
+    usage = response["usage"]
+    log_usage("bedrock", purpose, case_id, model_id=request["modelId"],
+              input_tokens=usage["inputTokens"], output_tokens=usage["outputTokens"])
+    return response
 
 
 def converse(
@@ -94,18 +123,61 @@ def converse(
             "toolChoice": {"tool": {"name": _TOOL_NAME}},
         }
 
-    response = (client or _default_client()).converse(**request)
+    response = _send(request, purpose=purpose, case_id=case_id, client=client)
 
     blocks = response["output"]["message"]["content"]
     text = "".join(b["text"] for b in blocks if "text" in b)
     data = next((b["toolUse"]["input"] for b in blocks if "toolUse" in b), None)
     usage = response["usage"]
-    result = LLMResult(
+    return LLMResult(
         text=text,
         data=data,
         input_tokens=usage["inputTokens"],
         output_tokens=usage["outputTokens"],
     )
-    log_usage("bedrock", purpose, case_id, model_id=BEDROCK_MODEL_ID,
-              input_tokens=result.input_tokens, output_tokens=result.output_tokens)
-    return result
+
+
+def tool_spec(name: str, description: str, schema: dict[str, Any]) -> dict[str, Any]:
+    """A Converse tool definition: *schema* is the JSON Schema of its input."""
+    return {"toolSpec": {"name": name, "description": description, "inputSchema": {"json": schema}}}
+
+
+def converse_turn(
+    model_id: str,
+    system: str,
+    messages: list[dict[str, Any]],
+    *,
+    tools: list[dict[str, Any]],
+    purpose: str,
+    case_id: str,
+    client: Any | None = None,
+) -> Turn:
+    """Call Bedrock once for one turn of an agent loop.
+
+    Sends no temperature and no toolChoice, so the same request is accepted by
+    every model the agents may run on (Claude 4.6+, Haiku 4.5, Amazon Nova).
+
+    Args:
+        model_id: Bedrock model ID or inference profile of the agent.
+        system: The agent's system prompt.
+        messages: The conversation so far: user, assistant and tool-result turns.
+        tools: Tool definitions (see tool_spec) the model may call.
+        purpose: Usage-log label, "ai_team_<agent>".
+        case_id: The case the call is spent on, for cost per case.
+        client: Injectable bedrock-runtime client (tests). Defaults to boto3.
+    """
+    request: dict[str, Any] = {
+        "modelId": model_id,
+        "system": [{"text": system}],
+        "messages": messages,
+        "inferenceConfig": {"maxTokens": AGENT_MAX_TOKENS},
+        "toolConfig": {"tools": tools},
+    }
+    response = _send(request, purpose=purpose, case_id=case_id, client=client)
+    usage = response["usage"]
+    return Turn(
+        content=response["output"]["message"]["content"],
+        stop_reason=response["stopReason"],
+        input_tokens=usage["inputTokens"],
+        output_tokens=usage["outputTokens"],
+    )

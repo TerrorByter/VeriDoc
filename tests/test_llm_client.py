@@ -93,6 +93,11 @@ def test_tool_spec_wraps_the_schema() -> None:
     }
 
 
+def test_tool_spec_asks_for_strict_use_only_when_told() -> None:
+    assert llm_client.tool_spec("n", "d", {"type": "object"}, strict=True)["toolSpec"]["strict"] is True
+    assert "strict" not in llm_client.tool_spec("n", "d", {"type": "object"}, strict=False)["toolSpec"]
+
+
 def test_turn_exposes_text_and_token_counts() -> None:
     fake = FakeBedrock([{"text": "all "}, {"text": "clear"}])
     turn = llm_client.converse_turn("m-1", "sys", [], tools=[llm_client.tool_spec("n", "d", {"type": "object"})],

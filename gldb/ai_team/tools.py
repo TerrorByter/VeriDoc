@@ -8,8 +8,12 @@ findings); none can change a finding, the score or the route. Each agent is
 given only its own subset (least privilege). Every call is numbered in the
 Ledger (R01, R02, ...) so a lead can cite exactly what it relied on, and every
 result is masked, size-capped and wrapped as untrusted data before a model
-sees it. A bad call (unknown tool, wrong arguments) comes back as an error
-result and never raises: the agent loop carries on.
+sees it. Arguments are closed-world: given the case, every argument whose
+valid values the case knows (document ids, invoice numbers, UENs, finding
+ids, the specialist's own patterns) is an enum of exactly those values, in the
+schema the model is given and in the check of its call alike. A bad call
+(unknown tool, wrong arguments) comes back as an error result and never
+raises: the agent loop carries on.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ from typing import Any, TypeVar, get_args
 
 from pydantic import ValidationError
 
+from gldb.ai_team.verify import PATTERNS
 from gldb.checks import FORM_DOC_TYPES, PACK_DOC, incorporation
 from gldb.config import AGENT_MAX_RESULT_CHARS, AGENT_TOKEN_BUDGET, SCREENING_MATCH_THRESHOLD
 from gldb.intake import model_view
@@ -36,11 +41,14 @@ from gldb.routing import route
 from gldb.schemas import (
     AgentName,
     ApplicationManifest,
+    BillOfLading,
     DocMeta,
     Evidence,
     ExtractedPack,
+    Invoice,
     Lead,
     Pattern,
+    PurchaseOrder,
     SpecialistName,
     ToolCall,
     Verdict,
@@ -160,7 +168,8 @@ def _require(found: T | None, message: str) -> T:
 
 def _doc(case: CaseData, doc_id: str) -> DocMeta:
     doc = next((d for d in case.pack.docs if d.doc_id == doc_id), None)
-    return _require(doc, f"unknown document: {doc_id}; the doc_ids are: {', '.join(d.doc_id for d in case.pack.docs)}")
+    # call_tool has checked doc_id against the case's documents (each tool's own subset)
+    return _require(doc, f"unknown document: {doc_id}")
 
 
 def _date(args: Args, key: str) -> date | None:
@@ -188,7 +197,7 @@ def _party(doc_id: str, role: str, name: str, uen: str | None = None) -> dict[st
     return {"doc_id": doc_id, "role": role, "name": name, "uen": uen}
 
 
-def _parties(case: CaseData, args: Args, agent: AgentName, ledger: Ledger) -> Any:
+def _parties(case: CaseData, *_: Any) -> Any:
     """Who is in the case: the applicant (with its guarantors' and signatories'
     names, never their id numbers) and each trade document's parties."""
     pack, manifest = case.pack, case.pack.manifest
@@ -212,7 +221,7 @@ def _case_overview(case: CaseData, args: Args, agent: AgentName, ledger: Ledger)
     return {
         "documents": [{"doc_id": d.doc_id, "doc_type": d.doc_type, "page_count": d.page_count}
                       for d in pack.docs],
-        "parties": _parties(case, args, agent, ledger),
+        "parties": _parties(case),
         "findings": _findings(case),
         "chain_breaks": [{"invoice": c.invoice_number, **s.model_dump(mode="json")}
                          for c in build_chains(pack, case.evidence)
@@ -240,8 +249,6 @@ def _page_text(case: CaseData, args: Args, agent: AgentName, ledger: Ledger) -> 
         raise ToolError("unavailable: the prompt screen did not run, so page text was not screened")
     if pack.prompt_screen.get(doc.doc_id):
         raise ToolError("quarantined: prompt attack detected")
-    if doc.doc_type in FORM_DOC_TYPES:
-        raise ToolError("unavailable: forms are read by rules only")
     pages = model_view(pack.paths[doc.doc_id], pack.ocr.get(doc.doc_id))
     page = args["page"]
     if not 1 <= page <= len(pages):
@@ -284,11 +291,15 @@ def _search_bank_transactions(case: CaseData, args: Args, agent: AgentName, ledg
     return {"rows": rows[:_MAX_ROWS], "more": max(len(rows) - _MAX_ROWS, 0)}
 
 
+def _records(pack: ExtractedPack) -> list[tuple[Invoice | PurchaseOrder | BillOfLading, str]]:
+    """Each invoice, purchase order and bill of lading with its own number."""
+    return [*((i, i.invoice_number) for i in pack.invoices), *((o, o.po_number) for o in pack.purchase_orders),
+            *((b, b.bl_number) for b in pack.bills_of_lading)]
+
+
 def _document_fields(case: CaseData, args: Args, agent: AgentName, ledger: Ledger) -> Any:
-    pack, key = case.pack, args["doc_id"]
-    records = [*((i, i.invoice_number) for i in pack.invoices), *((o, o.po_number) for o in pack.purchase_orders),
-               *((b, b.bl_number) for b in pack.bills_of_lading)]
-    record = next((r for r, number in records if key in (r.doc_id, number)), None)
+    key = args["doc_id"]
+    record = next((r for r, number in _records(case.pack) if key in (r.doc_id, number)), None)
     # Source quotes are document text: it only reaches a model through get_page_text, which screens it
     return _require(record, f"no invoice, purchase order or bill of lading {key}").model_dump(
         mode="json", exclude={"source_quotes"})
@@ -356,7 +367,8 @@ class Tool:
 
 
 def _schema(properties: dict[str, dict[str, Any]] | None = None, *required: str) -> dict[str, Any]:
-    schema: dict[str, Any] = {"type": "object", "properties": properties or {}}
+    # No unknown keys and no length or range keywords, so one shape also serves strict tool use
+    schema: dict[str, Any] = {"type": "object", "properties": properties or {}, "additionalProperties": False}
     if required:
         schema["required"] = list(required)
     return schema
@@ -367,6 +379,7 @@ def _string(description: str, **extra: Any) -> dict[str, Any]:
 
 
 _DOC_ID = _string("Document id, exactly as in the case index of your brief, e.g. invoice_INV-1001")
+_KINDS = ["triage", "pattern"]
 _CITES = {"type": "array", "items": {"type": "string"},
           "description": "Ids of the tool results (R01...) this relies on"}
 
@@ -435,7 +448,7 @@ TOOLS: dict[str, Tool] = {
         "Record a lead for the analyst: a triage verdict on a finding, or a pattern you found. Cite the tool "
         "results it rests on. Describe inconsistencies; never accuse or recommend a decision.",
         _schema({
-            "kind": _string("triage (a verdict on a finding) or pattern", enum=["triage", "pattern"]),
+            "kind": _string("triage (a verdict on a finding) or pattern", enum=_KINDS),
             "title": _string("Short title"),
             "detail": _string("What you found, using numbers exactly as the results give them"),
             "cites": _CITES,
@@ -491,11 +504,87 @@ FINISH_TOOLS: dict[str, dict[str, Any]] = {
 }
 
 
-def specs_for(agent: AgentName, finish: str | None = None) -> list[dict[str, Any]]:
-    """The Converse tool definitions *agent* is given, plus the *finish* tool if any."""
-    specs = [tool_spec(n, TOOLS[n].description, TOOLS[n].schema) for n in TOOLSETS[agent]]
+def _invoice_numbers(case: CaseData, agent: AgentName) -> list[str]:
+    return [i.invoice_number for i in case.pack.invoices]
+
+
+def _risky(case: CaseData) -> list[str]:
+    """Ids of the case's risky findings: the ones a triage lead may be about."""
+    return [e.evidence_id for e in case.evidence if e.severity != "info"]
+
+
+def _uens(case: CaseData, agent: AgentName) -> list[str]:
+    """The UENs get_parties lists: the applicant's and each counterparty's that has one."""
+    parties = _parties(case)
+    applicant = [parties["applicant"]["uen"]] if parties["applicant"] else []
+    return [u for u in (*applicant, *(p["uen"] for p in parties["counterparties"])) if u]
+
+
+#: (case, agent) -> the values an argument may take
+Values = Callable[[CaseData, AgentName], list[str]]
+
+#: The single source of every closed argument's values: tool -> argument ->
+#: where its values come from. With the case, each becomes the argument's enum
+#: (its items' enum for a list) in the schema the model is given, and so what
+#: call_tool checks. An argument with no values is dropped rather than given an
+#: empty enum (a model cannot satisfy one); a tool whose required argument has
+#: none is not offered at all. A citation (R01...) stays free text: strict mode
+#: has no string patterns, and the verifier checks every cite anyway.
+_CASE_VALUES: dict[str, dict[str, Values]] = {
+    # Forms are read by rules only, so their text is never offered
+    "get_page_text": {"doc_id": lambda c, a: [d.doc_id for d in c.pack.docs if d.doc_type not in FORM_DOC_TYPES]},
+    "get_forensic_facts": {"doc_id": lambda c, a: [d.doc_id for d in c.pack.docs]},
+    # Found by its document id or by its own number
+    "get_document_fields": {"doc_id": lambda c, a: [k for r, n in _records(c.pack) for k in (r.doc_id, n)]},
+    "get_chain": {"invoice_number": _invoice_numbers},
+    "get_timeline": {"ref": _invoice_numbers},
+    # A search by name stays open: looking a name up in the register is the point of it
+    "registry_lookup": {"uen": _uens},
+    "record_lead": {
+        # Without a risky finding there is nothing to triage: only a pattern lead can be recorded
+        "kind": lambda c, a: [k for k in _KINDS if k != "triage" or _risky(c)],
+        "finding_ids": lambda c, a: _risky(c),
+        "verdict": lambda c, a: list(get_args(Verdict)) if _risky(c) else [],
+        "pattern": lambda c, a: [p for p in get_args(Pattern) if p in PATTERNS.get(a, ())],
+    },
+}
+
+
+def _closed(name: str, agent: AgentName, case: CaseData) -> dict[str, Any] | None:
+    """Tool *name*'s schema with its arguments closed over *case*; None when
+    a required argument has no valid value, so the tool cannot be called."""
+    schema = TOOLS[name].schema
+    properties = dict(schema["properties"])
+    for key, values_of in _CASE_VALUES.get(name, {}).items():
+        values = list(dict.fromkeys(values_of(case, agent)))
+        if not values:
+            if key in schema.get("required", []):
+                return None
+            del properties[key]
+            continue
+        prop = properties[key]
+        properties[key] = ({**prop, "items": {**prop["items"], "enum": values}} if prop["type"] == "array"
+                           else {**prop, "enum": values})
+    return {**schema, "properties": properties}
+
+
+def schemas_for(agent: AgentName, case: CaseData | None = None) -> dict[str, dict[str, Any]]:
+    """Name -> input schema of each tool *agent* may call: closed over *case*
+    when given, else open (the case-independent form a prompt version hashes)."""
+    if case is None:
+        return {n: TOOLS[n].schema for n in TOOLSETS[agent]}
+    closed = {n: _closed(n, agent, case) for n in TOOLSETS[agent]}
+    return {n: s for n, s in closed.items() if s is not None}
+
+
+def specs_for(agent: AgentName, finish: str | None = None, case: CaseData | None = None,
+              strict: bool = False) -> list[dict[str, Any]]:
+    """The Converse tool definitions *agent* is given (closed over *case* when
+    given), plus the *finish* tool if any; *strict* asks the model to keep
+    every call to its schema."""
+    specs = [tool_spec(n, TOOLS[n].description, s, strict) for n, s in schemas_for(agent, case).items()]
     if finish is not None:
-        specs.append(tool_spec(finish, FINISH_TOOLS[finish]["description"], FINISH_TOOLS[finish]))
+        specs.append(tool_spec(finish, FINISH_TOOLS[finish]["description"], FINISH_TOOLS[finish], strict))
     return specs
 
 
@@ -514,7 +603,8 @@ _JSON_TYPES: dict[str, tuple[tuple[type, ...], str]] = {
 
 def _check_args(schema: dict[str, Any], args: Args) -> None:
     """Raise ToolError unless *args* has every required argument, no unknown
-    one, each of the right type, and each enum one of its values."""
+    one, each of the right type, and each enum one (each item, for a list)
+    of its values."""
     for key in schema.get("required", []):
         if key not in args:
             raise ToolError(f"missing argument: {key}")
@@ -526,8 +616,9 @@ def _check_args(schema: dict[str, Any], args: Args) -> None:
         valid = isinstance(value, accepted) and not isinstance(value, bool)
         if not valid or (kind == "array" and not all(isinstance(v, str) for v in value)):
             raise ToolError(f"{key} must be {label}")
-        allowed = schema["properties"][key].get("enum")
-        if allowed is not None and value not in allowed:
+        prop = schema["properties"][key]
+        allowed = prop.get("items", {}).get("enum") if kind == "array" else prop.get("enum")
+        if allowed is not None and any(v not in allowed for v in (value if kind == "array" else [value])):
             raise ToolError(f"{key} must be one of: {', '.join(allowed)}")
 
 
@@ -563,10 +654,12 @@ def call_tool(agent: AgentName, name: str, args: Args, case: CaseData,
     call is recorded in *ledger* either way."""
     start = time.perf_counter()
     try:
-        if name not in TOOLSETS[agent]:
-            raise ToolError(f"{name} is not available to this agent; use: {', '.join(TOOLSETS[agent])}")
+        # The same closed schemas the model was given: one source for what a call may say
+        schemas = schemas_for(agent, case)
+        if name not in schemas:
+            raise ToolError(f"{name} is not available to this agent; use: {', '.join(schemas)}")
         tool = TOOLS[name]
-        _check_args(tool.schema, args)
+        _check_args(schemas[name], args)
         data = tool.fn(case, args, agent, ledger)
         summary = tool.summary(args, data)
         body, error = result_json(data), False

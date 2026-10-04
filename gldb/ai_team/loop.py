@@ -17,7 +17,7 @@ from collections.abc import Callable
 from typing import Any
 
 from gldb.ai_team.tools import RECEIPT_TOOLS, TITLES, CaseData, Ledger, call_tool, specs_for
-from gldb.config import AGENT_MAX_STEPS
+from gldb.config import AGENT_MAX_STEPS, AGENT_STRICT_TOOL_MODELS
 from gldb.llm_client import converse_turn
 from gldb.schemas import AgentName
 
@@ -55,12 +55,14 @@ def run_agent(
         its turn without, or a cap or the token budget stopped it.
     """
     messages: list[dict[str, Any]] = [{"role": "user", "content": [{"text": task}]}]
+    # Closed over the case: the model can only name documents, invoices and findings that exist
+    tools = specs_for(agent, finish, case, strict=model_id in AGENT_STRICT_TOOL_MODELS)
     steps = failures = 0
     while True:
         if ledger.over_budget():
             ledger.note(f"{agent}: budget reached")
             return None
-        turn = converse_turn(model_id, system, messages, tools=specs_for(agent, finish),
+        turn = converse_turn(model_id, system, messages, tools=tools,
                              purpose=f"ai_team_{agent}", case_id=case.case_id, client=client)
         ledger.add_tokens(turn.input_tokens + turn.output_tokens)
         messages.append({"role": "assistant", "content": turn.content})

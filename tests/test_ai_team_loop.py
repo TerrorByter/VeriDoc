@@ -230,3 +230,24 @@ def test_a_model_error_propagates(case: CaseData) -> None:
 
     with pytest.raises(RuntimeError, match="throttled"):
         _run(fake, case, Ledger())
+
+
+def _specs(request: dict[str, Any]) -> list[dict[str, Any]]:
+    return [spec["toolSpec"] for spec in request["toolConfig"]["tools"]]
+
+
+def test_tools_are_closed_over_the_case_and_strict_only_for_allowlisted_models(
+    case: CaseData, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(loop, "AGENT_STRICT_TOOL_MODELS", frozenset({"strict-model"}))
+    fake = ScriptedBedrock({})
+
+    run_agent("transaction", "strict-model", "system", "task", case, Ledger(), client=fake)
+    run_agent("transaction", "model-1", "system", "task", case, Ledger(), client=fake)
+
+    strict, plain = (_specs(r) for r in fake.requests["transaction"])
+    assert all(spec["strict"] is True for spec in strict)
+    assert not any("strict" in spec for spec in plain)
+    chain = next(spec for spec in plain if spec["name"] == "get_chain")
+    assert chain["inputSchema"]["json"]["properties"]["invoice_number"]["enum"] == \
+        [i.invoice_number for i in case.pack.invoices]

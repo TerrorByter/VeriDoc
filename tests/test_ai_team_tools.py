@@ -173,7 +173,7 @@ def test_bad_arguments_return_error_result(clean: CaseData) -> None:
         text, err = call_tool("transaction", "search_bank_transactions", args, clean, ledger)
         assert err, args
     text, err = call_tool("forensics", "get_page_text", {"doc_id": "nope", "page": 1}, clean, ledger)
-    assert err and "unknown document" in text and ledger.tool_calls[-1].error
+    assert err and "doc_id must be one of: " in text and ledger.tool_calls[-1].error
     assert "must be an integer" in _error("forensics", "get_page_text",
                                           {"doc_id": "invoice_INV-1001", "page": "1"}, clean)
     assert "missing argument: page" in _error("forensics", "get_page_text", {"doc_id": "x"}, clean)
@@ -182,28 +182,28 @@ def test_bad_arguments_return_error_result(clean: CaseData) -> None:
 
 
 def test_an_unknown_document_error_lists_the_valid_ids(clean: CaseData) -> None:
-    message = _error("forensics", "get_page_text", {"doc_id": "po_PO-2001", "page": 1}, clean)
-    assert message.startswith("unknown document: po_PO-2001")
-    assert all(d.doc_id in message for d in clean.pack.docs)
+    message = _error("forensics", "get_forensic_facts", {"doc_id": "po_PO-2001"}, clean)
+    assert message == f"doc_id must be one of: {', '.join(d.doc_id for d in clean.pack.docs)}"
     assert "purchase_order_PO-2001" in _error("forensics", "get_forensic_facts", {"doc_id": "PO-2001"}, clean)
 
 
 def test_lead_fields_the_model_may_not_set_or_get_wrong_are_refused(clean: CaseData) -> None:
     ledger = Ledger()
-    lead = {"kind": "triage", "title": "t", "detail": "d", "cites": ["R01"]}
+    lead = {"kind": "pattern", "pattern": "related_party", "title": "t", "detail": "d", "cites": ["R01"]}
     assert _error("kyc", "record_lead", {**lead, "outcome": "kept"}, clean, ledger)
     assert _error("kyc", "record_lead", {**lead, "lead_id": "L99"}, clean, ledger)
     assert ledger.leads == []
 
 
-def test_a_value_outside_an_enum_names_the_allowed_ones(clean: CaseData) -> None:
+def test_a_value_outside_an_enum_names_the_allowed_ones(tampered: CaseData) -> None:
     lead = {"kind": "triage", "title": "t", "detail": "d", "cites": ["R01"]}
-    assert _error("kyc", "record_lead", {**lead, "kind": "gossip"}, clean) == "kind must be one of: triage, pattern"
-    assert _error("kyc", "record_lead", {**lead, "verdict": "guilty"}, clean) == \
+    assert _error("kyc", "record_lead", {**lead, "kind": "gossip"}, tampered) == \
+        "kind must be one of: triage, pattern"
+    assert _error("kyc", "record_lead", {**lead, "verdict": "guilty"}, tampered) == \
         "verdict must be one of: corroborated, possibly_innocent, unclear"
-    assert _error("kyc", "record_lead", {**lead, "pattern": "made_up"}, clean).startswith(
-        "pattern must be one of: third_party_payment, round_trip,")
-    assert _error("kyc", "record_lead", {**lead, "kind": 5}, clean) == "kind must be a string"
+    assert _error("kyc", "record_lead", {**lead, "pattern": "made_up"}, tampered) == \
+        "pattern must be one of: related_party, business_mismatch"
+    assert _error("kyc", "record_lead", {**lead, "kind": 5}, tampered) == "kind must be a string"
 
 
 def test_a_validation_error_comes_back_as_plain_field_messages(clean: CaseData,
@@ -232,9 +232,9 @@ def test_page_text_needs_screened_text_and_refuses_quarantined_docs(clean: CaseD
     other = _run("forensics", "get_page_text", {"doc_id": "invoice_INV-1002", "page": 1}, injected)
     assert "INV-1002" in other["text"]
 
-    form = {"doc_id": "fatca_crs_entity", "page": 1}
-    assert _error("forensics", "get_page_text", form, _screened(clean, {})) == \
-        "unavailable: forms are read by rules only"
+    form = {"doc_id": "fatca_crs_entity", "page": 1}  # forms are read by rules only: never offered
+    message = _error("forensics", "get_page_text", form, _screened(clean, {}))
+    assert message.startswith("doc_id must be one of: ") and "fatca_crs_entity" not in message
 
 
 def test_page_text_is_screened_text_and_its_summary_never_holds_it(clean: CaseData) -> None:
@@ -372,13 +372,14 @@ def test_forensic_facts_are_read_from_the_case(tampered: CaseData, roomy: None) 
     assert facts["ocr_confidence"] == []
     assert {f["check"] for f in facts["findings"]} >= {"META_MOD_AFTER_CREATE", "FORENSIC_HIDDEN_TEXT"}
     assert all(f["document"] == "invoice_INV-1002" for f in facts["findings"])
-    assert "unknown document" in _error("forensics", "get_forensic_facts", {"doc_id": "nope"}, tampered)
+    assert "doc_id must be one of: " in _error("forensics", "get_forensic_facts", {"doc_id": "nope"}, tampered)
 
 
 def test_chain_and_document_fields(tampered: CaseData) -> None:
     chain = _run("transaction", "get_chain", {"invoice_number": "INV-1002"}, tampered)
     assert chain["broken"] and [s["step"] for s in chain["steps"]] == ["purchase_order", "bill_of_lading", "payment"]
-    assert "no chain for invoice INV-9" in _error("transaction", "get_chain", {"invoice_number": "INV-9"}, tampered)
+    assert _error("transaction", "get_chain", {"invoice_number": "INV-9"}, tampered) == \
+        "invoice_number must be one of: INV-1001, INV-1002"
 
     invoice = _run("transaction", "get_document_fields", {"doc_id": "invoice_INV-1002"}, tampered)
     assert invoice["invoice_number"] == "INV-1002" and invoice["line_items"]
@@ -476,9 +477,9 @@ def test_registry_and_sanctions_lookups(clean: CaseData) -> None:
     by_name = _run("kyc", "registry_lookup", {"name": "Bayview Marine Supplies Pte Ltd"}, clean)
     assert by_name["uen"] == "201845678M" and by_name["status"] == "Live"
     assert by_name["incorporated"] == "2018-11-20" and by_name["officers"] == [{"name": "Rahul Menon", "role": "Director"}]
-    assert _run("kyc", "registry_lookup", {"uen": "201845678M"}, clean) == by_name
     assert _run("kyc", "registry_lookup", {"name": "Bayview Marine"}, clean) == {"found": False}  # below threshold
-    assert _run("kyc", "registry_lookup", {"uen": "000000000X"}, clean) == {"found": False}
+    # By UEN only a party's: Bayview's documents in this case give none
+    assert _error("kyc", "registry_lookup", {"uen": "201845678M"}, clean) == "uen must be one of: 202301234K"
     assert _error("kyc", "registry_lookup", {}, clean)
 
     hits = _run("kyc", "sanctions_search", {"name": "Kestrel Marine Supplies Pte Ltd"}, clean)
@@ -493,7 +494,7 @@ def test_timeline_and_incorporation(retro_po: CaseData) -> None:
     assert {e["kind"] for e in events} >= {"incorporated", "invoice", "shipped", "payment"}
     trade = _run("timeline", "get_timeline", {"ref": "INV-1002"}, retro_po)
     assert trade and all(e["ref"] == "INV-1002" for e in trade) and len(trade) < len(events)
-    assert _run("timeline", "get_timeline", {"ref": "INV-9"}, retro_po) == []
+    assert _error("timeline", "get_timeline", {"ref": "INV-9"}, retro_po).startswith("ref must be one of: ")
 
     incorporated = _run("timeline", "get_incorporation", {}, retro_po)
     assert incorporated["date"] == "2023-01-16" and incorporated["source"]
@@ -506,14 +507,14 @@ def test_timeline_and_incorporation(retro_po: CaseData) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_record_lead_assigns_ids(clean: CaseData) -> None:
+def test_record_lead_assigns_ids(tampered: CaseData) -> None:
     ledger = Ledger()
     lead = {"kind": "pattern", "pattern": "third_party_payment", "title": "Paid by a non-buyer",
             "detail": "SGD 18,530.00 credit", "cites": ["R01"]}
-    assert _run("transaction", "record_lead", lead, clean, ledger) == {"lead_id": "L01"}
+    assert _run("transaction", "record_lead", lead, tampered, ledger) == {"lead_id": "L01"}
     triage = {"kind": "triage", "title": "t", "detail": "d", "cites": ["R01"], "finding_ids": ["E01"],
               "verdict": "unclear"}
-    assert _run("kyc", "record_lead", triage, clean, ledger) == {"lead_id": "L02"}
+    assert _run("kyc", "record_lead", triage, tampered, ledger) == {"lead_id": "L02"}
     assert [(x.lead_id, x.agent, x.kind) for x in ledger.leads] == \
         [("L01", "transaction", "pattern"), ("L02", "kyc", "triage")]
     assert ledger.leads[0].pattern == "third_party_payment" and ledger.leads[0].outcome == "kept"
@@ -531,7 +532,7 @@ def test_draft_question_is_kept_with_its_asker(clean: CaseData) -> None:
 
 def test_issued_to_covers_each_agents_calls_including_errors(clean: CaseData) -> None:
     ledger = Ledger()
-    call_tool("kyc", "registry_lookup", {"uen": "201845678M"}, clean, ledger)
+    call_tool("kyc", "registry_lookup", {"uen": "202301234K"}, clean, ledger)
     call_tool("kyc", "registry_lookup", {}, clean, ledger)  # error
     call_tool("timeline", "get_incorporation", {}, clean, ledger)
     call_tool("kyc", "get_score", {}, clean, ledger)  # refused
@@ -542,7 +543,7 @@ def test_issued_to_covers_each_agents_calls_including_errors(clean: CaseData) ->
 
 def test_citable_is_each_agents_successful_evidence_calls(clean: CaseData) -> None:
     ledger = Ledger()
-    call_tool("kyc", "registry_lookup", {"uen": "201845678M"}, clean, ledger)  # R01 evidence
+    call_tool("kyc", "registry_lookup", {"uen": "202301234K"}, clean, ledger)  # R01 evidence
     call_tool("kyc", "registry_lookup", {}, clean, ledger)  # R02 error
     call_tool("kyc", "record_lead", {"kind": "pattern", "pattern": "related_party", "title": "t",
                                      "detail": "d", "cites": ["R01"]}, clean, ledger)  # R03 receipt
@@ -580,3 +581,123 @@ def test_ledger_budget_and_notes(monkeypatch: pytest.MonkeyPatch) -> None:
     ledger.note("kyc: step limit reached")
     assert ledger.notes == ["kyc: step limit reached"]
 
+
+
+# ---------------------------------------------------------------------------
+# Closed-world arguments: with the case, every argument whose valid values the
+# case knows is an enum, and call_tool enforces the same values
+# ---------------------------------------------------------------------------
+
+#: JSON Schema keywords strict tool use does not support
+UNSUPPORTED = {"minLength", "maxLength", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+               "multipleOf", "pattern", "minItems", "maxItems", "uniqueItems"}
+
+
+def _schemas(agent: AgentName, case: CaseData | None = None, finish: str | None = None) -> dict[str, Any]:
+    """Tool name -> its input schema, as *agent* is given it."""
+    return {s["toolSpec"]["name"]: s["toolSpec"]["inputSchema"]["json"] for s in specs_for(agent, finish, case)}
+
+
+def _nodes(schema: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every schema node: the schema, its properties' and its items', recursively."""
+    children = [*schema.get("properties", {}).values(), *([schema["items"]] if "items" in schema else [])]
+    return [schema, *(n for child in children for n in _nodes(child))]
+
+
+def _no_capability_packs() -> list[str]:
+    return sorted(p.name for p in PACKS.iterdir()
+                  if not json.loads((p / "ground_truth.json").read_text()).get("requires"))
+
+
+def test_doc_ids_are_closed_per_tool(clean: CaseData) -> None:
+    docs = [d.doc_id for d in clean.pack.docs]
+    assert _schemas("forensics", clean)["get_forensic_facts"]["properties"]["doc_id"]["enum"] == docs
+    readable = _schemas("forensics", clean)["get_page_text"]["properties"]["doc_id"]["enum"]
+    assert readable == [d.doc_id for d in clean.pack.docs if d.doc_type not in tools.FORM_DOC_TYPES]
+    assert "invoice_INV-1001" in readable and "fatca_crs_entity" not in readable
+    fields = _schemas("transaction", clean)["get_document_fields"]["properties"]["doc_id"]["enum"]
+    assert set(fields) == {"invoice_INV-1001", "INV-1001", "invoice_INV-1002", "INV-1002",
+                           "purchase_order_PO-2001", "PO-2001", "purchase_order_PO-2002", "PO-2002",
+                           "bill_of_lading_BL-3001", "BL-3001", "bill_of_lading_BL-3002", "BL-3002"}
+    assert "enum" not in _schemas("forensics")["get_page_text"]["properties"]["doc_id"]  # no case: open
+
+
+def test_invoice_numbers_are_closed(clean: CaseData) -> None:
+    assert _schemas("transaction", clean)["get_chain"]["properties"]["invoice_number"]["enum"] == \
+        ["INV-1001", "INV-1002"]
+    assert _schemas("timeline", clean)["get_timeline"]["properties"]["ref"]["enum"] == ["INV-1001", "INV-1002"]
+    assert _error("transaction", "get_chain", {"invoice_number": "INV-9"}, clean) == \
+        "invoice_number must be one of: INV-1001, INV-1002"
+    assert _error("timeline", "get_timeline", {"ref": "INV-9"}, clean) == "ref must be one of: INV-1001, INV-1002"
+
+
+def test_a_specialist_is_offered_only_its_own_patterns(clean: CaseData) -> None:
+    for agent in ("forensics", "transaction", "kyc", "timeline"):
+        pattern = _schemas(agent, clean)["record_lead"]["properties"]["pattern"]
+        assert set(pattern["enum"]) == tools.PATTERNS[agent]
+    lead = {"kind": "pattern", "pattern": "third_party_payment", "title": "t", "detail": "d", "cites": ["R01"]}
+    assert _error("kyc", "record_lead", lead, clean) == "pattern must be one of: related_party, business_mismatch"
+
+
+def test_triage_is_offered_only_on_the_cases_risky_findings(tampered: CaseData) -> None:
+    risky = [e.evidence_id for e in tampered.evidence if e.severity != "info"]
+    lead = _schemas("kyc", tampered)["record_lead"]["properties"]
+    assert risky and lead["finding_ids"]["items"]["enum"] == risky
+    assert lead["kind"]["enum"] == ["triage", "pattern"] and "enum" in lead["verdict"]
+    triage = {"kind": "triage", "title": "t", "detail": "d", "cites": ["R01"], "verdict": "unclear"}
+    assert _error("kyc", "record_lead", {**triage, "finding_ids": [risky[0], "E99"]}, tampered) == \
+        f"finding_ids must be one of: {', '.join(risky)}"
+
+    quiet = replace(tampered, evidence=[e for e in tampered.evidence if e.severity == "info"])
+    lead = _schemas("kyc", quiet)["record_lead"]["properties"]
+    assert lead["kind"]["enum"] == ["pattern"] and "finding_ids" not in lead and "verdict" not in lead
+    assert _error("kyc", "record_lead", {**triage, "kind": "pattern"}, quiet) == "unknown argument: verdict"
+
+
+def test_registry_uens_are_the_parties_uens(clean: CaseData) -> None:
+    # The packs' only UEN is the applicant's (it is the seller): give one invoice another seller's
+    invoice = clean.pack.invoices[0].model_copy(update={"seller_uen": "201845678M"})
+    case = replace(clean, pack=clean.pack.model_copy(update={"invoices": [invoice, *clean.pack.invoices[1:]]}))
+    parties = _run("kyc", "get_parties", {}, case)
+    uens = [parties["applicant"]["uen"], *(p["uen"] for p in parties["counterparties"] if p["uen"])]
+    lookup = _schemas("kyc", case)["registry_lookup"]["properties"]
+    assert lookup["uen"]["enum"] == list(dict.fromkeys(uens)) == ["202301234K", "201845678M"]
+    assert "enum" not in lookup["name"]  # a search by name is legitimately open
+    assert _error("kyc", "registry_lookup", {"uen": "000000000X"}, case).startswith("uen must be one of: ")
+
+
+def test_no_case_ever_yields_an_empty_enum() -> None:
+    for name in _no_capability_packs():
+        case = _data(_assess(name))
+        for agent in TOOLSETS:
+            for schema in _schemas(agent, case).values():
+                assert all(n["enum"] for n in _nodes(schema) if "enum" in n), (name, agent)
+
+
+def test_an_argument_or_tool_with_no_values_is_dropped(clean: CaseData) -> None:
+    bare = replace(clean, pack=clean.pack.model_copy(update={"invoices": [], "manifest": None, "purchase_orders": []}))
+    assert "get_chain" not in _schemas("transaction", bare)  # its one required argument has no values
+    assert "ref" not in _schemas("timeline", bare)["get_timeline"]["properties"]
+    assert "not available to this agent" in _error("transaction", "get_chain", {"invoice_number": "INV-1001"}, bare)
+    assert all(n["enum"] for s in _schemas("kyc", bare).values() for n in _nodes(s) if "enum" in n)
+
+
+def test_every_schema_is_strict_ready(clean: CaseData) -> None:
+    calls = [(agent, None) for agent in TOOLSETS] + [("supervisor", f) for f in FINISH_TOOLS]
+    for case in (None, clean):
+        for agent, finish in calls:
+            for name, schema in _schemas(agent, case, finish).items():
+                for node in _nodes(schema):
+                    assert not UNSUPPORTED & set(node), (name, node)
+                    if node.get("type") == "object":
+                        assert node.get("additionalProperties") is False, (name, node)
+
+
+def test_specs_without_a_case_do_not_depend_on_one(clean: CaseData, tampered: CaseData) -> None:
+    from gldb.ai_team import prompts
+    assert _schemas("kyc", clean) != _schemas("kyc")  # the case closes the arguments ...
+    assert _schemas("kyc", clean) != _schemas("kyc", tampered)
+    for system, agent, finish in ((prompts.SPECIALIST["kyc"], "kyc", None),
+                                  (prompts.SUPERVISOR_PLAN, "supervisor", "submit_plan")):
+        key = agent if finish is None else "supervisor_plan"
+        assert prompts.version(system, agent, finish) == prompts.PROMPT_VERSIONS[key]  # ... the version never

@@ -34,6 +34,7 @@ from gldb.ai_team.tools import CaseData
 from gldb.audit import log_event
 from gldb.checks import AGENTS, FORM_DOC_TYPES, run_agents
 from gldb.config import (
+    AGENT_STRICT_TOOL_MODELS,
     BEDROCK_MODEL_ID,
     CASES_DIR,
     EXTRACTION_MODE,
@@ -175,7 +176,8 @@ def model_ledger(extraction_mode: str, team: AgentTeam | None) -> dict[str, Any]
 
 
 def team_ledger(team: AgentTeam | None) -> dict[str, Any]:
-    """What the AI team did, for the audit log; None when it was off."""
+    """What the AI team did, for the audit log; None when it was off.
+    strict_tools: the team's models whose tool calls ran in strict mode."""
     return {"ai_team": {
         "status": team.status,
         "models": team.models,
@@ -183,6 +185,7 @@ def team_ledger(team: AgentTeam | None) -> dict[str, Any]:
         "leads_kept": sum(lead.outcome == "kept" for lead in team.leads),
         "leads_withheld": sum(lead.outcome == "withheld" for lead in team.leads),
         "error": team.error,
+        "strict_tools": sorted({m for m in team.models.values() if m in AGENT_STRICT_TOOL_MODELS}),
     } if team else None}
 
 

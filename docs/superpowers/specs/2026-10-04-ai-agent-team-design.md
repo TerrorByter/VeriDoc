@@ -100,6 +100,21 @@ gets an id `R01…`; leads must cite them. Each specialist sees only its own
 tools (least privilege). Tool schemas use JSON Schema in the shape AgentCore
 Gateway (MCP) expects, so a later move to AgentCore is deployment work.
 
+**Closed-world arguments.** Each agent's tool schemas are built per case
+(`specs_for(agent, finish, case)`): every argument whose valid values the case
+knows is an `enum` of exactly those values — `doc_id` (non-form documents for
+`get_page_text`, all for `get_forensic_facts`, invoice/PO/BL ids and numbers for
+`get_document_fields`), invoice numbers (`get_chain`, `get_timeline.ref`), the
+UENs `get_parties` lists (`registry_lookup.uen`; `name` stays open), and in
+`record_lead` the specialist's own patterns, and the case's risky finding ids
+and verdicts (with no risky finding, `kind` is `pattern` only and `finding_ids`
+and `verdict` are left out). One table (`tools._CASE_VALUES`) is the source of
+both the enums and `call_tool`'s check. An empty enum is never sent: the
+argument is dropped, or the tool when the argument is required. Citations stay
+free text (the verifier checks them). Without a case the schemas are open, so
+prompt versions do not change from case to case. Every schema object has
+`additionalProperties: false` and no length or range keywords.
+
 | Agent | Tools |
 |---|---|
 | Supervisor | `get_case_overview` (includes the `parties` block, so it can brief KYC), `get_score` (read-only) |
@@ -146,6 +161,9 @@ AgentTeam:   status, plan {specialist: brief|None}, tool_calls, leads,
   the guardrail screened in stage 3) and refuses any document the prompt screen
   flagged: "quarantined: prompt attack detected".
 - **Tool results are untrusted data**, wrapped and labelled as such in prompts.
+- **Closed-world arguments** (§5): a document id, invoice number, UEN, finding
+  id, pattern or verdict the case does not have cannot be expressed in the
+  schema, and is refused by `call_tool` with "<arg> must be one of: …".
 - **Limits:** `AGENT_MAX_STEPS` successful evidence calls (and as many failed
   ones) per specialist; `AGENT_MAX_RESULT_CHARS` per tool
   result; `AGENT_TOKEN_BUDGET` per case (team stops, records "budget reached").
@@ -169,6 +187,11 @@ AgentTeam:   status, plan {specialist: brief|None}, tool_calls, leads,
   (`log_usage("bedrock", "ai_team_<agent>", case_id, ...)`).
 - Request shape portable across Claude and Amazon Nova (no provider-specific
   fields); `maxTokens` always set.
+- **Strict tool use** (`toolSpec.strict`) on supporting models only:
+  `AGENT_STRICT_TOOL_MODELS` (comma-separated, default Haiku 4.5's profile);
+  Sonnet 4.6 and Nova do not support it and would reject the request. Strict
+  mode makes the model's tool input always match the closed schema. The models
+  that ran strict are recorded as `ai_team.strict_tools` in the audit.
 - `usage.stage_of` maps `ai_team_*` → `ai_team`. Price table adds Haiku 4.5,
   Opus 4.6 and Nova Pro from the AWS Price List API.
 - Data residency: these are global/APAC profiles; acceptable for synthetic data.
@@ -177,7 +200,7 @@ AgentTeam:   status, plan {specialist: brief|None}, tool_calls, leads,
 ## 9. Audit
 
 `pipeline_completed.details.ai_team`: status, models per role, prompt versions,
-tool-call count, leads kept/withheld, error. `model_ledger` covers agent prompts.
+tool-call count, leads kept/withheld, error, strict_tools. `model_ledger` covers agent prompts.
 
 ## 10. UI
 

@@ -141,9 +141,14 @@ def converse(
     )
 
 
-def tool_spec(name: str, description: str, schema: dict[str, Any]) -> dict[str, Any]:
-    """A Converse tool definition: *schema* is the JSON Schema of its input."""
-    return {"toolSpec": {"name": name, "description": description, "inputSchema": {"json": schema}}}
+def tool_spec(name: str, description: str, schema: dict[str, Any], strict: bool = False) -> dict[str, Any]:
+    """A Converse tool definition: *schema* is the JSON Schema of its input.
+    *strict* makes the model's input always match it (strict tool use); only
+    some models support it, and one that does not rejects the request."""
+    spec: dict[str, Any] = {"name": name, "description": description, "inputSchema": {"json": schema}}
+    if strict:
+        spec["strict"] = True
+    return {"toolSpec": spec}
 
 
 def converse_turn(
@@ -159,7 +164,8 @@ def converse_turn(
     """Call Bedrock once for one turn of an agent loop.
 
     Sends no temperature and no toolChoice, so the same request is accepted by
-    every model the agents may run on (Claude 4.6+, Haiku 4.5, Amazon Nova).
+    every model the agents may run on (Claude 4.6+, Haiku 4.5, Amazon Nova);
+    a tool's strict flag is the caller's to set only for a model that supports it.
 
     Args:
         model_id: Bedrock model ID or inference profile of the agent.

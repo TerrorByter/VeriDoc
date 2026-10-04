@@ -185,7 +185,7 @@ def test_hub_and_spoke_isolation(clean: CaseData) -> None:
         "transaction": [[use("search_bank_transactions", text="INV")]],
         # Three calls are made in all (two by kyc), so R01 to R03 always includes transaction's one
         "kyc": [[use("registry_lookup", uen="000000000X")],
-                [use("record_lead", kind="triage", verdict="unclear", title="Register entry",
+                [use("record_lead", kind="pattern", pattern="related_party", title="Register entry",
                      detail="The register result is unclear.", cites=["R01", "R02", "R03"])]],
     })
 
@@ -417,7 +417,7 @@ def test_trace_is_persisted_server_side_only(
     details = read_events("CASE-TRACE")[-1].details
     assert details["ai_team"] == {
         "status": "ran", "models": {"supervisor": "sup-model", "specialist": "spec-model"},
-        "tool_calls": 2, "leads_kept": 1, "leads_withheld": 0, "error": None,
+        "tool_calls": 2, "leads_kept": 1, "leads_withheld": 0, "error": None, "strict_tools": [],
     }
     assert details["ai_team_models"] == details["ai_team"]["models"]
     assert {f"ai_team_{k}" for k in PROMPT_VERSIONS} <= set(details["prompt_versions"])
@@ -436,3 +436,10 @@ def test_a_rerun_without_a_trace_removes_the_earlier_runs_trace(
     assert not trace_file.exists()
     pipeline._persist(result)  # team off: nothing to remove, nothing raised
     assert not trace_file.exists()
+
+
+def test_the_audit_names_the_models_that_ran_tools_strictly(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pipeline, "AGENT_STRICT_TOOL_MODELS", frozenset({"spec-model", "other"}))
+    team = AgentTeam(status="ran", models={"supervisor": "sup-model", "specialist": "spec-model"})
+    assert pipeline.team_ledger(team)["ai_team"]["strict_tools"] == ["spec-model"]
+    assert pipeline.team_ledger(None) == {"ai_team": None}

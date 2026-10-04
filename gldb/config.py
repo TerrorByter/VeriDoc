@@ -224,6 +224,15 @@ AGENT_SUPERVISOR_MODEL: str = os.getenv("AGENT_SUPERVISOR_MODEL", "global.anthro
 AGENT_SPECIALIST_MODEL: str = os.getenv(
     "AGENT_SPECIALIST_MODEL", "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 )
+#: Models whose tool calls run in strict mode (comma-separated): the input
+#: always matches the tool's schema, so a closed argument cannot be invented.
+#: Support is per model and one without it rejects the request, so only listed
+#: models get it (Haiku 4.5 has it; Sonnet 4.6 and Amazon Nova do not).
+AGENT_STRICT_TOOL_MODELS: frozenset[str] = frozenset(
+    m.strip() for m in os.getenv(
+        "AGENT_STRICT_TOOL_MODELS", "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+    ).split(",") if m.strip()
+)
 #: Successful evidence tool calls one specialist may make before it is stopped.
 #: Failed calls have a cap of their own, the same size; recording a lead or
 #: drafting a question is never counted.

@@ -1,0 +1,246 @@
+"""
+tests/test_agent_eval.py
+------------------------
+Tests for gldb/agent_eval.py: the AI team run over a temp packs directory on a
+scripted Bedrock, scored against each pack's ground truth. No AWS calls.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+from decimal import Decimal
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from gldb import agent_eval, llm_client
+from gldb.agent_eval import AgentEvalRow
+from gldb.ai_team.team import TeamModels
+from gldb.intake import load_manifest
+from gldb.pipeline import assess
+from tests.fakes import ScriptedBedrock, use
+
+PACKS = Path(__file__).parent.parent / "data" / "packs"
+#: Models with a price in config, so the cost of a case is known
+MODELS = TeamModels(
+    supervisor="global.anthropic.claude-sonnet-4-6",
+    specialist="global.anthropic.claude-haiku-4-5-20251001-v1:0",
+)
+DONE = [{"text": "done"}]
+
+
+@pytest.fixture(autouse=True)
+def _isolated_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("USAGE_LOG_PATH", str(tmp_path / "usage.jsonl"))
+    monkeypatch.setenv("AGENT_EVAL_PATH", str(tmp_path / "agent_eval.json"))
+
+
+def _packs(tmp_path: Path, *names: str) -> Path:
+    folder = tmp_path / "packs"
+    for name in names:
+        shutil.copytree(PACKS / name, folder / name)
+    return folder
+
+
+def _script(monkeypatch: pytest.MonkeyPatch, transaction: list[list[dict[str, Any]]]) -> None:
+    """Every call to the team goes to a fake whose transaction specialist
+    plays *transaction*: its responses run pack after pack, in order."""
+    fake = ScriptedBedrock({"transaction": transaction})
+    monkeypatch.setattr(llm_client, "_default_client", lambda: fake)
+
+
+def _search() -> list[dict[str, Any]]:
+    return [use("search_bank_transactions", text="INV")]
+
+
+def _lead(cites: list[str], **fields: Any) -> list[dict[str, Any]]:
+    args = {"kind": "pattern", "pattern": "split_payment", "title": "Invoice settled by several credits",
+            "detail": "Several smaller credits appear to settle one invoice.", "cites": cites, **fields}
+    return [use("record_lead", **args)]
+
+
+def _triage(cites: list[str], finding: str, verdict: str) -> list[dict[str, Any]]:
+    return [use("record_lead", kind="triage", title="Payment differs from the invoice",
+                detail="The credits do not match the invoice amount.", cites=cites, finding_ids=[finding],
+                verdict=verdict)]
+
+
+def _row(supervisor: str, specialist: str, noise: int = 0) -> AgentEvalRow:
+    return AgentEvalRow(
+        evaluated_at="2026-10-04T00:00:00+00:00", supervisor=supervisor, specialist=specialist, packs=[],
+        pattern_recall=1.0, triage_accuracy=1.0, noise=noise, withheld_rate=0.0,
+        usd_per_case=Decimal("0.5"), seconds_per_case=1.0,
+    )
+
+
+def test_metrics_count_recall_noise_and_withheld(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    packs = _packs(tmp_path, "clean", "third_party_payment")
+    _script(monkeypatch, [
+        # clean: a pattern lead that matches nothing planted
+        _search(), _lead(["R01"]), DONE,
+        # third_party_payment: the planted lead, and one that names a verdict, so is withheld
+        _search(), _lead(["R01"], pattern="third_party_payment"),
+        _lead(["R01"], pattern="round_trip", title="Possible fraud on the invoice"), DONE,
+    ])
+
+    row = agent_eval.evaluate_team(MODELS, packs)
+
+    clean, third = row.packs
+    assert (clean.pack, clean.status, clean.expected_leads, clean.found_leads) == (
+        "clean", "ran", [], ["transaction:split_payment"])
+    assert (clean.noise, clean.withheld, clean.leads) == (1, 0, 1)
+    assert (third.pack, third.status, third.expected_leads, third.found_leads) == (
+        "third_party_payment", "ran", ["transaction:third_party_payment"], ["transaction:third_party_payment"])
+    assert (third.noise, third.withheld, third.leads) == (0, 1, 2)
+    assert (row.supervisor, row.specialist) == (MODELS.supervisor, MODELS.specialist)
+    assert row.pattern_recall == 1.0
+    assert row.noise == 1
+    assert row.withheld_rate == pytest.approx(1 / 3)
+    assert row.triage_accuracy == 0.0  # nothing expected: a zero denominator reads 0.0
+    assert clean.usd is not None and third.usd is not None and clean.usd > 0 and third.usd > 0
+    assert row.usd_per_case == (clean.usd + third.usd) / 2
+    assert row.seconds_per_case == pytest.approx((clean.seconds + third.seconds) / 2)
+    assert row.evaluated_at
+
+
+@pytest.mark.parametrize(("verdict", "correct"), [("possibly_innocent", 1), ("corroborated", 0)])
+def test_triage_is_correct_only_for_the_expected_verdict_on_the_expected_check(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, verdict: str, correct: int
+) -> None:
+    packs = _packs(tmp_path, "innocent_split")
+    folder = packs / "innocent_split"
+    finding = next(
+        e.evidence_id
+        for e in assess("innocent_split", sorted(folder.glob("*.pdf")), load_manifest(folder), team=None).evidence
+        if e.check_id == "XDOC_INVOICE_BANK" and e.severity != "info"
+    )
+    _script(monkeypatch, [_search(), _triage(["R01"], finding, verdict), DONE])
+
+    row = agent_eval.evaluate_team(MODELS, packs)
+
+    (result,) = row.packs
+    assert (result.triage_expected, result.triage_correct) == (1, correct)
+    assert row.triage_accuracy == correct
+    assert row.pattern_recall == 0.0  # the planted split_payment lead was not raised
+
+
+def test_pack_that_raises_is_recorded_as_an_error_without_aborting(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    packs = _packs(tmp_path, "clean", "third_party_payment")
+    _script(monkeypatch, [])
+    real_assess = agent_eval.assess
+
+    def flaky(case_id: str, *args: Any, **kwargs: Any) -> Any:
+        if case_id.startswith("AGENTEVAL-third_party_payment-"):
+            raise RuntimeError("model returned junk")
+        return real_assess(case_id, *args, **kwargs)
+
+    monkeypatch.setattr(agent_eval, "assess", flaky)
+
+    row = agent_eval.evaluate_team(MODELS, packs)
+
+    clean, third = row.packs
+    assert clean.status == "ran"
+    assert third.status == "error: RuntimeError: model returned junk"
+    # Its expected lead still counts, as missed
+    assert third.expected_leads == ["transaction:third_party_payment"] and third.found_leads == []
+    assert (third.leads, third.noise, third.withheld, third.usd) == (0, 0, 0, None)
+    assert row.pattern_recall == 0.0
+    assert row.usd_per_case == clean.usd  # the mean of the costs that are known
+
+
+def test_pack_without_a_team_result_is_an_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    packs = _packs(tmp_path, "third_party_payment")
+    real_assess = agent_eval.assess
+    monkeypatch.setattr(agent_eval, "assess", lambda *args, **kwargs: real_assess(*args, **{**kwargs, "team": None}))
+
+    (result,) = agent_eval.evaluate_team(MODELS, packs).packs
+
+    assert result.status.startswith("error: ")
+    assert result.found_leads == [] and result.leads == 0
+
+
+def test_packs_needing_a_capability_that_is_off_are_skipped(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    packs = _packs(tmp_path, "clean", "third_party_payment")
+    gt = packs / "clean" / "ground_truth.json"
+    gt.write_text(json.dumps({**json.loads(gt.read_text()), "requires": ["ocr"]}))
+    _script(monkeypatch, [])
+
+    row = agent_eval.evaluate_team(MODELS, packs)
+
+    assert [r.pack for r in row.packs] == ["third_party_payment"]
+
+
+def test_save_replaces_same_setup_and_keeps_others(tmp_path: Path) -> None:
+    agent_eval.save(_row("sonnet", "haiku", noise=1))
+    agent_eval.save(_row("sonnet", "nova", noise=2))
+    agent_eval.save(_row("sonnet", "haiku", noise=3))
+
+    saved = agent_eval.load_saved()
+    assert [(r.supervisor, r.specialist, r.noise) for r in saved] == [("sonnet", "nova", 2), ("sonnet", "haiku", 3)]
+    assert [p.name for p in tmp_path.iterdir() if p.name.startswith("agent_eval")] == ["agent_eval.json"]
+
+
+def test_save_creates_the_directory_and_leaves_no_temp_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    folder = tmp_path / "logs" / "nested"
+    monkeypatch.setenv("AGENT_EVAL_PATH", str(folder / "agent_eval.json"))
+
+    agent_eval.save(_row("sonnet", "haiku"))
+
+    assert [p.name for p in folder.iterdir()] == ["agent_eval.json"]
+    assert len(agent_eval.load_saved()) == 1
+
+
+def test_load_saved_without_file_is_empty() -> None:
+    assert agent_eval.load_saved() == []
+
+
+def test_main_defaults_to_the_configured_models_and_prints_without_saving(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: list[TeamModels] = []
+
+    def fake_evaluate(models: TeamModels, packs_dir: Path) -> AgentEvalRow:
+        seen.append(models)
+        return _row(models.supervisor, models.specialist)
+
+    monkeypatch.setattr(agent_eval, "evaluate_team", fake_evaluate)
+
+    assert agent_eval.main([]) == 0
+
+    assert seen == [TeamModels(agent_eval.AGENT_SUPERVISOR_MODEL, agent_eval.AGENT_SPECIALIST_MODEL)]
+    out = capsys.readouterr().out
+    assert out.startswith("This calls Bedrock for every pack (estimated US$1-3).")
+    assert agent_eval.AGENT_SUPERVISOR_MODEL in out
+    assert agent_eval.load_saved() == []
+
+
+def test_main_takes_models_and_saves_only_with_the_flag(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(agent_eval, "evaluate_team", lambda models, _: _row(models.supervisor, models.specialist))
+
+    assert agent_eval.main(["--supervisor", "big", "--specialist", "small", "--save"]) == 0
+
+    assert [(r.supervisor, r.specialist) for r in agent_eval.load_saved()] == [("big", "small")]
+
+
+def test_main_prints_a_row_per_pack_with_status(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    packs = _packs(tmp_path, "clean", "third_party_payment")
+    monkeypatch.setattr(agent_eval, "PACKS_DIR", str(packs))
+    _script(monkeypatch, [_search(), _lead(["R01"]), DONE, _search(), _lead(["R01"], pattern="third_party_payment"), DONE])
+
+    assert agent_eval.main([]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    header = next(line for line in lines if line.startswith("pack"))
+    third = next(line for line in lines if line.startswith("third_party_payment"))
+    assert header.index("patterns") == third.index("1/1")  # long names do not run into the next column
+    assert "pattern recall 1.00" in "\n".join(lines)

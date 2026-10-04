@@ -153,3 +153,19 @@ def test_rule_evaluation_never_runs_the_ai_team(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(evaluate, "assess", spy)
     assert evaluate.evaluate(PACKS).recall == 1.0
     assert teams and all(team is None for team in teams)
+
+
+def test_long_pack_names_do_not_run_into_the_next_column(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    packs = tmp_path / "packs"
+    shutil.copytree(PACKS / "third_party_payment", packs / "third_party_payment")
+    monkeypatch.setattr(evaluate, "PACKS_DIR", str(packs))
+
+    assert evaluate.main([]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    header = next(line for line in lines if line.startswith("pack"))
+    row = next(line for line in lines if line.startswith("third_party_payment"))
+    assert row.startswith("third_party_payment ")
+    assert header.index("band") == row.index("Low/Low")

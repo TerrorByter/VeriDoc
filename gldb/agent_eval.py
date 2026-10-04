@@ -14,17 +14,34 @@ verifier dropped), and cost and time per case.
 
 The rows are kept as a JSON list at AGENT_EVAL_PATH, for the API's controls
 page. The rules-only evaluation (gldb.evaluate) never runs the team.
+
+Run:  python -m gldb.agent_eval [--supervisor MODEL] [--specialist MODEL] [--save]
+
+It calls Bedrock for every pack, whatever AGENTS_ENABLED says. The models
+default to the configured ones; --save keeps the row, replacing any saved row
+of the same two models.
 """
 
 from __future__ import annotations
 
+import argparse
+import json
 import os
+import sys
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from time import perf_counter
 
 from pydantic import BaseModel, TypeAdapter
 
-from gldb.config import AGENT_EVAL_PATH
+from gldb.ai_team.team import TeamModels
+from gldb.config import AGENT_EVAL_PATH, AGENT_SPECIALIST_MODEL, AGENT_SUPERVISOR_MODEL, PACKS_DIR
+from gldb.evaluate import _missing, report_path
+from gldb.intake import load_manifest
+from gldb.pipeline import assess
+from gldb.schemas import AgentTeam, Evidence
+from gldb.usage import case_cost
 
 
 class AgentPackResult(BaseModel):
@@ -65,10 +82,150 @@ _ROWS = TypeAdapter(list[AgentEvalRow])
 
 
 def _report_path() -> Path:
-    return Path(os.environ.get("AGENT_EVAL_PATH", "").strip() or AGENT_EVAL_PATH)
+    return report_path("AGENT_EVAL_PATH", AGENT_EVAL_PATH)
 
 
 def load_saved() -> list[AgentEvalRow]:
     """The saved evaluation rows, if any."""
     path = _report_path()
     return _ROWS.validate_json(path.read_text(encoding="utf-8")) if path.is_file() else []
+
+
+def save(row: AgentEvalRow) -> None:
+    """Keep *row* with the saved rows of other setups (most recent last),
+    replacing the row of the same Supervisor and specialist models. The file
+    is swapped in whole, so a reader never sees half a report."""
+    others = [r for r in load_saved() if (r.supervisor, r.specialist) != (row.supervisor, row.specialist)]
+    path = _report_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f"{path.name}.tmp")
+    temp.write_bytes(_ROWS.dump_json([*others, row], indent=2))
+    os.replace(temp, path)
+
+
+def _ratio(numerator: float, denominator: float) -> float:
+    return numerator / denominator if denominator else 0.0
+
+
+def _matched(result: AgentPackResult) -> int:
+    return len(set(result.expected_leads) & set(result.found_leads))
+
+
+def _pack_result(folder: Path, truth: dict, models: TeamModels, stamp: str) -> AgentPackResult:
+    """Assess one pack with the team on and score its leads against its
+    ground *truth*. An exception, or a result with no team, is reported on this
+    pack instead of aborting the evaluation: the pack then counts everything
+    expected as missed."""
+    case_id = f"AGENTEVAL-{folder.name}-{stamp}"
+    team: AgentTeam | None = None
+    evidence: list[Evidence] = []
+    start = perf_counter()
+    try:
+        result = assess(case_id, sorted(folder.glob("*.pdf")), load_manifest(folder), team=models)
+        team, evidence = result.ai_team, result.evidence
+        status = team.status if team else "error: no AI team result"
+    except Exception as exc:  # noqa: BLE001 - report any pipeline failure per pack
+        status = f"error: {type(exc).__name__}: {exc}"
+    seconds = perf_counter() - start
+
+    leads = team.leads if team else []
+    kept = [lead for lead in leads if lead.outcome == "kept"]
+    expected = [f"{lead['agent']}:{lead['pattern']}" for lead in truth["expected_leads"]]
+    found = [f"{lead.agent}:{lead.pattern}" for lead in kept if lead.kind == "pattern"]
+    checks = {e.evidence_id: e.check_id for e in evidence}
+    expected_triage = truth["expected_triage"]
+    cost = case_cost(case_id)
+    return AgentPackResult(
+        pack=folder.name,
+        expected_leads=expected,
+        found_leads=found,
+        triage_expected=len(expected_triage),
+        triage_correct=sum(
+            any(
+                lead.kind == "triage" and lead.verdict == want["verdict"]
+                and any(checks.get(f) == want["check_id"] for f in lead.finding_ids)
+                for lead in kept
+            )
+            for want in expected_triage
+        ),
+        noise=sum(lead not in expected for lead in found),
+        withheld=len(leads) - len(kept),
+        leads=len(leads),
+        usd=cost.usd if cost else None,
+        seconds=seconds,
+        status=status,
+    )
+
+
+def evaluate_team(models: TeamModels, packs_dir: Path) -> AgentEvalRow:
+    """Run the AI team on *models* over every pack in *packs_dir* whose
+    required capabilities are on, each as its own case so its cost is metered
+    on its own."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    truths = {
+        folder: json.loads((folder / "ground_truth.json").read_text(encoding="utf-8"))
+        for folder in sorted(p for p in packs_dir.iterdir() if (p / "ground_truth.json").is_file())
+    }
+    results = [
+        _pack_result(folder, truth, models, stamp)
+        for folder, truth in truths.items()
+        if not _missing(truth.get("requires", []))
+    ]
+    usds = [r.usd for r in results if r.usd is not None]
+    return AgentEvalRow(
+        evaluated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        supervisor=models.supervisor,
+        specialist=models.specialist,
+        packs=results,
+        pattern_recall=_ratio(sum(_matched(r) for r in results), sum(len(r.expected_leads) for r in results)),
+        triage_accuracy=_ratio(sum(r.triage_correct for r in results), sum(r.triage_expected for r in results)),
+        noise=sum(r.noise for r in results),
+        withheld_rate=_ratio(sum(r.withheld for r in results), sum(r.leads for r in results)),
+        usd_per_case=sum(usds, Decimal(0)) / len(usds) if usds else None,
+        seconds_per_case=_ratio(sum(r.seconds for r in results), len(results)),
+    )
+
+
+def _usd(amount: Decimal | None) -> str:
+    return f"{amount:.4f}" if amount is not None else "-"
+
+
+def _print(row: AgentEvalRow) -> None:
+    width = max([len("pack"), *(len(r.pack) for r in row.packs)]) + 2
+    print(f"supervisor {row.supervisor}  specialist {row.specialist}")
+    print(f"{'pack':<{width}}{'patterns':<10}{'triage':<8}{'noise':<7}{'withheld':<10}{'USD':<10}{'seconds':<9}status")
+    for r in row.packs:
+        patterns = f"{_matched(r)}/{len(r.expected_leads)}"
+        triage = f"{r.triage_correct}/{r.triage_expected}"
+        withheld = f"{r.withheld}/{r.leads}"
+        print(
+            f"{r.pack:<{width}}{patterns:<10}{triage:<8}{r.noise:<7}{withheld:<10}"
+            f"{_usd(r.usd):<10}{r.seconds:<9.1f}{r.status}"
+        )
+    print(
+        f"\npattern recall {row.pattern_recall:.2f}  triage accuracy {row.triage_accuracy:.2f}  "
+        f"noise {row.noise}  withheld rate {row.withheld_rate:.2f}  "
+        f"USD per case {_usd(row.usd_per_case)}  seconds per case {row.seconds_per_case:.1f}"
+    )
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="python -m gldb.agent_eval",
+        description="Run the AI team over the packs on one model setup and score its leads.",
+    )
+    parser.add_argument("--supervisor", default=AGENT_SUPERVISOR_MODEL, help="Supervisor model ID")
+    parser.add_argument("--specialist", default=AGENT_SPECIALIST_MODEL, help="specialist model ID")
+    parser.add_argument("--save", action="store_true", help="keep the row for the API's controls page")
+    args = parser.parse_args(argv)
+    print("This calls Bedrock for every pack (estimated US$1-3).")
+    # Always runs the team, whatever AGENTS_ENABLED says: evaluating it is the point
+    row = evaluate_team(TeamModels(args.supervisor, args.specialist), Path(PACKS_DIR))
+    if args.save:
+        save(row)
+    _print(row)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

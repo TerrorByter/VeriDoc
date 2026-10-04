@@ -257,15 +257,17 @@ def evaluate(packs_dir: Path) -> Report:
 
 
 def _print(report: Report) -> None:
-    print(f"{'pack':<12}{'band':<16}{'readiness':<24}{'route':<36}missed / unexpected")
+    # The pack column is as wide as the longest pack name, so no name runs into the next column
+    width = max([len("pack"), *(len(r.pack) for r in report.packs)]) + 2
+    print(f"{'pack':<{width}}{'band':<16}{'readiness':<24}{'route':<36}missed / unexpected")
     for r in report.packs:
         if r.error:
-            print(f"{r.pack:<12}ERROR {r.error}")
+            print(f"{r.pack:<{width}}ERROR {r.error}")
             continue
         band = f"{r.band}/{r.expected_band}"
         ready = f"{r.readiness}/{r.expected_readiness}"
         path = f"{r.path}/{r.expected_path}"
-        print(f"{r.pack:<12}{band:<16}{ready:<24}{path:<36}{r.missed or '-'} / {r.unexpected or '-'}")
+        print(f"{r.pack:<{width}}{band:<16}{ready:<24}{path:<36}{r.missed or '-'} / {r.unexpected or '-'}")
     print(
         f"\nprecision {report.precision:.2f}  recall {report.recall:.2f}  "
         f"band accuracy {report.band_accuracy:.2f}  "
@@ -273,11 +275,11 @@ def _print(report: Report) -> None:
         f"routing accuracy {report.routing_accuracy:.2f}  "
         f"false positives on Low packs {report.clean_pack_false_positives}"
     )
-    print(f"\n{'attack':<28}{'pack':<12}{'document':<26}{'detected':<10}signals (evidence)")
+    print(f"\n{'attack':<28}{'pack':<{width}}{'document':<26}{'detected':<10}signals (evidence)")
     for a in report.attacks:
         mark = {True: "yes", False: "NO", None: "not run"}[a.detected]
         found = f"{', '.join(a.signals)} ({', '.join(a.evidence_ids)})" if a.evidence_ids else "-"
-        print(f"{a.attack:<28}{a.pack:<12}{a.document:<26}{mark:<10}{found}")
+        print(f"{a.attack:<28}{a.pack:<{width}}{a.document:<26}{mark:<10}{found}")
     print(
         f"\nattacks detected {report.attack_detection_rate:.2f} of those run  "
         f"evidence coverage {report.evidence_coverage:.2f}"
@@ -289,8 +291,14 @@ def _print(report: Report) -> None:
         print(f"skipped (a required capability is off): {', '.join(report.skipped)}")
 
 
+def report_path(env_key: str, default: str) -> Path:
+    """Where a saved report lives: the *env_key* variable if set, else
+    *default*. Read at call time, so a test can point it elsewhere."""
+    return Path(os.environ.get(env_key, "").strip() or default)
+
+
 def _report_path() -> Path:
-    return Path(os.environ.get("EVAL_REPORT_PATH", "").strip() or EVAL_REPORT_PATH)
+    return report_path("EVAL_REPORT_PATH", EVAL_REPORT_PATH)
 
 
 def save(report: Report) -> None:

@@ -455,6 +455,18 @@ export interface AgentPackResult {
   seconds: number;
   /** The team's status, or "error: …" */
   status: string;
+  /** Pattern leads code verified or corroborated, "agent:pattern" */
+  verified_leads: string[];
+  /** Flags matching nothing planted: the false flags an analyst would get */
+  flag_noise: number;
+  observations: number;
+  contradicted: number;
+  ai_questions: number;
+  planted: boolean;
+  shadow_route: ReviewPath | null;
+  would_route: ReviewPath | null;
+  /** A planted fraud the gate would send to fast track */
+  miss: boolean;
 }
 
 /** One saved AI team evaluation, for one model setup */
@@ -462,11 +474,18 @@ export interface AgentEvalRow {
   evaluated_at: string;
   supervisor: string;
   specialist: string;
+  shadow: string | null;
   packs: AgentPackResult[];
-  pattern_recall: number;
+  supported_recall: number;
+  verified_recall: number;
   triage_accuracy: number;
   noise: number;
+  flag_noise: number;
   withheld_rate: number;
+  /** Planted frauds the gate would send to fast track / planted frauds */
+  miss_rate: number;
+  /** Packs the gate would send to fast track / packs */
+  auto_clear_rate: number;
   usd_per_case: Usd | null;
   seconds_per_case: number;
 }

@@ -337,12 +337,12 @@ def test_controls_list_ai_team_capability(client: TestClient) -> None:
 def test_controls_show_the_saved_agent_evaluation(client: TestClient, tmp_path: Path) -> None:
     row = {
         "evaluated_at": "2026-10-04T00:00:00+00:00", "supervisor": "sup", "specialist": "spec",
-        "packs": [], "pattern_recall": 1.0, "triage_accuracy": 0.5, "noise": 1,
+        "packs": [], "supported_recall": 1.0, "triage_accuracy": 0.5, "noise": 1,
         "withheld_rate": 0.25, "usd_per_case": "0.42", "seconds_per_case": 12.5,
     }
     (tmp_path / "agent_eval.json").write_text(json.dumps([row]), encoding="utf-8")
     rows = client.get("/api/controls").json()["agent_eval"]
-    assert [(r["supervisor"], r["specialist"], r["pattern_recall"]) for r in rows] == [("sup", "spec", 1.0)]
+    assert [(r["supervisor"], r["specialist"], r["supported_recall"]) for r in rows] == [("sup", "spec", 1.0)]
 
 
 def test_case_view_has_ai_team_and_no_trace(client: TestClient) -> None:

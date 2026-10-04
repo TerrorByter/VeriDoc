@@ -42,15 +42,15 @@ component works when it is only planned.
         │ Forensics Transaction KYC  Timeline (Haiku)    │
         │   └─────────┴────┬────┴─────────┘              │
         │   each reports only to the Supervisor          │
- 9  VERIFIER (code) ........... Built / In progress      │
-        │   provenance, numbers, identifiers,            │
-        │   lead contract; pattern checks Planned        │
+ 9  VERIFIER (code) ........... Built                    │
+        │   provenance, numbers, identifiers, lead       │
+        │   contract, pattern checks (3 of 7 patterns)   │
  10 SYNTHESIS ................. Built (memo, questions) │
         │   verified leads, memo, missing evidence,      │
         │   RFI questions                                │
- 11 SHADOW SCORE .............. Planned                  │
+ 11 SHADOW SCORE .............. Built (log only)         │
         │   reads 6 + verified leads, never the memo     │
- 12 DISPOSITION GATE (code) ... Planned ◄────────────────┘
+ 12 DISPOSITION GATE (code) ... Built (log only) ◄────────┘
         │   rule score + verified lead strength + shadow verdict
  13 HUMAN REVIEW .............. Built
         │   approve / decline / request information / MLRO
@@ -91,7 +91,7 @@ identical with the team on and off.
 **No free-form claim influences downstream logic.** Downstream code reads
 enums, ids and code-assigned fields only; prose is for people.
 
-## 3. InvestigationLead contract (In progress)
+## 3. InvestigationLead contract (Built)
 
 ```
 Lead

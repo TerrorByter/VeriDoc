@@ -1,6 +1,6 @@
 # Evidence Verification and Shadow Scoring — Design
 
-Date: 2026-10-05 · Status: approved with changes (sections 4.6, 5, 11)
+Date: 2026-10-05 · Status: approved with changes (sections 4.6, 5, 11); implemented 2026-10-05, live run pending
 Builds on: `2026-10-04-target-architecture.md` (steps 5, 9, 10, 11, 12) and
 `2026-10-04-ai-agent-team-design.md`.
 

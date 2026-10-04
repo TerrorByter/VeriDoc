@@ -112,10 +112,14 @@ function AgentEvaluation({ rows }: { rows: AgentEvalRow[] }) {
         <thead>
           <tr>
             <th scope="col">Setup</th>
-            <th scope="col" className="num">Pattern recall</th>
+            <th scope="col" className="num" title="Planted patterns the agents reported as supported">Supported recall</th>
+            <th scope="col" className="num" title="Planted patterns code verified">Verified recall</th>
             <th scope="col" className="num">Triage accuracy</th>
-            <th scope="col" className="num">Noise</th>
+            <th scope="col" className="num" title="Supported leads matching nothing planted, before code checks">Noise</th>
+            <th scope="col" className="num" title="Leads code verified that match nothing planted: the false flags an analyst would get">Flag noise</th>
             <th scope="col" className="num">Withheld rate</th>
+            <th scope="col" className="num" title="Planted frauds the log-only gate would send to fast track">Miss rate</th>
+            <th scope="col" className="num" title="Packs the log-only gate would send to fast track">Auto-clear rate</th>
             <th scope="col" className="num">Cost per case</th>
             <th scope="col" className="num">Time per case</th>
             <th scope="col">Evaluated</th>
@@ -127,11 +131,16 @@ function AgentEvaluation({ rows }: { rows: AgentEvalRow[] }) {
               <td>
                 <span className="mono">{r.supervisor}</span>
                 <span className="muted small block">+ <span className="mono">{r.specialist}</span></span>
+                {r.shadow && <span className="muted small block">scorer <span className="mono">{r.shadow}</span></span>}
               </td>
-              <td className="num mono">{pct(r.pattern_recall)}</td>
+              <td className="num mono">{pct(r.supported_recall)}</td>
+              <td className="num mono">{pct(r.verified_recall)}</td>
               <td className="num mono">{pct(r.triage_accuracy)}</td>
               <td className="num mono">{r.noise}</td>
+              <td className="num mono">{r.flag_noise}</td>
               <td className="num mono">{pct(r.withheld_rate)}</td>
+              <td className="num mono">{pct(r.miss_rate)}</td>
+              <td className="num mono">{pct(r.auto_clear_rate)}</td>
               <td className="num mono">{usd(r.usd_per_case)}</td>
               <td className="num mono">{duration(Math.round(r.seconds_per_case * 1000))}</td>
               <td className="nowrap muted">{when(r.evaluated_at)}</td>

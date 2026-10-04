@@ -8,11 +8,20 @@ show whether a cheaper or newer model holds up: the champion is the setup in
 use, the challenger the one being tried.
 
 One AgentEvalRow per setup, each with an AgentPackResult per pack. Metrics:
-pattern recall (planted patterns the team found), triage accuracy, noise
-(kept supported pattern leads matching nothing planted), withheld rate (leads
-the verifier refused when they were recorded or withheld at the end, out of
-all the team tried to record), and the team's cost (its own Bedrock calls only) and time
-per case.
+supported recall (planted patterns the team reported as supported) and
+verified recall (planted patterns code verified), triage accuracy, noise
+(kept supported pattern leads matching nothing planted) and flag noise (leads
+code verified that match nothing planted: the false flags an analyst would
+get; the target is 0), withheld rate (leads the verifier refused when they
+were recorded or withheld at the end, out of all the team tried to record),
+the AI observations code could not check, the agent's "supported" leads code
+contradicted (false flags caught), the questions the memo would put to the
+applicant, and the team's cost (its own Bedrock calls only) and time per case.
+
+The shadow scorer and the log-only gate are scored too: the miss rate (packs
+with planted fraud the gate would send to fast track; the target is 0) and
+the auto-clear rate (packs the gate would send to fast track). Synthetic
+packs prove the pipeline, not detection value.
 
 The rows are kept as a JSON list at AGENT_EVAL_PATH, for the API's controls
 page. The rules-only evaluation (gldb.evaluate) never runs the team.
@@ -37,14 +46,20 @@ from decimal import Decimal
 from pathlib import Path
 from time import perf_counter
 
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import AliasChoices, BaseModel, Field, TypeAdapter, ValidationError
 
-from gldb.ai_team.team import TeamModels
-from gldb.config import AGENT_EVAL_PATH, AGENT_SPECIALIST_MODEL, AGENT_SUPERVISOR_MODEL, PACKS_DIR
+from gldb.ai_team.team import TeamModels, flagged
+from gldb.config import (
+    AGENT_EVAL_PATH,
+    AGENT_SPECIALIST_MODEL,
+    AGENT_SUPERVISOR_MODEL,
+    PACKS_DIR,
+    SHADOW_SCORER_MODEL,
+)
 from gldb.evaluate import _missing, report_path
 from gldb.intake import load_manifest
 from gldb.pipeline import assess
-from gldb.schemas import AgentTeam, Evidence
+from gldb.schemas import AgentTeam, Evidence, ReviewPath
 from gldb.usage import case_cost
 
 log = logging.getLogger(__name__)
@@ -64,6 +79,23 @@ class AgentPackResult(BaseModel):
     withheld: int
     #: Leads the team tried to record
     leads: int
+    #: Pattern leads code verified or corroborated, "agent:pattern" (the flags)
+    verified_leads: list[str] = []
+    #: Flags matching nothing planted: the false flags an analyst would get
+    flag_noise: int = 0
+    #: Kept leads code could not check that the agent called supported or unresolved
+    observations: int = 0
+    #: Leads the agent called supported that code contradicted: false flags caught
+    contradicted: int = 0
+    #: Questions for the applicant in the memo
+    ai_questions: int = 0
+    #: The pack plants a fraud (an expected lead, or a route above fast track)
+    planted: bool = False
+    shadow_route: ReviewPath | None = None
+    #: The route the log-only gate would take
+    would_route: ReviewPath | None = None
+    #: A planted fraud the gate would send to fast track
+    miss: bool = False
     #: The team's own cost (stage ai_team); None when unknown
     usd: Decimal | None
     seconds: float
@@ -75,9 +107,19 @@ class AgentEvalRow(BaseModel):
     evaluated_at: str
     supervisor: str
     specialist: str
+    #: The shadow scorer's model, None when it did not run
+    shadow: str | None = None
     packs: list[AgentPackResult]
-    #: Matched expected leads / expected leads
-    pattern_recall: float
+    #: Expected leads reported as supported / expected leads (saved before verification as pattern_recall)
+    supported_recall: float = Field(validation_alias=AliasChoices("supported_recall", "pattern_recall"))
+    #: Expected leads code verified / expected leads
+    verified_recall: float = 0.0
+    #: Flags matching nothing planted
+    flag_noise: int = 0
+    #: Packs with planted fraud the gate would send to fast track / packs with planted fraud
+    miss_rate: float = 0.0
+    #: Packs the gate would send to fast track / packs
+    auto_clear_rate: float = 0.0
     #: Correct / expected triage
     triage_accuracy: float
     noise: int
@@ -127,6 +169,10 @@ def _matched(result: AgentPackResult) -> int:
     return len(set(result.expected_leads) & set(result.found_leads))
 
 
+def _verified(result: AgentPackResult) -> int:
+    return len(set(result.expected_leads) & set(result.verified_leads))
+
+
 def _pack_result(folder: Path, truth: dict, models: TeamModels, stamp: str) -> AgentPackResult:
     """Assess one pack with the team on and score its leads against its
     ground *truth*. An exception, or a result with no team, is reported on this
@@ -135,10 +181,14 @@ def _pack_result(folder: Path, truth: dict, models: TeamModels, stamp: str) -> A
     case_id = f"AGENTEVAL-{folder.name}-{stamp}"
     team: AgentTeam | None = None
     evidence: list[Evidence] = []
+    shadow_route: ReviewPath | None = None
+    would_route: ReviewPath | None = None
     start = perf_counter()
     try:
         result = assess(case_id, sorted(folder.glob("*.pdf")), load_manifest(folder), team=models)
         team, evidence = result.ai_team, result.evidence
+        shadow_route = result.shadow.route if result.shadow else None
+        would_route = result.gate.would_route if result.gate else None
         if team is None:
             status = "error: no AI team result"
         else:
@@ -153,6 +203,8 @@ def _pack_result(folder: Path, truth: dict, models: TeamModels, stamp: str) -> A
     expected = [f"{lead['agent']}:{lead['pattern']}" for lead in truth["expected_leads"]]
     # A refuted or unresolved lead records a check, not a pattern found
     found = [f"{lead.agent}:{lead.pattern}" for lead in kept if lead.kind == "pattern" and lead.investigation_status == "supported"]
+    verified = [f"{lead.agent}:{lead.pattern}" for lead in kept if lead.kind == "pattern" and flagged(lead)]
+    planted = bool(truth["expected_leads"]) or truth["expected_path"] != "fast_track"
     checks = {e.evidence_id: e.check_id for e in evidence}
     expected_triage = truth["expected_triage"]
     cost = case_cost(case_id)
@@ -172,6 +224,15 @@ def _pack_result(folder: Path, truth: dict, models: TeamModels, stamp: str) -> A
         noise=sum(lead not in expected for lead in found),
         withheld=len(leads) - len(kept) + refused,
         leads=len(leads) + refused,
+        verified_leads=verified,
+        flag_noise=sum(v not in expected for v in verified),
+        observations=sum(l.evidence_status == "unverified" and l.investigation_status != "refuted" for l in kept),
+        contradicted=sum(l.evidence_status == "contradicted" and l.investigation_status == "supported" for l in kept),
+        ai_questions=len(team.memo.questions) if team and team.memo else 0,
+        planted=planted,
+        shadow_route=shadow_route,
+        would_route=would_route,
+        miss=planted and would_route == "fast_track",
         usd=cost.usd_by_stage.get("ai_team") if cost else None,
         seconds=seconds,
         status=status,
@@ -197,8 +258,13 @@ def evaluate_team(models: TeamModels, packs_dir: Path) -> AgentEvalRow:
         evaluated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         supervisor=models.supervisor,
         specialist=models.specialist,
+        shadow=models.shadow,
         packs=results,
-        pattern_recall=_ratio(sum(_matched(r) for r in results), sum(len(r.expected_leads) for r in results)),
+        supported_recall=_ratio(sum(_matched(r) for r in results), sum(len(r.expected_leads) for r in results)),
+        verified_recall=_ratio(sum(_verified(r) for r in results), sum(len(r.expected_leads) for r in results)),
+        flag_noise=sum(r.flag_noise for r in results),
+        miss_rate=_ratio(sum(r.miss for r in results), sum(r.planted for r in results)),
+        auto_clear_rate=_ratio(sum(r.would_route == "fast_track" for r in results), len(results)),
         triage_accuracy=_ratio(sum(r.triage_correct for r in results), sum(r.triage_expected for r in results)),
         noise=sum(r.noise for r in results),
         withheld_rate=_ratio(sum(r.withheld for r in results), sum(r.leads for r in results)),
@@ -214,18 +280,23 @@ def _usd(amount: Decimal | None) -> str:
 def _print(row: AgentEvalRow) -> None:
     width = max([len("pack"), *(len(r.pack) for r in row.packs)]) + 2
     print(f"supervisor {row.supervisor}  specialist {row.specialist}")
-    print(f"{'pack':<{width}}{'patterns':<10}{'triage':<8}{'noise':<7}{'withheld':<10}{'USD':<10}{'seconds':<9}status")
+    print(f"{'pack':<{width}}{'patterns':<10}{'verified':<10}{'triage':<8}{'noise':<7}{'flags':<7}{'withheld':<10}"
+          f"{'shadow':<18}{'gate':<18}{'USD':<10}{'seconds':<9}status")
     for r in row.packs:
         patterns = f"{_matched(r)}/{len(r.expected_leads)}"
+        verified = f"{_verified(r)}/{len(r.expected_leads)}"
         triage = f"{r.triage_correct}/{r.triage_expected}"
         withheld = f"{r.withheld}/{r.leads}"
+        gate = f"{r.would_route or '-'}{' MISS' if r.miss else ''}"
         print(
-            f"{r.pack:<{width}}{patterns:<10}{triage:<8}{r.noise:<7}{withheld:<10}"
-            f"{_usd(r.usd):<10}{r.seconds:<9.1f}{r.status}"
+            f"{r.pack:<{width}}{patterns:<10}{verified:<10}{triage:<8}{r.noise:<7}{r.flag_noise:<7}{withheld:<10}"
+            f"{r.shadow_route or '-':<18}{gate:<18}{_usd(r.usd):<10}{r.seconds:<9.1f}{r.status}"
         )
     print(
-        f"\npattern recall {row.pattern_recall:.2f}  triage accuracy {row.triage_accuracy:.2f}  "
-        f"noise {row.noise}  withheld rate {row.withheld_rate:.2f}  "
+        f"\nsupported recall {row.supported_recall:.2f}  verified recall {row.verified_recall:.2f}  "
+        f"triage accuracy {row.triage_accuracy:.2f}  noise {row.noise}  flag noise {row.flag_noise}  "
+        f"withheld rate {row.withheld_rate:.2f}\n"
+        f"miss rate {row.miss_rate:.2f}  auto-clear rate {row.auto_clear_rate:.2f}  "
         f"USD per case {_usd(row.usd_per_case)}  seconds per case {row.seconds_per_case:.1f}"
     )
 
@@ -237,11 +308,12 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument("--supervisor", default=AGENT_SUPERVISOR_MODEL, help="Supervisor model ID")
     parser.add_argument("--specialist", default=AGENT_SPECIALIST_MODEL, help="specialist model ID")
+    parser.add_argument("--shadow", default=SHADOW_SCORER_MODEL, help="shadow case scorer model ID")
     parser.add_argument("--save", action="store_true", help="keep the row for the API's controls page")
     args = parser.parse_args(argv)
     print("This calls Bedrock for every pack (estimated US$1-3).")
     # Always runs the team, whatever AGENTS_ENABLED says: evaluating it is the point
-    row = evaluate_team(TeamModels(args.supervisor, args.specialist), Path(PACKS_DIR))
+    row = evaluate_team(TeamModels(args.supervisor, args.specialist, args.shadow), Path(PACKS_DIR))
     _print(row)
     if not any(r.status == "ran" for r in row.packs):
         print("no pack ran: nothing saved")

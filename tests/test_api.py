@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from botocore.exceptions import NoCredentialsError
 from fastapi.testclient import TestClient
 
 from gldb import api, pipeline
@@ -261,6 +262,15 @@ def test_a_failed_run_reports_why(client: TestClient, monkeypatch: pytest.Monkey
     assert client.get(f"/api/cases/{cid}").status_code == 404
 
 
+def test_an_aws_failure_says_what_to_fix(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    def expired(*_: Any, **__: Any) -> None:
+        raise NoCredentialsError()
+    monkeypatch.setattr(api, "run", expired)
+    cid = client.post("/api/cases/from-pack/clean").json()["case_id"]
+    error = client.get(f"/api/cases/{cid}/progress").json()["error"]
+    assert error.startswith("AWS call failed: Unable to locate credentials")
+
+
 def test_progress_of_an_unknown_case_is_404(client: TestClient) -> None:
     assert client.get("/api/cases/CASE-NOPE/progress").status_code == 404
 
@@ -276,6 +286,9 @@ def test_case_view_carries_stages_ocr_screen_and_cost(client: TestClient) -> Non
     case = _case(client, "clean")
     assert [s["stage_id"] for s in case["stages"]] == list(pipeline.ASSESS_STAGES)
     assert (case["ocr_confidence"], case["prompt_screen"], case["cost"]) == ({}, None, None)
+    assert case["company_name"] == "Lumen Harbour Trading Pte. Ltd."
+    tampered = _case(client)
+    assert tampered["signals"]["FORENSIC_HIDDEN_TEXT"]["name"] == "Hidden text in document"
 
 
 def test_cases_are_listed_newest_first(client: TestClient) -> None:

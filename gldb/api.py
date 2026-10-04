@@ -40,6 +40,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
+from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field, model_validator
 
@@ -66,7 +67,7 @@ from gldb.intake import IntakeError, validate_file
 from gldb.jobs import Progress, StageProgress
 from gldb.pipeline import ASSESS_STAGES, OCR_LINES_FILE, run
 from gldb.reference import versions as reference_versions
-from gldb.signal_library import RULE_VERSION, SIGNALS
+from gldb.signal_library import RULE_VERSION, SIGNALS, signal_for
 from gldb.usage import CaseCost
 from gldb.viewer import locate, render_page
 from gldb.schemas import (
@@ -108,6 +109,8 @@ class CaseView(BaseModel):
     """What the browser sees of a CaseResult."""
 
     case_id: str
+    #: The applicant company, from the application data
+    company_name: str | None
     docs: list[DocMeta]
     evidence: list[Evidence]
     agent_reports: list[AgentReport]
@@ -130,6 +133,8 @@ class CaseView(BaseModel):
     prompt_screen: dict[str, list[PromptAttackHit]] | None
     #: Estimated AWS cost of the case; None when it used no AWS service
     cost: CaseCost | None
+    #: check_id -> signal (name and ID) for every check with a finding
+    signals: dict[str, Signal]
 
 
 class RunStarted(BaseModel):
@@ -229,6 +234,7 @@ def _view(result: CaseResult) -> CaseView:
     status = lifecycle.status(events)
     return CaseView(
         case_id=result.case_id,
+        company_name=result.pack.manifest.company_name if result.pack.manifest else None,
         docs=result.pack.docs,
         evidence=result.evidence,
         agent_reports=result.agent_reports,
@@ -247,6 +253,7 @@ def _view(result: CaseResult) -> CaseView:
         ocr_confidence=result.pack.ocr_confidence,
         prompt_screen=result.pack.prompt_screen,
         cost=usage.case_cost(result.case_id),
+        signals={e.check_id: signal_for(e.check_id) for e in result.evidence},
     )
 
 
@@ -298,6 +305,10 @@ def _execute(case_id: str, files: list[Path], manifest: Path | None, new_case: b
             on_stage=lambda stage, state: jobs.stage(case_id, stage, state))
     except (IntakeError, ExtractionError) as exc:
         jobs.fail(case_id, str(exc))
+    except (BotoCoreError, ClientError) as exc:
+        # Expired sign-in, missing permission, throttling: say so, it is fixable
+        log.exception("AWS call failed for %s", case_id)
+        jobs.fail(case_id, f"AWS call failed: {exc}")
     except Exception:
         log.exception("pipeline run failed for %s", case_id)
         jobs.fail(case_id, "unexpected error; see the server log")

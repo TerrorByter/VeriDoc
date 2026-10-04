@@ -188,8 +188,50 @@ export type CaseStatus =
   | "approved"
   | "declined";
 
+export type StageId =
+  | "ocr"
+  | "intake"
+  | "prompt_screen"
+  | "extract"
+  | "agents"
+  | "score"
+  | "readiness"
+  | "route"
+  | "projections"
+  | "semantic_review"
+  | "record";
+
+export type StageState = "running" | "ran" | "off";
+
+export interface StageReport {
+  stage_id: StageId;
+  status: "ran" | "off";
+  duration_ms: number;
+  version: string;
+}
+
+export interface PromptAttackHit {
+  page: number;
+  confidence: string;
+}
+
+/** Decimal amounts arrive as strings, to keep their precision */
+export type Usd = string;
+
+export interface CaseCost {
+  case_id: string;
+  pages: number;
+  text_units: number;
+  input_tokens: number;
+  output_tokens: number;
+  usd: Usd | null;
+  unpriced: string[];
+  usd_by_stage: Partial<Record<StageId, Usd>>;
+}
+
 export interface CaseView {
   case_id: string;
+  company_name: string | null;
   docs: DocMeta[];
   evidence: Evidence[];
   agent_reports: AgentReport[];
@@ -204,6 +246,112 @@ export interface CaseView {
   status: CaseStatus;
   allowed_actions: string[];
   open_flags: string[];
+  stages: StageReport[];
+  ocr_confidence: Record<string, number[]>;
+  prompt_screen: Record<string, PromptAttackHit[]> | null;
+  cost: CaseCost | null;
+  /** check_id -> its signal, for every check with a finding */
+  signals: Record<string, Signal>;
+}
+
+export interface RunStarted {
+  case_id: string;
+}
+
+export type RunState = "running" | "done" | "failed";
+
+export interface Progress {
+  case_id: string;
+  state: RunState;
+  stages: { stage_id: StageId; state: StageState }[];
+  current: StageId | null;
+  error: string | null;
+}
+
+export interface CaseSummary {
+  case_id: string;
+  company_name: string | null;
+  doc_count: number;
+  band: Band | null;
+  score: number | null;
+  path: ReviewPath | null;
+  status: CaseStatus | "running" | "failed";
+  created_at: string;
+}
+
+export type SignalFamily = "DOC" | "FIN" | "TXN" | "REG" | "ENT" | "TEMP" | "COMP" | "SYS";
+
+export interface Signal {
+  signal_id: string;
+  check_id: string;
+  family: SignalFamily;
+  name: string;
+  remedy: string;
+  points: number | null;
+}
+
+export interface AttackResult {
+  pack: string;
+  attack: string;
+  document: string;
+  detail: string;
+  detected: boolean | null;
+  signals: string[];
+  evidence_ids: string[];
+}
+
+export interface PackResult {
+  pack: string;
+  band: string;
+  expected_band: string;
+  readiness: string;
+  expected_readiness: string;
+  path: string;
+  expected_path: string;
+  missed: string[];
+  unexpected: string[];
+  error: string | null;
+}
+
+export interface EvaluationReport {
+  packs: PackResult[];
+  precision: number;
+  recall: number;
+  band_accuracy: number;
+  readiness_accuracy: number;
+  routing_accuracy: number;
+  attacks: AttackResult[];
+  attack_detection_rate: number;
+  evidence_coverage: number;
+  skipped: string[];
+  evaluated_at: string;
+  capabilities: Record<string, boolean>;
+  extraction_mode: string;
+}
+
+export interface Capability {
+  name: "ocr" | "prompt_screen" | "llm_extraction" | "semantic_review";
+  enabled: boolean;
+  detail: string;
+}
+
+export interface CheckFeedback {
+  check_id: string;
+  confirmed: number;
+  dismissed: number;
+  dismiss_rate: number;
+  reasons: Record<string, number>;
+}
+
+export interface Controls {
+  policy_version: string;
+  rule_version: string;
+  reference_data: Record<string, string>;
+  capabilities: Capability[];
+  signals: Signal[];
+  cost: { cases: number; usd_total: Usd; usd_per_case: Usd | null };
+  evaluation: EvaluationReport | null;
+  feedback: CheckFeedback[];
 }
 
 export interface AuditEvent {
@@ -215,6 +363,7 @@ export interface AuditEvent {
   decision: string | null;
   reason_code: string | null;
   reason: string | null;
+  details: Record<string, unknown>;
 }
 
 export type FlagDecision = "confirmed" | "dismissed";

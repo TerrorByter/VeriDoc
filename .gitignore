@@ -21,6 +21,7 @@ env/
 data/uploads/
 data/cases/
 logs/*.jsonl
+logs/evaluation.json
 
 # IDE
 .vscode/

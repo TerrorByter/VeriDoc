@@ -66,6 +66,7 @@ To score the extractor against the ground truth of every pack in `data/packs/`:
 ```bash
 python -m gldb.evaluate                        # deterministic parser
 EXTRACTION_MODE=llm python -m gldb.evaluate    # Bedrock (about 30 small calls)
+python -m gldb.evaluate --save                 # also keep the report for the UI's controls page
 ```
 
 ### 6. Run the app
@@ -74,6 +75,14 @@ EXTRACTION_MODE=llm python -m gldb.evaluate    # Bedrock (about 30 small calls)
 uvicorn gldb.api:app --reload          # backend on :8000
 cd frontend && npm install && npm run dev   # UI on :5173 (proxies /api)
 ```
+
+The UI has four screens: **Cases** (every case, newest first), **New case**
+(demo packs or an upload), a **live run** that shows each pipeline stage as it
+runs, and the **case workspace**, where each of the 11 stages has its own page
+(the arrow keys step through them) beside the document viewer. **Model &
+controls** shows the saved evaluation, capabilities, signal library and spend.
+Starting a case returns at once (202) and the pipeline runs in the background;
+the browser polls `GET /api/cases/{id}/progress`.
 
 ## Project structure
 
@@ -94,6 +103,7 @@ gldb/               Core package
   pipeline.py       run(case_id, file_paths) -> CaseResult
   semantic_review.py  Semantic Review Agent: LLM synthesis over verified facts, grounding-checked
   api.py            FastAPI app used by the frontend
+  jobs.py           Progress of background pipeline runs, for the live run screen
   ocr.py            Textract OCR for scanned PDFs
 frontend/           React + TypeScript (Vite) UI
 data/

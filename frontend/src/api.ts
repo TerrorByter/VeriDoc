@@ -1,11 +1,15 @@
 import type {
   AnalystDecision,
   AuditEvent,
+  CaseSummary,
   CaseView,
+  Controls,
   EvidenceLocation,
   FlagDecision,
   MlroDecision,
+  Progress,
   ReasonCode,
+  RunStarted,
 } from "./types";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -28,16 +32,24 @@ const json = (body: unknown): RequestInit => ({
 
 export const listPacks = () => request<string[]>("/api/packs");
 
-export const createCaseFromPack = (name: string) =>
-  request<CaseView>(`/api/cases/from-pack/${encodeURIComponent(name)}`, {
-    method: "POST",
-  });
-
-export const createCase = (files: File[]) => {
-  const form = new FormData();
-  files.forEach((file) => form.append("files", file));
-  return request<CaseView>("/api/cases", { method: "POST", body: form });
+const upload = (files: File[]): RequestInit => {
+  const body = new FormData();
+  files.forEach((file) => body.append("files", file));
+  return { method: "POST", body };
 };
+
+/** Runs start in the background: follow them with getProgress. */
+export const createCaseFromPack = (name: string) =>
+  request<RunStarted>(`/api/cases/from-pack/${encodeURIComponent(name)}`, { method: "POST" });
+
+export const createCase = (files: File[]) => request<RunStarted>("/api/cases", upload(files));
+
+export const listCases = () => request<CaseSummary[]>("/api/cases");
+
+export const getProgress = (caseId: string) =>
+  request<Progress>(`/api/cases/${caseId}/progress`);
+
+export const getControls = () => request<Controls>("/api/controls");
 
 export const getCase = (caseId: string) => request<CaseView>(`/api/cases/${caseId}`);
 
@@ -76,11 +88,8 @@ export const decideAsMlro = (
     json({ decision, reason, actor }),
   );
 
-export const addDocuments = (caseId: string, files: File[]) => {
-  const form = new FormData();
-  files.forEach((file) => form.append("files", file));
-  return request<CaseView>(`/api/cases/${caseId}/documents`, { method: "POST", body: form });
-};
+export const addDocuments = (caseId: string, files: File[]) =>
+  request<RunStarted>(`/api/cases/${caseId}/documents`, upload(files));
 
 export const pageUrl = (caseId: string, docId: string, page: number) =>
   `/api/cases/${caseId}/documents/${encodeURIComponent(docId)}/pages/${page}`;

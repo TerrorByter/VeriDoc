@@ -16,12 +16,13 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, get_args
 
+from gldb.ai_team.checks import check_pattern, corroborate
 from gldb.ai_team.loop import Activity, run_agent
 from gldb.ai_team.prompts import DEFAULT_BRIEF, PROMPT_VERSIONS, SPECIALIST, SUPERVISOR_MEMO, SUPERVISOR_PLAN
 from gldb.ai_team.tools import CaseData, Ledger, _case_overview, case_index, result_json
 from gldb.ai_team.verify import Known, check_lead, check_point, check_question, known
 from gldb.config import AGENT_SPECIALIST_MODEL, AGENT_SUPERVISOR_MODEL, AGENTS_ENABLED
-from gldb.schemas import AgentName, AgentTeam, Evidence, Lead, Memo, ReviewPoint, SpecialistName
+from gldb.schemas import AgentName, AgentTeam, Lead, Memo, ReviewPoint, SpecialistName
 
 _SPECIALISTS: tuple[SpecialistName, ...] = get_args(SpecialistName)
 _PLAN_TASK = "Plan the investigation of this case."
@@ -53,13 +54,17 @@ def _briefs(plan: dict[str, Any] | None) -> dict[SpecialistName, str]:
     return {s: b if isinstance(b := given.get(s), str) and b.strip() else DEFAULT_BRIEF for s in _SPECIALISTS}
 
 
-def _verified(lead: Lead, ledger: Ledger, findings: dict[str, Evidence], index: str) -> Lead:
-    """*lead* with the verifier's outcome and, if kept, the evidence status code gives it."""
+def _verified(lead: Lead, ledger: Ledger, case: CaseData, index: str) -> Lead:
+    """*lead* with the verifier's outcome and, if kept, what code establishes
+    about its pattern from the case data (whatever the agent concluded)."""
+    findings = {e.evidence_id: e for e in case.risky}
     reason = check_lead(lead, ledger.issued_to(lead.agent), ledger.citable(lead.agent), ledger.results, findings,
                         index)
-    judged = lead.model_copy(update={"outcome": "kept" if reason is None else "withheld",
-                                     "withheld_reason": reason})
-    return judged.model_copy(update={"evidence_status": "unverified" if reason is None else None})
+    if reason is not None:
+        return lead.model_copy(update={"outcome": "withheld", "withheld_reason": reason})
+    outcome = corroborate(lead, check_pattern(lead, case.pack, case.evidence), case.pack, case.evidence)
+    return lead.model_copy(update={"outcome": "kept", "evidence_status": outcome.status,
+                                   "check_facts": outcome.facts, "check_reason": outcome.reason})
 
 
 def _verified_questions(ledger: Ledger, index: str) -> list[dict[str, Any]]:
@@ -123,7 +128,7 @@ def run_team(case: CaseData, models: TeamModels, *, on_activity: Activity = lamb
                       _SPECIALISTS))
 
     findings = {e.evidence_id: e for e in case.risky}
-    leads = [_verified(lead, ledger, findings, index) for lead in ledger.leads]
+    leads = [_verified(lead, ledger, case, index) for lead in ledger.leads]
     kept = [lead for lead in leads if lead.outcome == "kept"]
 
     # The Supervisor sees the kept leads and verified questions, never a tool result

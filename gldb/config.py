@@ -172,6 +172,16 @@ REFERENCE_DIR: str = "data/reference"
 #: Tuned for recall: a false hit costs an analyst a look, a miss is a breach.
 SCREENING_MATCH_THRESHOLD: float = 0.90
 
+#: AI lead checks (gldb.ai_team.checks). A payer at least this similar to an
+#: invoice's buyer is the buyer, at most this similar someone else; between,
+#: code cannot tell and the lead stays unverified.
+PAYER_SAME_THRESHOLD: float = 0.90
+PAYER_DIFFERENT_THRESHOLD: float = 0.60
+#: Bank description channels whose payer can be read: "<CHANNEL> CR <PAYER> <INVOICE NUMBER>"
+PAYMENT_CHANNELS: tuple[str, ...] = ("GIRO", "FAST", "TT", "IBG", "MEPS")
+#: Payers that name no one
+GENERIC_PAYERS: tuple[str, ...] = ("CUSTOMER RECEIPTS", "CASH DEPOSIT", "TRANSFER", "INTEREST", "REVERSAL")
+
 # ---------------------------------------------------------------------------
 # Environment / runtime settings (with safe defaults)
 # ---------------------------------------------------------------------------

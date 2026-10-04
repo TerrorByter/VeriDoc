@@ -24,6 +24,7 @@ from gldb import llm_client, pipeline
 from gldb.ai_team import prompts, tools
 from gldb.ai_team.prompts import DEFAULT_BRIEF, PROMPT_VERSIONS, SPECIALIST
 from gldb.ai_team.team import TeamModels, run_team
+from gldb.ai_team.checks import bank_rows
 from gldb.ai_team.tools import CaseData, case_index
 from gldb.audit import read_events
 from gldb.intake import load_manifest
@@ -251,6 +252,24 @@ def test_leads_carry_both_statuses_to_the_supervisor(clean: CaseData) -> None:
         ("supported", "unverified"), ("refuted", "unverified")]
     assert sent[0]["tests"] == [{"cites": ["R01"], "expected": "one credit of the invoice total",
                                  "observed": "several smaller credits"}]
+
+
+def test_code_decides_the_evidence_status_of_a_kept_lead(tampered: CaseData) -> None:
+    # The agent says INV-1002 was paid by a third party; the bank row shows its buyer paid: code contradicts it
+    row = next(r for r, _, txn in bank_rows(tampered.pack) if "INV-1002" in txn.description)
+    fake = ScriptedBedrock({
+        "plan": _plan(),
+        "transaction": [[use("search_bank_transactions", text="INV-1002")],
+                        [_lead(["R01"], pattern="third_party_payment", invoice_number="INV-1002",
+                               transaction_ids=[row])]],
+    })
+
+    team = _run(fake, tampered)
+
+    (lead,) = team.leads
+    assert (lead.outcome, lead.investigation_status, lead.evidence_status) == ("kept", "supported", "contradicted")
+    assert lead.check_reason == "paid by the buyer Bayview Marine Supplies Pte. Ltd."
+    assert lead.check_facts["payer"] == "BAYVIEW MARINE SUPPLIES"
 
 
 def test_supervisor_without_submit_uses_defaults(clean: CaseData) -> None:

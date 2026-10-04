@@ -3,8 +3,9 @@ tests/test_ai_team_loop.py
 --------------------------
 One agent's bounded tool loop: it runs the model's tool calls, sends the
 results back (errors flagged), and stops on a finish tool, the end of the
-model's turn, the step cap or the token budget. A scripted fake stands in
-for Bedrock, so no AWS call is made.
+model's turn, the step cap (successful evidence calls), the cap on failed
+calls or the token budget. A scripted fake stands in for Bedrock, so no AWS
+call is made.
 """
 
 from __future__ import annotations
@@ -86,6 +87,11 @@ def test_step_cap_applies_within_a_turn(case: CaseData, monkeypatch: pytest.Monk
     assert len(fake.requests["transaction"]) == 1
 
 
+def _bad() -> dict[str, Any]:
+    """A call that fails: get_chain without its invoice number."""
+    return use("get_chain")
+
+
 def _lead() -> dict[str, Any]:
     return use("record_lead", kind="pattern", pattern="split_payment", title="t", detail="d", cites=["R01"])
 
@@ -114,6 +120,55 @@ def test_leads_are_recorded_even_in_the_turn_that_hits_the_cap(case: CaseData,
 
     assert [c.tool for c in ledger.tool_calls] == ["search_bank_transactions", "record_lead", "record_lead"]
     assert len(ledger.leads) == 2 and ledger.notes == ["transaction: step limit reached"]
+    assert len(fake.requests["transaction"]) == 1
+
+
+def test_failed_calls_do_not_use_the_step_cap(case: CaseData, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(loop, "AGENT_MAX_STEPS", 2)
+    fake = ScriptedBedrock({"transaction": [[_bad()], [_search()], [_search()], [{"text": "done"}]]})
+    ledger = Ledger()
+
+    assert _run(fake, case, ledger) is None
+
+    assert [c.error for c in ledger.tool_calls] == [True, False, False] and ledger.notes == []
+    assert len(fake.requests["transaction"]) == 4
+
+
+def test_successful_calls_still_stop_at_the_cap_after_a_failure(case: CaseData,
+                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(loop, "AGENT_MAX_STEPS", 2)
+    fake = ScriptedBedrock({"transaction": [[_bad()], *_searches(4)]})
+    ledger = Ledger()
+
+    assert _run(fake, case, ledger) is None
+
+    assert [c.error for c in ledger.tool_calls] == [True, False, False]
+    assert ledger.notes == ["transaction: step limit reached"]
+
+
+def test_failed_calls_are_capped_separately(case: CaseData, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(loop, "AGENT_MAX_STEPS", 2)
+    fake = ScriptedBedrock({"transaction": [[_bad()] for _ in range(5)]})
+    ledger = Ledger()
+
+    assert _run(fake, case, ledger) is None
+
+    assert len(ledger.tool_calls) == 2 and all(c.error for c in ledger.tool_calls)
+    assert ledger.notes == ["transaction: too many failed tool calls"]
+    assert len(fake.requests["transaction"]) == 3
+
+
+def test_the_failure_cap_applies_within_a_turn_and_leads_are_still_recorded(
+    case: CaseData, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(loop, "AGENT_MAX_STEPS", 1)
+    fake = ScriptedBedrock({"transaction": [[_bad(), _search(), _bad(), _lead()]]})
+    ledger = Ledger()
+
+    assert _run(fake, case, ledger) is None
+
+    assert [c.tool for c in ledger.tool_calls] == ["get_chain", "record_lead"]
+    assert ledger.notes == ["transaction: too many failed tool calls"]
     assert len(fake.requests["transaction"]) == 1
 
 

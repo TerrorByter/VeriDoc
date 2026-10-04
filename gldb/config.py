@@ -224,9 +224,10 @@ AGENT_SUPERVISOR_MODEL: str = os.getenv("AGENT_SUPERVISOR_MODEL", "global.anthro
 AGENT_SPECIALIST_MODEL: str = os.getenv(
     "AGENT_SPECIALIST_MODEL", "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 )
-#: Tool calls one specialist may make before it is stopped (recording a lead
-#: or drafting a question does not count)
-AGENT_MAX_STEPS: int = int(os.getenv("AGENT_MAX_STEPS", "8"))
+#: Successful evidence tool calls one specialist may make before it is stopped.
+#: Failed calls have a cap of their own, the same size; recording a lead or
+#: drafting a question is never counted.
+AGENT_MAX_STEPS: int = int(os.getenv("AGENT_MAX_STEPS", "10"))
 #: Longest tool result (characters) handed back to a model
 AGENT_MAX_RESULT_CHARS: int = int(os.getenv("AGENT_MAX_RESULT_CHARS", "8000"))
 #: Input plus output tokens the whole team may spend on one case

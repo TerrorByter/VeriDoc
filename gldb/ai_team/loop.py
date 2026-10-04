@@ -4,9 +4,11 @@ gldb/ai_team/loop.py
 One agent's bounded tool-use loop on the Bedrock Converse API. The agent
 calls its read-only tools until it hands in its answer (the finish tool) or
 ends its turn; the step cap and the case's token budget stop one that does
-neither. The cap counts evidence calls only: recording a lead or drafting a
-question never counts, and is still run in the turn that hits the cap. A stop is a note in the ledger, never an error: the team carries on
-with what it has.
+neither. The cap counts successful evidence calls only: a failed call does not
+use it (a mistyped argument costs nothing) but has its own cap of the same
+size, so a confused agent still stops. Recording a lead or drafting a question
+never counts, and is still run in the turn that hits a cap. A stop is a note in
+the ledger, never an error: the team carries on with what it has.
 """
 
 from __future__ import annotations
@@ -50,10 +52,10 @@ def run_agent(
 
     Returns:
         The finish tool's input when the agent called it; None when it ended
-        its turn without, or the step cap or the token budget stopped it.
+        its turn without, or a cap or the token budget stopped it.
     """
     messages: list[dict[str, Any]] = [{"role": "user", "content": [{"text": task}]}]
-    steps = 0
+    steps = failures = 0
     while True:
         if ledger.over_budget():
             ledger.note(f"{agent}: budget reached")
@@ -69,18 +71,22 @@ def run_agent(
         if answer is not None:
             return answer["input"]
         results: list[dict[str, Any]] = []
-        capped = False
+        stopped = None
         for tool_use in turn.tool_uses:
             evidence = tool_use["name"] not in RECEIPT_TOOLS
             if evidence and steps >= AGENT_MAX_STEPS:
-                capped = True
+                stopped = "step limit reached"
+                continue
+            if evidence and failures >= AGENT_MAX_STEPS:
+                stopped = "too many failed tool calls"
                 continue
             on_activity(f"{TITLES[agent]}: {tool_use['name']}")
             text, error = call_tool(agent, tool_use["name"], tool_use["input"], case, ledger)
-            steps += evidence
+            steps += evidence and not error
+            failures += evidence and error
             results.append({"toolResult": {"toolUseId": tool_use["toolUseId"], "content": [{"text": text}],
                                            **({"status": "error"} if error else {})}})
-        if capped:
-            ledger.note(f"{agent}: step limit reached")
+        if stopped:
+            ledger.note(f"{agent}: {stopped}")
             return None
         messages.append({"role": "user", "content": results})

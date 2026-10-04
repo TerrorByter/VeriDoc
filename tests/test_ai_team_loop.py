@@ -158,6 +158,20 @@ def test_failed_calls_are_capped_separately(case: CaseData, monkeypatch: pytest.
     assert len(fake.requests["transaction"]) == 3
 
 
+def test_failed_leads_and_questions_count_towards_the_failure_cap(case: CaseData,
+                                                                   monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(loop, "AGENT_MAX_STEPS", 2)
+    # Each is missing its required arguments
+    fake = ScriptedBedrock({"transaction": [[use("record_lead"), use("draft_question")], [_search()]]})
+    ledger = Ledger()
+
+    assert _run(fake, case, ledger) is None
+
+    assert [(c.tool, c.error) for c in ledger.tool_calls] == [("record_lead", True), ("draft_question", True)]
+    assert ledger.notes == ["transaction: too many failed tool calls"]
+    assert len(fake.requests["transaction"]) == 2
+
+
 def test_the_failure_cap_applies_within_a_turn_and_leads_are_still_recorded(
     case: CaseData, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -67,9 +67,9 @@ _METHODS: dict[SpecialistName, str] = {
                    "out that comes back from the same counterparty (round_trip).",
     "kyc": "Compare the officers of each counterparty in the register with the applicant's directors, "
            "guarantors and signatories (get_parties).",
-    "timeline": "A trade normally runs purchase order, then shipment, then invoice (an invoice issued days "
-                "after shipment is normal), then payment. An anomaly is a departure from that order, or a date "
-                "before incorporation.",
+    "timeline": "Nothing should be dated before its purchase order; an invoice may come before or after "
+                "shipment; payment follows the invoice. An anomaly is a document dated before its purchase "
+                "order, or a date before incorporation.",
 }
 
 _VERDICTS = dict(zip(get_args(Verdict), (

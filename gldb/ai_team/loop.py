@@ -7,8 +7,9 @@ ends its turn; the step cap and the case's token budget stop one that does
 neither. The cap counts successful evidence calls only: a failed call does not
 use it (a mistyped argument costs nothing) but has its own cap of the same
 size, so a confused agent still stops. Recording a lead or drafting a question
-never counts, and is still run in the turn that hits a cap. A stop is a note in
-the ledger, never an error: the team carries on with what it has.
+never uses the step cap, but a failed one counts towards the failed-call cap,
+and is still run in the turn that hits a cap. A stop is a note in the ledger,
+never an error: the team carries on with what it has.
 """
 
 from __future__ import annotations
@@ -85,7 +86,7 @@ def run_agent(
             on_activity(f"{TITLES[agent]}: {tool_use['name']}")
             text, error = call_tool(agent, tool_use["name"], tool_use["input"], case, ledger)
             steps += evidence and not error
-            failures += evidence and error
+            failures += error
             results.append({"toolResult": {"toolUseId": tool_use["toolUseId"], "content": [{"text": text}],
                                            **({"status": "error"} if error else {})}})
         if stopped:

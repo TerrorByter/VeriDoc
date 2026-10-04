@@ -164,13 +164,14 @@ def test_each_specialist_is_told_how_to_look() -> None:
     assert "money paid out that comes back from the same counterparty (round_trip)" in transaction
     assert ("Compare the officers of each counterparty in the register with the applicant's directors, "
             "guarantors and signatories (get_parties)") in kyc
-    assert "purchase order, then shipment, then invoice" in timeline
-    assert "an invoice issued days after shipment is normal" in timeline
-    assert "a date before incorporation" in timeline
+    assert "Nothing should be dated before its purchase order" in timeline
+    assert "an invoice may come before or after shipment" in timeline
+    assert "payment follows the invoice" in timeline
+    assert "An anomaly is a document dated before its purchase order, or a date before incorporation" in timeline
     # Each procedure is its own specialist's: no other prompt carries another's
     assert "compare who paid" not in kyc + timeline + SPECIALIST["forensics"]
     assert "Compare the officers" not in transaction + timeline + SPECIALIST["forensics"]
-    assert "then shipment, then invoice" not in transaction + kyc + SPECIALIST["forensics"]
+    assert "dated before its purchase order" not in transaction + kyc + SPECIALIST["forensics"]
 
 
 def test_the_supervisor_prompts_cover_the_empty_memo_and_the_case_index() -> None:

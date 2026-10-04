@@ -117,7 +117,7 @@ def run_team(case: CaseData, models: TeamModels, *, on_activity: Activity = lamb
         list(pool.map(lambda s: run(s, models.specialist, SPECIALIST[s], f"{briefs[s]}\n\n{index}"),
                       _SPECIALISTS))
 
-    findings = {e.evidence_id: e for e in case.evidence if e.severity != "info"}
+    findings = {e.evidence_id: e for e in case.risky}
     leads = [_verified(lead, ledger, findings) for lead in ledger.leads]
     kept = [lead for lead in leads if lead.outcome == "kept"]
 

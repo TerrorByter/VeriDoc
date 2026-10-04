@@ -24,7 +24,7 @@ from gldb import llm_client, pipeline
 from gldb.ai_team import prompts, tools
 from gldb.ai_team.prompts import DEFAULT_BRIEF, PROMPT_VERSIONS, SPECIALIST
 from gldb.ai_team.team import TeamModels, run_team
-from gldb.ai_team.tools import CaseData
+from gldb.ai_team.tools import CaseData, case_index
 from gldb.audit import read_events
 from gldb.intake import load_manifest
 from gldb.pipeline import assess
@@ -80,6 +80,11 @@ def _first_text(request: dict[str, Any]) -> str:
     return request["messages"][0]["content"][0]["text"]
 
 
+def _task(brief: str, case: CaseData) -> str:
+    """A specialist's task: its brief, a blank line, then the case index."""
+    return f"{brief}\n\n{case_index(case)}"
+
+
 def _received(requests: list[dict[str, Any]]) -> str:
     """Everything an agent was sent: its system prompt and every user turn
     (task text and tool results), but not its own assistant turns."""
@@ -122,10 +127,10 @@ def test_team_plans_fans_out_and_writes_a_memo(tampered: CaseData) -> None:
     assert team.models == {"supervisor": "sup-model", "specialist": "spec-model"}
     assert team.notes == []
     assert set(team.trace) == {"R01", "R02"}
-    # Each specialist was given exactly its brief; the models are the configured ones
+    # Each specialist was given exactly its brief and the case index; the models are the configured ones
     for name in SPECIALISTS:
         first = fake.requests[name][0]
-        assert first["messages"] == [{"role": "user", "content": [{"text": BRIEFS[name]}]}]
+        assert first["messages"] == [{"role": "user", "content": [{"text": _task(BRIEFS[name], tampered)}]}]
         assert first["modelId"] == "spec-model"
     assert {r["modelId"] for r in fake.requests["plan"] + fake.requests["memo"]} == {"sup-model"}
     # The reconcile step gets the kept lead, never the tool results behind it
@@ -165,9 +170,13 @@ def test_hub_and_spoke_isolation(clean: CaseData) -> None:
         # Positive control: the agent's own brief and results do show up in what it received
         assert BRIEFS[name] in received
         assert all(_result_tag(call_id) in received for call_id in own[name])
+        # So does the case index, which is case data and the same for each
+        assert _first_text(fake.requests[name][0]) == _task(BRIEFS[name], clean)
         assert BRIEFS[other] not in received
         assert not any(f'"{call_id}"' in received or _result_tag(call_id) in received for call_id in own[other])
     (lead,) = team.leads
+    # Nor does kyc's lead reach transaction, which was run alongside it
+    assert lead.title not in _received(fake.requests["transaction"])
     assert lead.outcome == "withheld"
     assert lead.withheld_reason == f"cites a tool result it did not receive: {transaction_id}"
 
@@ -195,7 +204,7 @@ def test_supervisor_without_submit_uses_defaults(clean: CaseData) -> None:
 
     assert team.plan == dict.fromkeys(SPECIALISTS, DEFAULT_BRIEF)
     for name in SPECIALISTS:
-        assert _first_text(fake.requests[name][0]) == DEFAULT_BRIEF
+        assert _first_text(fake.requests[name][0]) == _task(DEFAULT_BRIEF, clean)
     assert team.notes == ["supervisor: no plan submitted, default briefs used", "supervisor: no memo submitted"]
     assert team.memo == Memo()
 

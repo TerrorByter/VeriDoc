@@ -22,10 +22,12 @@ from gldb.ai_team import tools
 from gldb.ai_team.tools import (
     FINISH_TOOLS,
     TITLES,
+    TOOLS,
     TOOLSETS,
     CaseData,
     Ledger,
     call_tool,
+    case_index,
     specs_for,
 )
 from gldb.intake import load_manifest
@@ -177,6 +179,13 @@ def test_bad_arguments_return_error_result(clean: CaseData) -> None:
     assert "missing argument: page" in _error("forensics", "get_page_text", {"doc_id": "x"}, clean)
     assert "must be a list of strings" in _error("kyc", "draft_question", {"text": "q", "cites": [1]}, clean)
     assert all(c.error for c in ledger.tool_calls)
+
+
+def test_an_unknown_document_error_lists_the_valid_ids(clean: CaseData) -> None:
+    message = _error("forensics", "get_page_text", {"doc_id": "po_PO-2001", "page": 1}, clean)
+    assert message.startswith("unknown document: po_PO-2001")
+    assert all(d.doc_id in message for d in clean.pack.docs)
+    assert "purchase_order_PO-2001" in _error("forensics", "get_forensic_facts", {"doc_id": "PO-2001"}, clean)
 
 
 def test_lead_fields_the_model_may_not_set_or_get_wrong_are_refused(clean: CaseData) -> None:
@@ -361,6 +370,26 @@ def test_chain_and_document_fields(tampered: CaseData) -> None:
     assert _run("transaction", "get_document_fields", {"doc_id": "bill_of_lading_BL-3001"}, tampered)["bl_number"]
     for doc_id in ("fs_summary", "bank_statement_2026-07", "nope"):
         assert _error("transaction", "get_document_fields", {"doc_id": doc_id}, tampered)
+
+
+def test_document_fields_are_found_by_the_documents_own_number(tampered: CaseData) -> None:
+    for number, doc_id in (("INV-1002", "invoice_INV-1002"), ("PO-2001", "purchase_order_PO-2001"),
+                           ("BL-3001", "bill_of_lading_BL-3001")):
+        by_number = _run("transaction", "get_document_fields", {"doc_id": number}, tampered)
+        assert by_number == _run("transaction", "get_document_fields", {"doc_id": doc_id}, tampered)
+        assert by_number["doc_id"] == doc_id
+    tool = TOOLS["get_document_fields"]
+    assert "own number" in tool.description and "own number" in tool.schema["properties"]["doc_id"]["description"]
+
+
+def test_case_index_lists_the_documents_and_invoices(tampered: CaseData) -> None:
+    lines = case_index(tampered).splitlines()
+    assert lines[0] == "Documents in this case (use these exact doc_ids):"
+    assert lines[1:-1] == [f"- {d.doc_id} ({d.doc_type}, {d.page_count} pages)" for d in tampered.pack.docs]
+    assert "- invoice_INV-1002 (invoice, 1 pages)" in lines
+    assert lines[-1] == "Invoices: INV-1001, INV-1002"
+    no_invoices = replace(tampered, pack=tampered.pack.model_copy(update={"invoices": []}))
+    assert case_index(no_invoices).splitlines()[-1] == "Invoices: none"
 
 
 def _rows(args: dict[str, Any], case: CaseData) -> list[dict[str, Any]]:

@@ -70,6 +70,15 @@ class CaseData:
     evidence: list[Evidence]
 
 
+def case_index(case: CaseData) -> str:
+    """The case's documents and invoice numbers, as each specialist's task
+    ends with them: case data, not another agent's output, so the exact
+    doc_ids the tools take need not be guessed."""
+    documents = "\n".join(f"- {d.doc_id} ({d.doc_type}, {d.page_count} pages)" for d in case.pack.docs)
+    invoices = ", ".join(i.invoice_number for i in case.pack.invoices) or "none"
+    return f"Documents in this case (use these exact doc_ids):\n{documents}\nInvoices: {invoices}"
+
+
 class ToolError(Exception):
     """A call the model got wrong; its message goes back to the model."""
 
@@ -149,7 +158,7 @@ def _require(found: T | None, message: str) -> T:
 
 def _doc(case: CaseData, doc_id: str) -> DocMeta:
     doc = next((d for d in case.pack.docs if d.doc_id == doc_id), None)
-    return _require(doc, f"unknown document: {doc_id}")
+    return _require(doc, f"unknown document: {doc_id}; the doc_ids are: {', '.join(d.doc_id for d in case.pack.docs)}")
 
 
 def _date(args: Args, key: str) -> date | None:
@@ -274,11 +283,12 @@ def _search_bank_transactions(case: CaseData, args: Args, agent: AgentName, ledg
 
 
 def _document_fields(case: CaseData, args: Args, agent: AgentName, ledger: Ledger) -> Any:
-    pack = case.pack
-    record = next((r for r in [*pack.invoices, *pack.purchase_orders, *pack.bills_of_lading]
-                   if r.doc_id == args["doc_id"]), None)
+    pack, key = case.pack, args["doc_id"]
+    records = [*((i, i.invoice_number) for i in pack.invoices), *((o, o.po_number) for o in pack.purchase_orders),
+               *((b, b.bl_number) for b in pack.bills_of_lading)]
+    record = next((r for r, number in records if key in (r.doc_id, number)), None)
     # Source quotes are document text: it only reaches a model through get_page_text, which screens it
-    return _require(record, f"no invoice, purchase order or bill of lading {args['doc_id']}").model_dump(
+    return _require(record, f"no invoice, purchase order or bill of lading {key}").model_dump(
         mode="json", exclude={"source_quotes"})
 
 
@@ -354,7 +364,7 @@ def _string(description: str, **extra: Any) -> dict[str, Any]:
     return {"type": "string", "description": description, **extra}
 
 
-_DOC_ID = _string("Document id, as listed by get_case_overview, e.g. invoice_INV-1001")
+_DOC_ID = _string("Document id, exactly as in the case index of your brief, e.g. invoice_INV-1001")
 _CITES = {"type": "array", "items": {"type": "string"},
           "description": "Ids of the tool results (R01...) this relies on"}
 
@@ -395,8 +405,12 @@ TOOLS: dict[str, Tool] = {
         _search_bank_transactions,
         lambda a, d: f"{_args_summary(a, d)}: {len(d['rows'])} rows, {d['more']} more"),
     "get_document_fields": Tool(
-        "The extracted fields of an invoice, purchase order or bill of lading.",
-        _schema({"doc_id": _DOC_ID}, "doc_id"), _document_fields),
+        "The extracted fields of an invoice, purchase order or bill of lading, found by its document id or "
+        "by its own number.",
+        _schema({"doc_id": _string("Document id (e.g. invoice_INV-1001) or the document's own number: its "
+                                   "invoice, purchase order or bill of lading number, e.g. INV-1001")},
+                "doc_id"),
+        _document_fields),
     "get_parties": Tool(
         "Who is in the case: the applicant's name and UEN with its guarantors' and signatories' names, and "
         "the seller, buyer, shipper and consignee of each invoice, purchase order and bill of lading (with "

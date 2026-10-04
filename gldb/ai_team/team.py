@@ -2,11 +2,11 @@
 gldb/ai_team/team.py
 --------------------
 The Supervisor-led team, hub and spoke: the Supervisor plans, our code fans
-the four specialists out in parallel (each given only its brief), the
-verifier gates their leads, and the Supervisor reconciles the kept leads into
-a memo that is gated in turn. Our code is the switchboard: no agent talks to
-another, so every handoff is a logged record. Exceptions propagate; the
-pipeline turns them into a failed team.
+the four specialists out in parallel (each given only its brief and the case
+index), the verifier gates their leads, and the Supervisor reconciles the kept
+leads into a memo that is gated in turn. Our code is the switchboard: no agent
+talks to another, so every handoff is a logged record. Exceptions propagate;
+the pipeline turns them into a failed team.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from typing import Any, get_args
 
 from gldb.ai_team.loop import Activity, run_agent
 from gldb.ai_team.prompts import DEFAULT_BRIEF, PROMPT_VERSIONS, SPECIALIST, SUPERVISOR_MEMO, SUPERVISOR_PLAN
-from gldb.ai_team.tools import CaseData, Ledger, _case_overview, result_json
+from gldb.ai_team.tools import CaseData, Ledger, _case_overview, case_index, result_json
 from gldb.ai_team.verify import check_lead, check_point, check_question, numbers
 from gldb.config import AGENT_SPECIALIST_MODEL, AGENT_SUPERVISOR_MODEL, AGENTS_ENABLED
 from gldb.schemas import AgentName, AgentTeam, Evidence, Lead, Memo, ReviewPoint, SpecialistName
@@ -111,9 +111,11 @@ def run_team(case: CaseData, models: TeamModels, *, on_activity: Activity = lamb
         ledger.note("supervisor: no plan submitted, default briefs used")
     briefs = _briefs(plan)
 
-    # Hub and spoke: each specialist's task is its brief alone
+    # Hub and spoke: each specialist's task is its brief plus the case index, which is case data
+    index = case_index(case)
     with ThreadPoolExecutor(max_workers=len(_SPECIALISTS)) as pool:
-        list(pool.map(lambda s: run(s, models.specialist, SPECIALIST[s], briefs[s]), _SPECIALISTS))
+        list(pool.map(lambda s: run(s, models.specialist, SPECIALIST[s], f"{briefs[s]}\n\n{index}"),
+                      _SPECIALISTS))
 
     findings = {e.evidence_id: e for e in case.evidence if e.severity != "info"}
     leads = [_verified(lead, ledger, findings) for lead in ledger.leads]

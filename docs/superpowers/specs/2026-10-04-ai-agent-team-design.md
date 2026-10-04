@@ -83,11 +83,13 @@ count; easy to audit and test.
    citing several) and applicant questions.
 5. **Verify memo** — same gate for memo points; withheld points are counted.
 
-**Hub-and-spoke.** Specialists receive only their brief and their own tool
-results. They never see each other's messages, tool results or leads, and
-cannot message each other. Only the Supervisor's reconcile step combines
-specialist output. Our code is the switchboard: the Supervisor does not call
-specialists directly, so every handoff is a structured, logged record.
+**Hub-and-spoke.** Specialists receive only their brief, a code-built case
+index (the documents' exact doc_ids and the invoice numbers: case data, not
+another agent's output) and their own tool results. They never see each
+other's messages, tool results or leads, and cannot message each other. Only
+the Supervisor's reconcile step combines specialist output. Our code is the
+switchboard: the Supervisor does not call specialists directly, so every
+handoff is a structured, logged record.
 
 ## 5. Agents and tools
 
@@ -100,7 +102,7 @@ Gateway (MCP) expects, so a later move to AgentCore is deployment work.
 |---|---|
 | Supervisor | `get_case_overview` (includes the `parties` block, so it can brief KYC), `get_score` (read-only) |
 | Forensics | `get_page_text(doc_id, page)` · `get_forensic_facts(doc_id)` (the document's existing forensic and OCR findings, PDF producer and dates, OCR confidence; read from the case, never a re-run) |
-| Transaction | `get_chain(invoice_number)` · `search_bank_transactions(amount?, tolerance_pct?, date_from?, date_to?, text?)` · `get_document_fields(doc_id)` |
+| Transaction | `get_chain(invoice_number)` · `search_bank_transactions(amount?, tolerance_pct?, date_from?, date_to?, text?)` · `get_document_fields(doc_id)` (the doc_id or the document's own invoice, PO or BL number) |
 | KYC & Registry | `get_parties()` → applicant name and UEN, guarantor and signatory names (no id numbers), and the seller, buyer, shipper and consignee of each invoice, PO and bill of lading (UEN where extracted), each with its doc_id · `registry_lookup(uen? \| name?)` → name, status, incorporated, officers (name, role) · `sanctions_search(name)` |
 | Timeline | `get_timeline(ref?)` · `get_incorporation()` |
 | All specialists | `record_lead(...)` · `draft_question(text, cites)` |
@@ -221,7 +223,7 @@ approved before running.
 Offline, with a scripted fake Bedrock client that plays back tool calls:
 loop (step cap, budget stop, tool error), each tool, quarantine, every verifier
 rule, failure isolation, score invariance (on vs off), hub-and-spoke isolation
-(each specialist's requests hold only its own brief and `R` ids), API fields, removal of
+(each specialist's requests hold only its own brief, the case index and its `R` ids), API fields, removal of
 the review; `npm run build`. Live tests opt-in (`RUN_LIVE=1`).
 
 ## 14. Removed

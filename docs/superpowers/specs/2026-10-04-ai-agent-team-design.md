@@ -74,7 +74,8 @@ count; easy to audit and test.
    and what to look at.
 2. **Fan out** — our code runs all four specialists in parallel threads (gap
    hunting is mandatory, so none is skipped). Each is a Converse tool loop
-   capped at `AGENT_MAX_STEPS` (8) tool calls.
+   capped at `AGENT_MAX_STEPS` (8) evidence tool calls (recording a lead or
+   drafting a question does not count; `AGENT_TOKEN_BUDGET` bounds the rest).
 3. **Verify leads** — deterministic gate (section 7), before the Supervisor
    sees them, so an unsupported lead cannot shape the memo.
 4. **Reconcile** — Supervisor, given the kept leads and drafted questions,

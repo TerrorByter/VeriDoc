@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from gldb import evaluate
+from gldb import evaluate, pipeline
 
 PACKS = Path(__file__).parent.parent / "data" / "packs"
 
@@ -86,10 +86,10 @@ def test_crashing_pack_is_reported_and_counted_as_missed(
 ) -> None:
     real_assess = evaluate.assess
 
-    def flaky(case_id: str, *args: object) -> object:
+    def flaky(case_id: str, *args: object, **kwargs: object) -> object:
         if case_id == "tampered":
             raise RuntimeError("model returned junk")
-        return real_assess(case_id, *args)
+        return real_assess(case_id, *args, **kwargs)
 
     monkeypatch.setattr(evaluate, "assess", flaky)
     report = evaluate.evaluate(PACKS)
@@ -123,3 +123,20 @@ def test_saved_report_is_stamped_and_read_back(monkeypatch: pytest.MonkeyPatch, 
     assert saved is not None and saved.evaluated_at
     assert saved.capabilities == evaluate.CAPABILITIES
     assert saved.extraction_mode == "stub"
+
+
+def test_rule_evaluation_never_runs_the_ai_team(monkeypatch: pytest.MonkeyPatch) -> None:
+    def no_team(*_: object, **__: object) -> None:
+        raise AssertionError("the rule evaluation must not run the AI team")
+
+    real_assess = evaluate.assess
+    teams: list[object] = []
+
+    def spy(*args: object, **kwargs: object) -> object:
+        teams.append(kwargs.get("team", "default"))
+        return real_assess(*args, **kwargs)
+
+    monkeypatch.setattr(pipeline, "run_team", no_team)
+    monkeypatch.setattr(evaluate, "assess", spy)
+    assert evaluate.evaluate(PACKS).recall == 1.0
+    assert teams and all(team is None for team in teams)

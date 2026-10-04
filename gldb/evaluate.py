@@ -171,7 +171,9 @@ def evaluate_pack(folder: Path) -> tuple[PackResult, int]:
     truth = json.loads((folder / "ground_truth.json").read_text(encoding="utf-8"))
     expected = expected_ids(truth, OCR_ENABLED)
     try:
-        result = assess(folder.name, sorted(folder.glob("*.pdf")), load_manifest(folder))
+        # Rules only: the AI team never changes the score or route, and only
+        # the agent evaluation runs it
+        result = assess(folder.name, sorted(folder.glob("*.pdf")), load_manifest(folder), team=None)
     except Exception as exc:  # noqa: BLE001 - report any pipeline failure per pack
         return PackResult(
             pack=folder.name,

@@ -8,6 +8,7 @@ Does NOT call AWS. Safe to run in CI without any env vars set.
 
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
@@ -325,6 +326,19 @@ def _make_case_result() -> CaseResult:
         risk=_make_risk(),
         ai_team=None,
     )
+
+
+def test_old_result_with_review_and_semantic_review_stage_still_loads():
+    """Results stored before the AI team replaced semantic review still load:
+    the old top-level "review" is ignored and the retired stage is dropped."""
+    stored = _make_case_result().model_copy(update={
+        "stages": [StageReport(stage_id="score", status="ran", duration_ms=2)],
+    }).model_dump(mode="json")
+    stored["review"] = {"observations": [], "questions": [], "source": "template", "rejected": 0}
+    stored["stages"].append({"stage_id": "semantic_review", "status": "ran", "duration_ms": 1, "version": ""})
+    loaded = CaseResult.model_validate_json(json.dumps(stored))
+    assert loaded.ai_team is None and not hasattr(loaded, "review")
+    assert [s.stage_id for s in loaded.stages] == ["score"]
 
 
 def test_line_item_roundtrip():

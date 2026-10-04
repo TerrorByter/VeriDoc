@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
 
 from pydantic import BaseModel, BeforeValidator, Field, field_validator
 
@@ -681,6 +681,16 @@ class CaseResult(BaseModel):
     ai_team: AgentTeam | None = None
     #: Empty only for results stored before stages were recorded
     stages: list[StageReport] = []
+
+    @field_validator("stages", mode="before")
+    @classmethod
+    def _drop_retired_stages(cls, stages: Any) -> Any:
+        """Results stored before a stage was retired (e.g. "semantic_review")
+        still load: reports of stages that no longer exist are dropped."""
+        if not isinstance(stages, list):
+            return stages
+        known = get_args(StageId)
+        return [s for s in stages if not isinstance(s, dict) or s.get("stage_id") in known]
 
 
 # ---------------------------------------------------------------------------

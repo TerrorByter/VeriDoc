@@ -61,6 +61,17 @@ def test_lead_citing_a_result_its_agent_did_not_receive_is_withheld() -> None:
     assert check_lead(lead, {"R01"}, _RESULTS, {}) == "cites a tool result it did not receive: R09"
 
 
+def test_empty_citation_is_not_a_received_result() -> None:
+    reason = "cites a tool result it did not receive: "
+    assert check_lead(_lead(cites=[""]), {"R01"}, _RESULTS, {}) == reason
+    assert check_lead(_lead(cites=["R01", ""]), {"R01"}, _RESULTS, {}) == reason
+
+
+def test_empty_finding_id_is_an_unknown_finding() -> None:
+    lead = _lead(kind="triage", pattern=None, finding_ids=[""])
+    assert check_lead(lead, {"R01"}, _RESULTS, {"E01": _finding()}) == "cites an unknown finding: "
+
+
 def test_triage_lead_citing_an_unknown_finding_is_withheld() -> None:
     lead = _lead(kind="triage", pattern=None, finding_ids=["E01", "E99"])
     assert check_lead(lead, {"R01"}, _RESULTS, {"E01": _finding()}) == "cites an unknown finding: E99"
@@ -79,9 +90,22 @@ def test_pattern_outside_the_specialists_list_is_withheld() -> None:
     assert check_lead(lead, {"R01"}, _RESULTS, {}) == "pattern not in this specialist's list: round_trip"
 
 
+def test_pattern_rule_applies_to_any_lead_that_carries_a_pattern() -> None:
+    findings = {"E01": _finding()}
+    triage = _lead(kind="triage", agent="kyc", pattern="round_trip", finding_ids=["E01"])
+    assert check_lead(triage, {"R01"}, _RESULTS, findings) == "pattern not in this specialist's list: round_trip"
+    own = triage.model_copy(update={"pattern": "related_party"})
+    assert check_lead(own, {"R01"}, _RESULTS, findings) is None
+    assert check_lead(_lead(pattern=None), {"R01"}, _RESULTS, {}) == "pattern not in this specialist's list: None"
+
+
 def test_verdict_language_is_withheld() -> None:
     lead = _lead(title="INV-1002 looks FRAUDULENT", detail="Please approve")
     assert check_lead(lead, {"R01"}, _RESULTS, {}) == "uses verdict language: fraudulent"
+
+
+def test_verdict_language_in_the_detail_alone_is_withheld() -> None:
+    assert check_lead(_lead(detail="Please approve"), {"R01"}, _RESULTS, {}) == "uses verdict language: approve"
 
 
 def test_number_absent_from_cited_results_is_withheld() -> None:
@@ -105,3 +129,7 @@ def test_point_needs_known_ids_and_numbers() -> None:
 def test_point_rejects_unknown_ids_and_unknown_numbers() -> None:
     assert not check_point(ReviewPoint(text="See it", evidence_ids=["E01", "E99"]), {"E01"}, set())
     assert not check_point(ReviewPoint(text="See 245", evidence_ids=["E01"]), {"E01"}, {"18530"})
+
+
+def test_point_numbers_are_normalised_before_matching() -> None:
+    assert check_point(ReviewPoint(text="See 18,530.00", evidence_ids=["E01"]), {"E01"}, {"18530"})

@@ -51,13 +51,13 @@ def check_lead(lead: Lead, issued: set[str], results: dict[str, str],
     results its agent received, `results` their text, `findings` the case's."""
     if not lead.cites:
         return "no citations"
-    if unreceived := next((c for c in lead.cites if c not in issued), None):
+    if (unreceived := next((c for c in lead.cites if c not in issued), None)) is not None:
         return f"cites a tool result it did not receive: {unreceived}"
-    if unknown := next((f for f in lead.finding_ids if f not in findings), None):
+    if (unknown := next((f for f in lead.finding_ids if f not in findings), None)) is not None:
         return f"cites an unknown finding: {unknown}"
     if lead.kind == "triage" and not lead.finding_ids and lead.verdict is None:
         return "triage lead without a finding or verdict"
-    if lead.kind == "pattern" and lead.pattern not in PATTERNS[lead.agent]:
+    if (lead.kind == "pattern" or lead.pattern is not None) and lead.pattern not in PATTERNS[lead.agent]:
         return f"pattern not in this specialist's list: {lead.pattern}"
     text = f"{lead.title} {lead.detail}"
     if word := VERDICT_WORDS.search(text):

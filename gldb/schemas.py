@@ -448,7 +448,7 @@ class AgentReport(BaseModel):
 #: Pipeline stages in run order; "record" (persist + audit) runs outside assess()
 StageId = Literal[
     "ocr", "intake", "prompt_screen", "extract", "agents", "ai_team", "score", "readiness", "route",
-    "projections", "semantic_review", "record",
+    "projections", "record",
 ]
 #: "running" is only ever reported live; a finished stage is "ran", "failed", or "off"
 StageState = Literal["running", "ran", "failed", "off"]
@@ -665,19 +665,6 @@ class AgentTeam(BaseModel):
     trace: dict[str, str] = Field(default_factory=dict, exclude=True)
 
 
-class SemanticReview(BaseModel):
-    """The Semantic Review Agent's synthesis (gldb.semantic_review): where the
-    documents' story holds together and where it does not, and what to ask
-    the applicant. Guidance only: it never scores, routes or decides."""
-
-    observations: list[ReviewPoint]
-    questions: list[ReviewPoint]
-    #: "template" when no model point passed the grounding check
-    source: Literal["llm", "template"]
-    #: Model points dropped for failing the grounding check
-    rejected: int = 0
-
-
 class CaseResult(BaseModel):
     case_id: str
     pack: ExtractedPack
@@ -690,8 +677,6 @@ class CaseResult(BaseModel):
     chains: list[TransactionChain] = []
     timeline: list[TimelineEvent] = []
     investigation: list[InvestigationTask] = []
-    #: None when the review is off or there was nothing to review
-    review: SemanticReview | None = None
     #: None when the team is off
     ai_team: AgentTeam | None = None
     #: Empty only for results stored before stages were recorded

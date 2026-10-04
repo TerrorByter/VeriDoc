@@ -4,10 +4,10 @@ gldb/pipeline.py
 Pipeline orchestration for the gldb-prototype.
 
 Stage functions are named after future LangGraph nodes:
-    ocr -> intake -> prompt_screen -> extract -> agents -> score -> readiness -> route
-    -> projections (chains, timeline, investigation) -> semantic_review -> record
+    ocr -> intake -> prompt_screen -> extract -> agents -> ai_team -> score -> readiness
+    -> route -> projections (chains, timeline, investigation) -> record
 
-Each stage is timed and recorded as a StageReport ("ran" or "off"), and an
+Each stage is timed and recorded as a StageReport ("ran", "failed" or "off"), and an
 optional callback hears each stage start and end, for live progress.
 
 pack_from_folder is a test helper that builds an ExtractedPack directly
@@ -17,14 +17,20 @@ from a pre-generated data pack directory (no AWS calls).
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from collections import Counter
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
-from typing import Any, TypeVar
+from typing import Any, Literal, TypeVar
 
+from botocore.exceptions import BotoCoreError, ClientError
+
+from gldb.ai_team.loop import Activity
+from gldb.ai_team.team import CONFIGURED_TEAM, TeamModels, run_team
+from gldb.ai_team.tools import CaseData
 from gldb.audit import log_event
 from gldb.checks import AGENTS, FORM_DOC_TYPES, run_agents
 from gldb.config import (
@@ -36,7 +42,6 @@ from gldb.config import (
     OCR_ENABLED,
     POLICY_VERSION,
     PROMPT_SCREEN_ENABLED,
-    SEMANTIC_REVIEW_ENABLED,
 )
 from gldb.coverage import coverage
 from gldb.extract import parse_pack
@@ -50,6 +55,7 @@ from gldb.reconciliation import build_chains
 from gldb.reference import versions as reference_versions
 from gldb.routing import route
 from gldb.schemas import (
+    AgentTeam,
     ApplicationManifest,
     AuditEvent,
     CaseResult,
@@ -59,12 +65,12 @@ from gldb.schemas import (
     StageState,
 )
 from gldb.scoring import readiness, score
-from gldb.semantic_review import PROMPT_VERSION as REVIEW_PROMPT_VERSION
-from gldb.semantic_review import review
 from gldb.signal_library import RULE_VERSION
 from gldb.timeline import build_timeline
 
 T = TypeVar("T")
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -102,11 +108,11 @@ def pack_from_folder(folder: str | Path) -> ExtractedPack:
 
 #: The stages assess() runs, in order; run() adds "record"
 ASSESS_STAGES: tuple[StageId, ...] = (
-    "ocr", "intake", "prompt_screen", "extract", "agents", "score", "readiness", "route",
-    "projections", "semantic_review",
+    "ocr", "intake", "prompt_screen", "extract", "agents", "ai_team", "score", "readiness", "route",
+    "projections",
 )
 
-#: Told each stage as it starts ("running") and ends ("ran" or "off")
+#: Told each stage as it starts ("running") and ends ("ran", "failed" or "off")
 StageCallback = Callable[[StageId, StageState], None]
 
 
@@ -122,15 +128,18 @@ class _Stages:
         self._on_stage = on_stage
         self.reports: list[StageReport] = []
 
-    def run(self, stage: StageId, step: Callable[[], T], version: str = "") -> T:
+    def run(self, stage: StageId, step: Callable[[], T], version: str = "",
+            status: Callable[[T], Literal["ran", "failed"]] = lambda _: "ran") -> T:
+        """Run *step*; *status* says from its value whether the stage ran or failed."""
         self._on_stage(stage, "running")
         start = perf_counter()
         value = step()
+        outcome = status(value)
         self.reports.append(StageReport(
-            stage_id=stage, status="ran", duration_ms=round((perf_counter() - start) * 1000),
+            stage_id=stage, status=outcome, duration_ms=round((perf_counter() - start) * 1000),
             version=version,
         ))
-        self._on_stage(stage, "ran")
+        self._on_stage(stage, outcome)
         return value
 
     def off(self, stage: StageId) -> None:
@@ -150,15 +159,46 @@ def screen_ledger(screened: bool) -> dict[str, Any]:
             if screened else None}
 
 
-def model_ledger(extraction_mode: str, reviewed: bool) -> dict[str, Any]:
-    """Which model and prompt versions produced a result, for the audit log.
-    Only stages that called the model are listed; none means no model."""
+def model_ledger(extraction_mode: str, team: AgentTeam | None) -> dict[str, Any]:
+    """Which models and prompt versions produced a result, for the audit log.
+    Only stages that called a model are listed; none means no model."""
     prompts: dict[str, str] = {}
     if extraction_mode != "stub":
         prompts["extract"] = EXTRACT_PROMPT_VERSION
-    if reviewed:
-        prompts["semantic_review"] = REVIEW_PROMPT_VERSION
-    return {"model_id": BEDROCK_MODEL_ID if prompts else None, "prompt_versions": prompts}
+    if team:
+        prompts.update({f"ai_team_{name}": v for name, v in team.prompt_versions.items()})
+    return {
+        "model_id": BEDROCK_MODEL_ID if extraction_mode != "stub" else None,
+        "prompt_versions": prompts,
+        "ai_team_models": team.models if team else None,
+    }
+
+
+def team_ledger(team: AgentTeam | None) -> dict[str, Any]:
+    """What the AI team did, for the audit log; None when it was off."""
+    return {"ai_team": {
+        "status": team.status,
+        "models": team.models,
+        "tool_calls": len(team.tool_calls),
+        "leads_kept": sum(lead.outcome == "kept" for lead in team.leads),
+        "leads_withheld": sum(lead.outcome == "withheld" for lead in team.leads),
+        "error": team.error,
+    } if team else None}
+
+
+def _team_or_failure(case: CaseData, team: TeamModels, on_activity: Activity) -> AgentTeam:
+    """Run the AI team, turning any error into a failed team so the case
+    still completes: the team only adds leads, it never gates a decision."""
+    try:
+        return run_team(case, team, on_activity=on_activity)
+    except (BotoCoreError, ClientError) as exc:
+        log.exception("AI team AWS call failed for %s", case.case_id)
+        error = f"AWS call failed: {exc}"
+    except Exception:
+        log.exception("AI team failed for %s", case.case_id)
+        error = "unexpected error; see the server log"
+    return AgentTeam(status="failed", error=error,
+                     models={"supervisor": team.supervisor, "specialist": team.specialist})
 
 
 def assess(
@@ -166,11 +206,15 @@ def assess(
     file_paths: list[Path],
     manifest: ApplicationManifest | None,
     on_stage: StageCallback = ignore_stage,
+    *,
+    team: TeamModels | None = CONFIGURED_TEAM,
+    on_activity: Activity = lambda _: None,
 ) -> CaseResult:
     """Run the stages in ASSESS_STAGES: ocr -> intake -> prompt_screen ->
-    extract -> agents -> score -> readiness -> route -> projections (chains,
-    timeline, investigation queue) -> semantic_review. A stage switched off
-    in config is recorded as "off". No audit log, no files written: run()
+    extract -> agents -> ai_team -> score -> readiness -> route -> projections
+    (chains, timeline, investigation queue). A stage switched off in config
+    is recorded as "off"; the AI team runs on *team* (None: off) and tells
+    *on_activity* what it is doing. No audit log, no files written: run()
     adds those, and the evaluation harness calls this directly."""
     stages = _Stages(on_stage)
 
@@ -202,6 +246,15 @@ def assess(
 
     evidence, agent_reports = stages.run("agents", lambda: run_agents(pack),
                                          version=f"{sum(len(a.checks) for a in AGENTS)} checks")
+    # The team's leads are a separate record: nothing below reads them
+    ai_team = None
+    if team:
+        ai_team = stages.run(
+            "ai_team", lambda: _team_or_failure(CaseData(case_id, pack, evidence), team, on_activity),
+            version=f"{team.supervisor} + {team.specialist}", status=lambda t: t.status,
+        )
+    else:
+        stages.off("ai_team")
     risk = stages.run("score", lambda: score(evidence), version=RULE_VERSION)
     ready = stages.run("readiness", lambda: readiness(evidence, pack))
     routing = stages.run("route", lambda: route(case_id, evidence, risk, ready, pack),
@@ -211,15 +264,6 @@ def assess(
         build_timeline(pack, evidence),
         build_queue(case_id, evidence, pack, risk),
     ))
-
-    reviewed = None
-    if SEMANTIC_REVIEW_ENABLED:
-        reviewed = stages.run(
-            "semantic_review", lambda: review(case_id, evidence, chains, timeline),
-            version=f"{BEDROCK_MODEL_ID} · prompt {REVIEW_PROMPT_VERSION}",
-        )
-    else:
-        stages.off("semantic_review")
 
     return CaseResult(
         case_id=case_id,
@@ -232,7 +276,7 @@ def assess(
         chains=chains,
         timeline=timeline,
         investigation=investigation,
-        review=reviewed,
+        ai_team=ai_team,
         stages=stages.reports,
     )
 
@@ -244,6 +288,8 @@ def assess(
 
 #: Per-case file of OCR lines with positions (see _persist)
 OCR_LINES_FILE = "ocr_lines.json"
+#: Per-case file of the AI team's full tool results, by call id (see _persist)
+AGENT_TRACE_FILE = "agent_trace.json"
 
 
 def _persist(result: CaseResult) -> None:
@@ -262,6 +308,9 @@ def _persist(result: CaseResult) -> None:
         lines = {doc: [[line.model_dump() for line in page] for page in pages]
                  for doc, pages in result.pack.ocr_lines.items()}
         (out_dir / OCR_LINES_FILE).write_text(json.dumps(lines), encoding="utf-8")
+    # Full tool results may quote page text: kept server-side the same way
+    if result.ai_team and result.ai_team.trace:
+        (out_dir / AGENT_TRACE_FILE).write_text(json.dumps(result.ai_team.trace), encoding="utf-8")
 
 
 def run(
@@ -271,6 +320,7 @@ def run(
     actor: str = "system",
     new_case: bool = True,
     on_stage: StageCallback = ignore_stage,
+    on_activity: Activity = lambda _: None,
 ) -> CaseResult:
     """Run the full loan-assessment pipeline for *case_id*.
 
@@ -283,7 +333,7 @@ def run(
     1. Log ``case_created`` audit event (new cases only).
     2. Load manifest from *manifest_path* (or None).
     3-7. assess(): the stages in ASSESS_STAGES (OCR, intake, prompt screen,
-         extract, agents, score, readiness, route, projections, semantic review).
+         extract, agents, AI team, score, readiness, route, projections).
     8-9. The "record" stage: persist CaseResult JSON to
          ``<CASES_DIR>/<case_id>/result.json`` and log the
          ``pipeline_completed`` audit event.
@@ -294,6 +344,7 @@ def run(
         manifest_path: Optional path to application.json.
         actor: Who/what is running the pipeline (default "system").
         on_stage: Told as each stage starts and ends, for live progress.
+        on_activity: Told what the AI team is doing, for live progress.
 
     Returns:
         A fully populated CaseResult.
@@ -321,7 +372,7 @@ def run(
             manifest = ApplicationManifest.model_validate(raw)
 
     # ------------------------------------------------------------------ 3-7  assess
-    result = assess(case_id, resolved, manifest, on_stage)
+    result = assess(case_id, resolved, manifest, on_stage, on_activity=on_activity)
     on_stage("record", "running")
     pack, evidence, risk, ready = (
         result.pack, result.evidence, result.risk, result.readiness
@@ -348,7 +399,8 @@ def run(
             "policy_version": result.routing.policy_version if result.routing else None,
             "rule_version": risk.rule_version,
             "reference_data": reference_versions(),
-            **model_ledger(pack.extraction_mode, result.review is not None),
+            **model_ledger(pack.extraction_mode, result.ai_team),
+            **team_ledger(result.ai_team),
             **screen_ledger(pack.prompt_screen is not None),
             "evidence_coverage": coverage(evidence, pack),
             "evidence_count_by_category": category_counts,

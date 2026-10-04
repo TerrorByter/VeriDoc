@@ -48,6 +48,9 @@ from gldb import jobs, lifecycle, usage
 from gldb.audit import log_event, read_all_events, read_events
 from gldb.checks import PACK_DOC
 from gldb.config import (
+    AGENT_SPECIALIST_MODEL,
+    AGENT_SUPERVISOR_MODEL,
+    AGENTS_ENABLED,
     BEDROCK_MODEL_ID,
     CASES_DIR,
     EXTRACTION_MODE,
@@ -57,7 +60,6 @@ from gldb.config import (
     PACKS_DIR,
     POLICY_VERSION,
     PROMPT_SCREEN_ENABLED,
-    SEMANTIC_REVIEW_ENABLED,
     UPLOADS_DIR,
 )
 from gldb.evaluate import Report, load_saved
@@ -72,6 +74,7 @@ from gldb.usage import CaseCost
 from gldb.viewer import locate, render_page
 from gldb.schemas import (
     AgentReport,
+    AgentTeam,
     AuditEvent,
     Box,
     CaseResult,
@@ -85,7 +88,6 @@ from gldb.schemas import (
     ReasonCode,
     RiskResult,
     Routing,
-    SemanticReview,
     Signal,
     StageReport,
     TimelineEvent,
@@ -120,7 +122,7 @@ class CaseView(BaseModel):
     chains: list[TransactionChain]
     timeline: list[TimelineEvent]
     investigation: list[InvestigationTask]
-    review: SemanticReview | None
+    ai_team: AgentTeam | None
     extraction_mode: str
     status: CaseStatus
     allowed_actions: list[str]
@@ -160,7 +162,7 @@ class CaseSummary(BaseModel):
 class Capability(BaseModel):
     """An optional pipeline capability and whether this server has it on."""
 
-    name: Literal["ocr", "prompt_screen", "llm_extraction", "semantic_review"]
+    name: Literal["ocr", "prompt_screen", "llm_extraction", "ai_team"]
     enabled: bool
     detail: str
 
@@ -244,7 +246,7 @@ def _view(result: CaseResult) -> CaseView:
         chains=result.chains,
         timeline=result.timeline,
         investigation=result.investigation,
-        review=result.review,
+        ai_team=result.ai_team,
         extraction_mode=result.pack.extraction_mode,
         status=status,
         allowed_actions=lifecycle.allowed_actions(status),
@@ -587,8 +589,8 @@ def get_controls() -> Controls:
                        detail=f"Bedrock guardrail {GUARDRAIL_ID} v{GUARDRAIL_VERSION}"),
             Capability(name="llm_extraction", enabled=EXTRACTION_MODE == "llm",
                        detail=BEDROCK_MODEL_ID),
-            Capability(name="semantic_review", enabled=SEMANTIC_REVIEW_ENABLED,
-                       detail=BEDROCK_MODEL_ID),
+            Capability(name="ai_team", enabled=AGENTS_ENABLED,
+                       detail=f"{AGENT_SUPERVISOR_MODEL} + {AGENT_SPECIALIST_MODEL}"),
         ],
         signals=list(SIGNALS),
         cost=_cost_summary(),

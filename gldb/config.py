@@ -235,10 +235,6 @@ AGENT_MAX_TOKENS: int = 2048
 #: Where the agent evaluation report is kept (the API's controls page shows it)
 AGENT_EVAL_PATH: str = os.getenv("AGENT_EVAL_PATH", "logs/agent_eval.json")
 
-#: Whether to run the Semantic Review Agent (LLM synthesis over the verified
-#: findings, gldb.semantic_review).
-SEMANTIC_REVIEW_ENABLED: bool = _bool_env("SEMANTIC_REVIEW_ENABLED", False)
-
 #: Path to the append-only officer/pipeline audit log.
 AUDIT_LOG_PATH: str = os.getenv("AUDIT_LOG_PATH", "logs/audit_log.jsonl")
 

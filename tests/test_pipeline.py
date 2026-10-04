@@ -20,11 +20,12 @@ from typing import Generator
 
 import pytest
 
+from gldb.ai_team.prompts import PROMPT_VERSIONS
 from gldb.audit import read_events
 from gldb.data_factory import generate_packs
 from gldb import pipeline as pipeline_mod
 from gldb.pipeline import run
-from gldb.schemas import CaseResult
+from gldb.schemas import AgentTeam, CaseResult
 
 
 # ---------------------------------------------------------------------------
@@ -98,8 +99,8 @@ class TestCleanPack:
         assert result.readiness is not None
         assert result.readiness.open_items == []
 
-    def test_review_is_off_by_default(self, result: CaseResult) -> None:
-        assert result.review is None
+    def test_ai_team_is_off_by_default(self, result: CaseResult) -> None:
+        assert result.ai_team is None
 
     def test_result_json_saved(self, result: CaseResult, tmp_path: Path) -> None:
         result_file = Path("data") / "cases" / result.case_id / "result.json"
@@ -179,14 +180,24 @@ class TestTamperedPack:
         details = read_events(result.case_id)[1].details
         # Stub extraction, no explanation: no model was used
         assert (details["model_id"], details["prompt_versions"]) == (None, {})
+        assert (details["ai_team"], details["ai_team_models"]) == (None, None)
         assert details["evidence_coverage"] == 1.0
         assert {"rule_version", "policy_version", "reference_data"} <= set(details)
 
     def test_ledger_names_model_and_prompts_when_llm_runs(self) -> None:
-        details = pipeline_mod.model_ledger("llm", reviewed=True)
+        team = AgentTeam(status="ran", models={"supervisor": "s", "specialist": "h"},
+                         prompt_versions=PROMPT_VERSIONS)
+        details = pipeline_mod.model_ledger("llm", team)
         assert details["model_id"] == pipeline_mod.BEDROCK_MODEL_ID
-        assert set(details["prompt_versions"]) == {"extract", "semantic_review"}
+        assert set(details["prompt_versions"]) == {"extract", *(f"ai_team_{k}" for k in PROMPT_VERSIONS)}
         assert all(len(v) == 12 for v in details["prompt_versions"].values())
+        assert details["ai_team_models"] == {"supervisor": "s", "specialist": "h"}
+
+    def test_ledger_without_extract_model_names_only_the_team(self) -> None:
+        team = AgentTeam(status="ran", models={"supervisor": "s", "specialist": "h"},
+                         prompt_versions={"supervisor_plan": "abc"})
+        details = pipeline_mod.model_ledger("stub", team)
+        assert (details["model_id"], details["prompt_versions"]) == (None, {"ai_team_supervisor_plan": "abc"})
 
 
 # ---------------------------------------------------------------------------

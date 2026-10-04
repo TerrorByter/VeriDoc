@@ -252,6 +252,19 @@ def test_progress_tracks_the_stage_running_now() -> None:
     assert [(s.stage_id, s.state) for s in progress.stages] == [("intake", "ran"), ("extract", "running")]
 
 
+def test_activity_reaches_progress() -> None:
+    api.jobs.start("C")
+    api.jobs.stage("C", "ai_team", "running")
+    api.jobs.detail("C", "Transaction specialist: get_chain")
+    progress = api.jobs.get("C")
+    assert progress is not None and progress.detail == "Transaction specialist: get_chain"
+    api.jobs.stage("C", "ai_team", "ran")
+    progress = api.jobs.get("C")
+    assert progress is not None and progress.detail is None
+    api.jobs.detail("NO-RUN", "ignored")
+    assert api.jobs.get("NO-RUN") is None
+
+
 def test_a_failed_run_reports_why(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     def broken(*_: Any, **__: Any) -> None:
         raise api.ExtractionError("Bedrock unavailable")

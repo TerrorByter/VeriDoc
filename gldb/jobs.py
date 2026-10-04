@@ -39,6 +39,9 @@ class Progress(BaseModel):
     stages: list[StageProgress] = []
     #: The stage running now; None when no stage is running
     current: StageId | None = None
+    #: What the running stage is doing now (e.g. an agent's tool call); cleared
+    #: when a stage changes state
+    detail: str | None = None
     error: str | None = None
 
 
@@ -59,8 +62,17 @@ def stage(case_id: str, stage_id: StageId, state: StageState) -> None:
         at = next((i for i, s in enumerate(run.stages) if s.stage_id == stage_id), len(stages))
         stages.insert(at, StageProgress(stage_id=stage_id, state=state))
         _runs[case_id] = run.model_copy(update={
-            "stages": stages, "current": stage_id if state == "running" else None,
+            "stages": stages, "current": stage_id if state == "running" else None, "detail": None,
         })
+
+
+def detail(case_id: str, text: str) -> None:
+    """Record what the case's running stage is doing now. Called from worker
+    threads; a case with no run is ignored."""
+    with _lock:
+        run = _runs.get(case_id)
+        if run is not None:
+            _runs[case_id] = run.model_copy(update={"detail": text})
 
 
 def finish(case_id: str) -> None:

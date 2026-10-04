@@ -4,20 +4,26 @@ tests/test_ai_team.py
 The Supervisor-led team end to end on a scripted Bedrock: plan, fan out to
 the four specialists, verify their leads, reconcile into a memo and verify
 it. Checks the hub-and-spoke rule (no specialist sees another's brief or
-results) and that unsupported output is withheld, never hidden. No AWS calls.
+results) and that unsupported output is withheld, never hidden. In the
+pipeline: leads never move the score or route, a failed team never stops a
+case, and full tool results stay server-side. No AWS calls.
 """
 
 from __future__ import annotations
 
+import functools
 import json
 from pathlib import Path
 from typing import Any
 
 import pytest
+from botocore.exceptions import ClientError
 
+from gldb import llm_client, pipeline
 from gldb.ai_team.prompts import DEFAULT_BRIEF, PROMPT_VERSIONS
 from gldb.ai_team.team import TeamModels, run_team
 from gldb.ai_team.tools import CaseData
+from gldb.audit import read_events
 from gldb.intake import load_manifest
 from gldb.pipeline import assess
 from gldb.schemas import AgentTeam, Memo
@@ -253,3 +259,99 @@ def test_question_citing_another_agents_result_is_withheld(clean: CaseData) -> N
                           "supervisor: no memo submitted"]
     reconcile = _first_text(fake.requests["memo"][0])
     assert json.loads(reconcile)["questions"] == [] and "Who is the payer?" not in reconcile
+
+
+# ---------------------------------------------------------------------------
+# In the pipeline: stage 5's ai_team step
+# ---------------------------------------------------------------------------
+
+
+def _files(name: str) -> tuple[list[Path], Any]:
+    folder = PACKS / name
+    return sorted(folder.glob("*.pdf")), load_manifest(folder)
+
+
+def _grounded(case: CaseData) -> ScriptedBedrock:
+    """A team run with one kept pattern lead (R01 search, R02 lead) and a memo citing it."""
+    finding = _finding(case)
+    return ScriptedBedrock({
+        "plan": _plan(),
+        "transaction": [[use("search_bank_transactions", text="INV")], [_lead(["R01"])]],
+        "memo": _memo([{"text": "One invoice appears settled by several credits.", "cites": ["L01", finding]}], []),
+    })
+
+
+def test_score_and_route_are_identical_with_team_on_and_off(
+    tampered: CaseData, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _grounded(tampered)
+    monkeypatch.setattr(llm_client, "_default_client", lambda: fake)
+    files, manifest = _files("tampered")
+    off = assess("tampered", files, manifest, team=None)
+    on = assess("tampered", files, manifest, team=MODELS)
+    assert on.ai_team is not None and [lead.outcome for lead in on.ai_team.leads] == ["kept"]
+    assert on.risk == off.risk and on.routing == off.routing and on.readiness == off.readiness
+    stage = next(s for s in on.stages if s.stage_id == "ai_team")
+    assert (stage.status, stage.version) == ("ran", "sup-model + spec-model")
+
+
+def test_bedrock_error_marks_team_failed_and_case_completes(monkeypatch: pytest.MonkeyPatch) -> None:
+    throttled = ClientError({"Error": {"Code": "ThrottlingException", "Message": "slow"}}, "Converse")
+    fake = ScriptedBedrock({}, error=throttled)
+    monkeypatch.setattr(llm_client, "_default_client", lambda: fake)
+    result = assess("tampered", *_files("tampered"), team=MODELS)
+    assert result.ai_team is not None and result.ai_team.status == "failed"
+    assert result.ai_team.error is not None and result.ai_team.error.startswith("AWS call failed")
+    assert result.ai_team.models == {"supervisor": "sup-model", "specialist": "spec-model"}
+    stages = {s.stage_id: s.status for s in result.stages}
+    assert stages["ai_team"] == "failed" and stages["score"] == "ran" and stages["projections"] == "ran"
+
+
+def test_unexpected_error_marks_team_failed_without_detail(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = ScriptedBedrock({}, error=RuntimeError("secret internals"))
+    monkeypatch.setattr(llm_client, "_default_client", lambda: fake)
+    result = assess("clean", *_files("clean"), team=MODELS)
+    assert result.ai_team is not None
+    assert (result.ai_team.status, result.ai_team.error) == ("failed", "unexpected error; see the server log")
+
+
+def test_team_off_records_stage_off() -> None:
+    result = assess("clean", *_files("clean"), team=None)
+    assert result.ai_team is None
+    stage = next(s for s in result.stages if s.stage_id == "ai_team")
+    assert (stage.status, stage.duration_ms) == ("off", 0)
+
+
+def test_activity_is_passed_to_the_team(tampered: CaseData, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _grounded(tampered)
+    monkeypatch.setattr(llm_client, "_default_client", lambda: fake)
+    seen: list[str] = []
+    assess("tampered", *_files("tampered"), team=MODELS, on_activity=seen.append)
+    assert seen
+
+
+def test_trace_is_persisted_server_side_only(
+    tampered: CaseData, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pipeline, "CASES_DIR", str(tmp_path / "cases"))
+    monkeypatch.setenv("AUDIT_LOG_PATH", str(tmp_path / "audit.jsonl"))
+    fake = _grounded(tampered)
+    monkeypatch.setattr(llm_client, "_default_client", lambda: fake)
+    monkeypatch.setattr(pipeline, "assess", functools.partial(pipeline.assess, team=MODELS))
+    files, _ = _files("tampered")
+    result = pipeline.run("CASE-TRACE", files, PACKS / "tampered" / "application.json")
+    assert result.ai_team is not None
+
+    case_dir = tmp_path / "cases" / "CASE-TRACE"
+    trace = json.loads((case_dir / pipeline.AGENT_TRACE_FILE).read_text(encoding="utf-8"))
+    assert set(trace) == {"R01", "R02"}
+    stored = (case_dir / "result.json").read_text(encoding="utf-8")
+    assert trace["R01"] not in stored and "trace" not in json.loads(stored)["ai_team"]
+
+    details = read_events("CASE-TRACE")[-1].details
+    assert details["ai_team"] == {
+        "status": "ran", "models": {"supervisor": "sup-model", "specialist": "spec-model"},
+        "tool_calls": 2, "leads_kept": 1, "leads_withheld": 0, "error": None,
+    }
+    assert details["ai_team_models"] == details["ai_team"]["models"]
+    assert {f"ai_team_{k}" for k in PROMPT_VERSIONS} <= set(details["prompt_versions"])

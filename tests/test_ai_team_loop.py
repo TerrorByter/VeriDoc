@@ -1,0 +1,146 @@
+"""
+tests/test_ai_team_loop.py
+--------------------------
+One agent's bounded tool loop: it runs the model's tool calls, sends the
+results back (errors flagged), and stops on a finish tool, the end of the
+model's turn, the step cap or the token budget. A scripted fake stands in
+for Bedrock, so no AWS call is made.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from gldb.ai_team import loop, tools
+from gldb.ai_team.loop import run_agent
+from gldb.ai_team.tools import CaseData, Ledger
+from gldb.intake import load_manifest
+from gldb.pipeline import assess
+from tests.fakes import ScriptedBedrock, use
+
+CLEAN = Path(__file__).parent.parent / "data" / "packs" / "clean"
+BRIEFS = {"forensics": "f", "transaction": "t", "kyc": "k", "timeline": "l"}
+
+
+@pytest.fixture(scope="module")
+def case() -> CaseData:
+    result = assess("clean", sorted(CLEAN.glob("*.pdf")), load_manifest(CLEAN))
+    return CaseData(result.case_id, result.pack, result.evidence)
+
+
+def _search() -> dict[str, Any]:
+    return use("search_bank_transactions", text="GIRO")
+
+
+def _searches(n: int) -> list[list[dict[str, Any]]]:
+    """*n* turns that each call the bank search once."""
+    return [[_search()] for _ in range(n)]
+
+
+def _run(fake: ScriptedBedrock, case: CaseData, ledger: Ledger, **kwargs: Any) -> dict[str, Any] | None:
+    return run_agent("transaction", "model-1", "system", "task", case, ledger, client=fake, **kwargs)
+
+
+def test_loop_runs_tools_and_returns_on_end_turn(case: CaseData) -> None:
+    fake = ScriptedBedrock({"transaction": [*_searches(2), [{"text": "done"}]]})
+    ledger = Ledger()
+
+    assert _run(fake, case, ledger) is None
+
+    assert [c.tool for c in ledger.tool_calls] == ["search_bank_transactions"] * 2
+    first, second, third = fake.requests["transaction"]
+    assert first["messages"] == [{"role": "user", "content": [{"text": "task"}]}]
+    # The recorded requests are snapshots: the loop's later appends do not reach them
+    assert len(second["messages"]) == 3 and len(third["messages"]) == 5
+    sent = second["messages"][-1]
+    assert sent["role"] == "user"
+    result = sent["content"][0]["toolResult"]
+    assert result["toolUseId"] == second["messages"][-2]["content"][0]["toolUse"]["toolUseId"]
+    assert result["content"][0]["text"].startswith('<tool_result id="R01"') and "status" not in result
+
+
+def test_step_cap_stops_the_loop(case: CaseData, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(loop, "AGENT_MAX_STEPS", 2)
+    fake = ScriptedBedrock({"transaction": _searches(5)})
+    ledger = Ledger()
+
+    assert _run(fake, case, ledger) is None
+
+    assert len(ledger.tool_calls) == 2
+    assert ledger.notes == ["transaction: step limit reached"]
+    assert len(fake.requests["transaction"]) == 3
+
+
+def test_step_cap_applies_within_a_turn(case: CaseData, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(loop, "AGENT_MAX_STEPS", 1)
+    fake = ScriptedBedrock({"transaction": [[_search(), _search(), _search()]]})
+    ledger = Ledger()
+
+    assert _run(fake, case, ledger) is None
+
+    assert len(ledger.tool_calls) == 1
+    assert ledger.notes == ["transaction: step limit reached"]
+    assert len(fake.requests["transaction"]) == 1
+
+
+def test_budget_stops_the_loop(case: CaseData, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tools, "AGENT_TOKEN_BUDGET", 1)
+    fake = ScriptedBedrock({"transaction": _searches(3)})
+    ledger = Ledger()
+
+    assert _run(fake, case, ledger) is None
+
+    assert ledger.notes == ["transaction: budget reached"]
+    assert len(fake.requests["transaction"]) == 1
+
+
+def test_finish_tool_returns_its_input(case: CaseData) -> None:
+    fake = ScriptedBedrock({"plan": [[_search(), use("submit_plan", briefs=BRIEFS)]]})
+    ledger = Ledger()
+
+    plan = run_agent("supervisor", "model-1", "system", "task", case, ledger, finish="submit_plan", client=fake)
+
+    assert plan == {"briefs": BRIEFS}
+    # The finish tool is not run, and neither is anything else in its turn
+    assert ledger.tool_calls == []
+    assert len(fake.requests["plan"]) == 1
+
+
+def test_a_model_that_never_finishes_returns_none(case: CaseData) -> None:
+    fake = ScriptedBedrock({"memo": [[{"text": "all clear"}]]})
+
+    assert run_agent("supervisor", "model-1", "system", "task", case, Ledger(), finish="submit_memo",
+                     client=fake) is None
+
+
+def test_tool_error_is_sent_back_with_error_status(case: CaseData) -> None:
+    fake = ScriptedBedrock({"transaction": [[use("get_chain")], [{"text": "done"}]]})
+    ledger = Ledger()
+
+    assert _run(fake, case, ledger) is None
+
+    result = fake.requests["transaction"][1]["messages"][-1]["content"][0]["toolResult"]
+    assert result["status"] == "error"
+    assert "missing argument: invoice_number" in result["content"][0]["text"]
+    assert ledger.tool_calls[0].error
+
+
+def test_activity_is_reported_before_each_call(case: CaseData) -> None:
+    fake = ScriptedBedrock({"transaction": [[_search()], [use("get_chain", invoice_number="INV-0")]]})
+    ledger = Ledger()
+    seen: list[tuple[str, int]] = []
+
+    _run(fake, case, ledger, on_activity=lambda text: seen.append((text, len(ledger.tool_calls))))
+
+    assert seen == [("Transaction specialist: search_bank_transactions", 0),
+                    ("Transaction specialist: get_chain", 1)]
+
+
+def test_a_model_error_propagates(case: CaseData) -> None:
+    fake = ScriptedBedrock({}, error=RuntimeError("throttled"))
+
+    with pytest.raises(RuntimeError, match="throttled"):
+        _run(fake, case, Ledger())

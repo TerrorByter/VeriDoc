@@ -227,7 +227,7 @@ AGENT_SPECIALIST_MODEL: str = os.getenv(
 #: Model calls one agent may make before it must answer
 AGENT_MAX_STEPS: int = int(os.getenv("AGENT_MAX_STEPS", "8"))
 #: Longest tool result (characters) handed back to a model
-AGENT_MAX_RESULT_CHARS: int = int(os.getenv("AGENT_MAX_RESULT_CHARS", "3000"))
+AGENT_MAX_RESULT_CHARS: int = int(os.getenv("AGENT_MAX_RESULT_CHARS", "8000"))
 #: Input plus output tokens the whole team may spend on one case
 AGENT_TOKEN_BUDGET: int = int(os.getenv("AGENT_TOKEN_BUDGET", "400000"))
 #: Output cap per agent call

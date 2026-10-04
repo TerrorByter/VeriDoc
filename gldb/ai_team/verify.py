@@ -1,21 +1,25 @@
 """
 gldb/ai_team/verify.py
 ----------------------
-The deterministic gate on AI output. A lead is kept only if it cites tool
-results its own agent received (so hub-and-spoke is enforced here too), cites
-known findings, stays inside its specialist's patterns, neither accuses nor
-decides, and uses only numbers found in what it cited. A memo point faces the
-same grounding rules. Anything that fails is withheld with a reason the
-analyst can read; nothing here asks a model.
+The deterministic gate on AI output. A lead is kept only if it cites evidence
+its own agent received (results of its own successful tool calls, never an
+error or a lead or question receipt, so hub-and-spoke is enforced here too),
+cites known findings, stays inside its specialist's patterns, neither accuses
+nor decides, and uses only numbers found in what it cited (its R, E and L ids
+are references, not numbers). A memo point faces the same grounding rules.
+Anything that fails is withheld with a reason the analyst can read; nothing
+here asks a model.
 """
 
 from __future__ import annotations
 
 import re
 
-from gldb.schemas import AgentName, Evidence, Lead, ReviewPoint, SpecialistName
+from gldb.schemas import Evidence, Lead, ReviewPoint, SpecialistName
 
 _NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
+#: Result, finding and lead ids (R05, E04, L01): references, not numbers
+_ID = re.compile(r"\b[REL]\d+\b")
 #: Words that accuse or decide: a reviewer describes, people judge
 VERDICT_WORDS = re.compile(
     r"\b(fraud\w*|crim\w*|launder\w*|guilt\w*|approv\w*|reject\w*|declin\w*|recommend\w*)\b",
@@ -45,11 +49,20 @@ def numbers(text: str) -> set[str]:
     return set(_numbers(text))
 
 
-def _cite_reason(cites: list[str], issued: set[str]) -> str | None:
+def _claimed_numbers(text: str) -> list[str]:
+    """The numbers an AI's text states, its R, E and L ids left out."""
+    return _numbers(_ID.sub(" ", text))
+
+
+def _cite_reason(cites: list[str], issued: set[str], citable: set[str]) -> str | None:
+    """Why *cites* are not grounded: none, one the agent did not receive
+    (*issued*), or one that is not evidence (outside *citable*)."""
     if not cites:
         return "no citations"
     if (unreceived := next((c for c in cites if c not in issued), None)) is not None:
         return f"cites a tool result it did not receive: {unreceived}"
+    if (receipt := next((c for c in cites if c not in citable), None)) is not None:
+        return f"cites a result that is not evidence: {receipt}"
     return None
 
 
@@ -59,21 +72,22 @@ def _wording_reason(text: str, cited: list[str]) -> str | None:
     if word := VERDICT_WORDS.search(text):
         return f"uses verdict language: {word.group(1).lower()}"
     known = numbers(" ".join(cited))
-    if stray := next((n for n in _numbers(text) if n not in known), None):
+    if stray := next((n for n in _claimed_numbers(text) if n not in known), None):
         return f"uses a number not in its cited results: {stray}"
     return None
 
 
-def check_lead(lead: Lead, issued: set[str], results: dict[str, str],
+def check_lead(lead: Lead, issued: set[str], citable: set[str], results: dict[str, str],
                findings: dict[str, Evidence]) -> str | None:
     """Why the lead is withheld, or None to keep it. `issued` are the tool
-    results its agent received, `results` their text, `findings` the case's."""
-    if reason := _cite_reason(lead.cites, issued):
+    results its agent received, `citable` those that are evidence (see
+    Ledger.citable), `results` their text, `findings` the case's."""
+    if reason := _cite_reason(lead.cites, issued, citable):
         return reason
     if (unknown := next((f for f in lead.finding_ids if f not in findings), None)) is not None:
         return f"cites an unknown finding: {unknown}"
-    if lead.kind == "triage" and not lead.finding_ids and lead.verdict is None:
-        return "triage lead without a finding or verdict"
+    if lead.kind == "triage" and (not lead.finding_ids or lead.verdict is None):
+        return "triage lead without a finding and a verdict"
     if (lead.kind == "pattern" or lead.pattern is not None) and lead.pattern not in PATTERNS[lead.agent]:
         return f"pattern not in this specialist's list: {lead.pattern}"
     cited = [results.get(c, "") for c in lead.cites]
@@ -83,15 +97,15 @@ def check_lead(lead: Lead, issued: set[str], results: dict[str, str],
     return _wording_reason(f"{lead.title} {lead.detail}", cited)
 
 
-def check_question(agent: AgentName, text: str, cites: list[str], issued: set[str],
+def check_question(text: str, cites: list[str], issued: set[str], citable: set[str],
                    results: dict[str, str]) -> str | None:
-    """Why *agent*'s drafted question is withheld, or None to keep it: the
-    same citation, wording and number rules as a lead."""
-    return _cite_reason(cites, issued) or _wording_reason(text, [results.get(c, "") for c in cites])
+    """Why a drafted question is withheld, or None to keep it: the same
+    citation, wording and number rules as a lead."""
+    return _cite_reason(cites, issued, citable) or _wording_reason(text, [results.get(c, "") for c in cites])
 
 
 def check_point(point: ReviewPoint, known_ids: set[str], known_numbers: set[str]) -> bool:
     """Whether the point cites only known findings or leads, uses only known
     numbers and neither accuses nor decides."""
     return (bool(point.evidence_ids) and set(point.evidence_ids) <= known_ids
-            and not VERDICT_WORDS.search(point.text) and numbers(point.text) <= known_numbers)
+            and not VERDICT_WORDS.search(point.text) and set(_claimed_numbers(point.text)) <= known_numbers)

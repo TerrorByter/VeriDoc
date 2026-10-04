@@ -57,6 +57,8 @@ _SUMMARY_CHARS = 100
 #: Rows search_bank_transactions returns
 _MAX_ROWS = 20
 _DEFAULT_TOLERANCE_PCT = 1
+#: Tools that record an agent's own output: their results are receipts, not evidence
+_RECEIPT_TOOLS = frozenset({"record_lead", "draft_question"})
 
 
 @dataclass(frozen=True)
@@ -101,6 +103,14 @@ class Ledger:
         """Ids of the calls *agent* made, errors included: the results it received."""
         with self._lock:
             return {c.call_id for c in self.tool_calls if c.agent == agent}
+
+    def citable(self, agent: AgentName) -> set[str]:
+        """Ids of *agent*'s calls a lead or question may rest on: its own
+        successful evidence calls, never an error or a record_lead or
+        draft_question receipt."""
+        with self._lock:
+            return {c.call_id for c in self.tool_calls
+                    if c.agent == agent and not c.error and c.tool not in _RECEIPT_TOOLS}
 
     def add_lead(self, lead: Lead) -> str:
         """Record a lead; returns the id it is given, "L03"."""

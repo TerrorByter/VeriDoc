@@ -261,6 +261,22 @@ def test_question_citing_another_agents_result_is_withheld(clean: CaseData) -> N
     assert json.loads(reconcile)["questions"] == [] and "Who is the payer?" not in reconcile
 
 
+def test_lead_citing_its_own_receipt_or_an_error_is_withheld(clean: CaseData) -> None:
+    # Only kyc calls tools: R01 an error, R02 a lead receipt, R03 and R04 leads citing them
+    fake = ScriptedBedrock({
+        "plan": _plan(),
+        "kyc": [[use("registry_lookup")],
+                [_lead(["R01"], pattern="related_party")],
+                [_lead(["R01"], pattern="related_party"), _lead(["R02"], pattern="related_party")]],
+    })
+
+    team = _run(fake, clean)
+
+    assert [lead.withheld_reason for lead in team.leads] == [
+        "cites a result that is not evidence: R01", "cites a result that is not evidence: R01",
+        "cites a result that is not evidence: R02"]
+
+
 # ---------------------------------------------------------------------------
 # In the pipeline: stage 5's ai_team step
 # ---------------------------------------------------------------------------

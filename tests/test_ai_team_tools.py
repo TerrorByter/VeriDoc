@@ -494,6 +494,19 @@ def test_issued_to_covers_each_agents_calls_including_errors(clean: CaseData) ->
     assert [c.error for c in ledger.tool_calls] == [False, True, False, True]
 
 
+def test_citable_is_each_agents_successful_evidence_calls(clean: CaseData) -> None:
+    ledger = Ledger()
+    call_tool("kyc", "registry_lookup", {"uen": "201845678M"}, clean, ledger)  # R01 evidence
+    call_tool("kyc", "registry_lookup", {}, clean, ledger)  # R02 error
+    call_tool("kyc", "record_lead", {"kind": "pattern", "pattern": "related_party", "title": "t",
+                                     "detail": "d", "cites": ["R01"]}, clean, ledger)  # R03 receipt
+    call_tool("kyc", "draft_question", {"text": "q", "cites": ["R01"]}, clean, ledger)  # R04 receipt
+    call_tool("timeline", "get_incorporation", {}, clean, ledger)  # R05 another agent's
+    assert ledger.citable("kyc") == {"R01"}
+    assert ledger.issued_to("kyc") == {"R01", "R02", "R03", "R04"}
+    assert ledger.citable("timeline") == {"R05"}
+
+
 def test_ledger_numbers_calls_safely_across_threads() -> None:
     ledger = Ledger()
 

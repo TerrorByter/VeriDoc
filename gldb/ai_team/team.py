@@ -53,7 +53,7 @@ def _briefs(plan: dict[str, Any] | None) -> dict[SpecialistName, str]:
 
 
 def _verified(lead: Lead, ledger: Ledger, findings: dict[str, Evidence]) -> Lead:
-    reason = check_lead(lead, ledger.issued_to(lead.agent), ledger.results, findings)
+    reason = check_lead(lead, ledger.issued_to(lead.agent), ledger.citable(lead.agent), ledger.results, findings)
     return lead.model_copy(update={"outcome": "kept" if reason is None else "withheld",
                                    "withheld_reason": reason})
 
@@ -63,7 +63,7 @@ def _verified_questions(ledger: Ledger) -> list[dict[str, Any]]:
     passed = []
     for question in ledger.questions:
         agent, text, cites = question["agent"], question["text"], question["cites"]
-        reason = check_question(agent, text, cites, ledger.issued_to(agent), ledger.results)
+        reason = check_question(text, cites, ledger.issued_to(agent), ledger.citable(agent), ledger.results)
         if reason is None:
             passed.append(question)
         else:

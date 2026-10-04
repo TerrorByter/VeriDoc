@@ -19,12 +19,25 @@ PACKS = Path(__file__).parent.parent / "data" / "packs"
 
 def test_stub_extractor_is_perfect_on_all_packs() -> None:
     report = evaluate.evaluate(PACKS)
-    assert [r.pack for r in report.packs] == ["clean", "incomplete", "retro_po", "sanctioned", "tampered"]
+    assert [r.pack for r in report.packs] == [
+        "clean", "incomplete", "innocent_split", "related_party", "retro_po",
+        "round_trip", "sanctioned", "tampered", "third_party_payment",
+    ]
     assert all(r.ok for r in report.packs)
     assert report.precision == report.recall == 1.0
     assert report.band_accuracy == report.readiness_accuracy == report.routing_accuracy == 1.0
     assert report.clean_pack_false_positives == 0
-    assert report.true_positives == 16  # 12 fraud + 4 compliance/completeness
+    assert report.true_positives == 17  # 13 fraud + 4 compliance/completeness
+
+
+def test_beyond_rules_packs_match_their_rule_expectations() -> None:
+    """The packs for patterns no rule catches: silent, except the innocent split,
+    where only the invoice-to-bank rule fires."""
+    results = {r.pack: r for r in evaluate.evaluate(PACKS).packs}
+    for name in ("third_party_payment", "related_party", "round_trip", "innocent_split"):
+        assert results[name].ok, results[name]
+    assert results["innocent_split"].risk_findings == 1
+    assert results["third_party_payment"].risk_findings == 0
 
 
 def test_attack_table_on_real_packs() -> None:
@@ -93,8 +106,8 @@ def test_crashing_pack_is_reported_and_counted_as_missed(
 
     monkeypatch.setattr(evaluate, "assess", flaky)
     report = evaluate.evaluate(PACKS)
-    clean, incomplete, retro_po, sanctioned, tampered = report.packs
-    assert clean.ok and incomplete.ok and retro_po.ok and sanctioned.ok
+    *others, tampered = sorted(report.packs, key=lambda r: r.pack == "tampered")
+    assert len(others) == 8 and all(r.ok for r in others)
     assert not tampered.ok
     assert tampered.error == "RuntimeError: model returned junk"
     assert len(tampered.missed) == 10  # every expected tampered finding

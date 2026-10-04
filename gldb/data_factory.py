@@ -8,8 +8,9 @@ Usage:
 
 (Re)creates data/packs/clean/, tampered/, incomplete/, scanned/ (the clean
 pack as image-only scans) and sanctioned/ (a sanctioned buyer), overwriting
-existing files. All entities are
-fictional.
+existing files. The third_party_payment/, related_party/, round_trip/ and
+innocent_split/ packs hold patterns the rules cannot judge, for the AI team.
+All entities are fictional.
 
 Rendering contract (stub parser depends on these exactly):
 - A4 page, Helvetica 10pt, 14pt line spacing, top-to-bottom.
@@ -566,6 +567,35 @@ def _last_day_of_month(year: int, month: int) -> int:
     return (date(year, month + 1, 1) - timedelta(days=1)).day
 
 
+def _month_entries(
+    months: list[dict], ym: tuple[int, int],
+) -> list[tuple[int, str, Decimal | None, Decimal | None]]:
+    """The (day, description, debit, credit) rows of month *ym*, balances left out."""
+    bs = next(bs for bs in months if bs["ym"] == ym)
+    return [row[:4] for row in bs["rows"]]
+
+
+def _edit_month(
+    months: list[dict],
+    ym: tuple[int, int],
+    rows: list[tuple[int, str, Decimal | None, Decimal | None]],
+) -> list[dict]:
+    """A copy of *months* with month *ym* holding *rows* (day, description, debit,
+    credit) instead. Every balance, closing and later opening is recomputed from
+    the first month's opening, so the statements still reconcile."""
+    edited = []
+    balance = months[0]["opening"]
+    for bs in months:
+        opening = balance
+        entries = rows if bs["ym"] == ym else _month_entries(months, bs["ym"])
+        month_rows = []
+        for day, desc, debit, credit in entries:
+            balance += (credit or 0) - (debit or 0)
+            month_rows.append((day, desc, debit, credit, balance))
+        edited.append({"ym": bs["ym"], "opening": opening, "rows": month_rows, "closing": balance})
+    return edited
+
+
 def _write_bank_statements(
     out_dir: Path,
     months: list[dict],
@@ -771,6 +801,8 @@ def _generate_clean(out_dir: Path) -> None:
         "expected_check_ids": [],
         "expected_check_ids_ocr": [],
         "expected_compliance_check_ids": [],
+        "expected_leads": [],
+        "expected_triage": [],
         "tampers": [],
         "benign": [
             {
@@ -811,6 +843,8 @@ def _generate_tampered(out_dir: Path) -> None:
         # Fire only when the OCR stage runs (OCR_ENABLED)
         "expected_check_ids_ocr": ["FORENSIC_OCR_MISMATCH"],
         "expected_compliance_check_ids": [],
+        "expected_leads": [],
+        "expected_triage": [],
         "tampers": [
             {"doc": "invoice_INV-1002",      "type": "amount_inflated",        "check_ids": ["XDOC_INVOICE_BANK", "XDOC_PO_INVOICE"], "detail": "quantities and amounts inflated vs bank credit"},
             {"doc": "invoice_INV-1002",      "type": "uen_mismatch",           "check_ids": ["XDOC_IDENTITY", "REGISTRY_ENTITY_NOT_FOUND"], "detail": "UEN 202301284K differs from company UEN 202301234K"},
@@ -852,6 +886,8 @@ def _generate_incomplete(out_dir: Path) -> None:
             "FORM_ENT_TIN_OR_REASON",
             "FORM_ENT_TYPE_SELECTION",
         ],
+        "expected_leads": [],
+        "expected_triage": [],
         "tampers": [],
         "benign": [
             {
@@ -887,6 +923,8 @@ def _generate_sanctioned(out_dir: Path) -> None:
         "expected_check_ids": ["SANCTIONS_MATCH"],
         "expected_check_ids_ocr": [],
         "expected_compliance_check_ids": [],
+        "expected_leads": [],
+        "expected_triage": [],
         "tampers": [
             {"doc": "invoice_INV-1002", "type": "sanctioned_counterparty",
              "check_ids": ["SANCTIONS_MATCH"], "detail": f"buyer '{SANCTIONED_BUYER}' resembles a sanctions list entry"},
@@ -920,6 +958,8 @@ def _generate_retro_po(out_dir: Path) -> None:
         "expected_check_ids": ["TEMP_TRADE_SEQUENCE"],
         "expected_check_ids_ocr": [],
         "expected_compliance_check_ids": [],
+        "expected_leads": [],
+        "expected_triage": [],
         "tampers": [
             {"doc": "invoice_INV-1002", "type": "invoice_before_order",
              "check_ids": ["TEMP_TRADE_SEQUENCE"], "detail": f"invoiced 2026-07-05, before {RETRO_PO} dated 2026-07-15"},
@@ -931,6 +971,116 @@ def _generate_retro_po(out_dir: Path) -> None:
         ],
     }
     (out_dir / "ground_truth.json").write_text(json.dumps(truth, indent=2))
+
+
+#: Beyond-rules packs: each is the clean pack with one change that no rule
+#: judges, so the rules stay silent and only the AI team can raise it.
+#: innocent_split is the reverse: one rule fires and the team should find the
+#: cause innocent.
+HARBOURLINE = "HARBOURLINE LOGISTICS"
+#: third_party_payment: a company with no part in the sale pays INV-1002
+THIRD_PARTY_PAYER_RENAME = ("BAYVIEW MARINE SUPPLIES", HARBOURLINE)
+#: related_party: INV-1002's buyer is run by Daniel Brooks, who is also a
+#: director of the applicant and a guarantor of the application
+RELATED_PARTY_BUYER = "Seabright Provisions Pte. Ltd."
+RELATED_PARTY_PAYER_RENAME = ("BAYVIEW MARINE SUPPLIES", "SEABRIGHT PROVISIONS")
+#: round_trip: the June supplier payment returns in July as a "customer receipt"
+ROUND_TRIP_PAYMENT = "SUPPLIER PAYMENT"
+ROUND_TRIP_RECEIPT = (
+    3, f"GIRO CR CUSTOMER RECEIPTS {HARBOURLINE}", None, Decimal("15200.00"),
+)
+#: innocent_split: INV-1002 is paid in two instalments, which the one-credit
+#: match in XDOC_INVOICE_BANK cannot join up
+INNOCENT_SPLIT_JULY = [
+    (12, "GIRO CR BAYVIEW MARINE SUPPLIES INV-1002 PART 1", None, Decimal("10000.00")),
+    (20, "GIRO CR BAYVIEW MARINE SUPPLIES INV-1002 PART 2", None, Decimal("8530.00")),
+    (25, "PAYROLL JUL", Decimal("21400.00"), None),
+]
+
+
+def _generate_beyond_rules(
+    out_dir: Path,
+    pack: str,
+    *,
+    leads: list[dict[str, str]],
+    triage: list[dict[str, str]] | None = None,
+    check_ids: list[str] | None = None,
+    band: str = "Low",
+    path: str = "fast_track",
+    benign: list[dict[str, str]] | None = None,
+    months: list[dict] = BS_MONTHS,
+    buyer_1002: str = INV1002_BUYER,
+    payer_rename: tuple[str, str] | None = None,
+) -> None:
+    """Write the clean pack varied by *months*, *buyer_1002* and *payer_rename*.
+    *leads* and *triage* are what the AI team should raise and judge; the rules
+    should find only *check_ids* (none by default), scoring *band* and *path*."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    _write_invoices_and_fs(out_dir, buyer_1002=buyer_1002)
+    _write_purchase_orders(out_dir, buyer_1002=buyer_1002)
+    _write_bills_of_lading(out_dir, buyer_1002=buyer_1002)
+    _write_bank_statements(out_dir, months, payer_rename=payer_rename)
+    _write_application_json(out_dir)
+    _write_entity_form(out_dir, ENTITY_FORM_VALUES_CLEAN)
+    truth = {
+        "pack": pack,
+        "expected_band": band,
+        "expected_path": path,
+        "expected_readiness": "Complete",
+        "expected_check_ids": check_ids or [],
+        "expected_check_ids_ocr": [],
+        "expected_compliance_check_ids": [],
+        "expected_leads": leads,
+        "expected_triage": triage or [],
+        "tampers": [],
+        "benign": [
+            {"doc": "invoice_INV-1001", "type": "rounding", "detail": "paid 32,699.50 vs invoiced 32,700.00"},
+            *(benign or []),
+        ],
+    }
+    (out_dir / "ground_truth.json").write_text(json.dumps(truth, indent=2))
+
+
+def _generate_third_party_payment(out_dir: Path) -> None:
+    _generate_beyond_rules(
+        out_dir, "third_party_payment",
+        leads=[{"agent": "transaction", "pattern": "third_party_payment"}],
+        payer_rename=THIRD_PARTY_PAYER_RENAME,
+    )
+
+
+def _generate_related_party(out_dir: Path) -> None:
+    _generate_beyond_rules(
+        out_dir, "related_party",
+        leads=[{"agent": "kyc", "pattern": "related_party"}],
+        buyer_1002=RELATED_PARTY_BUYER, payer_rename=RELATED_PARTY_PAYER_RENAME,
+    )
+
+
+def _generate_round_trip(out_dir: Path) -> None:
+    june = [
+        (day, desc.replace(ROUND_TRIP_PAYMENT, f"{ROUND_TRIP_PAYMENT} {HARBOURLINE}"), debit, credit)
+        for day, desc, debit, credit in _month_entries(BS_MONTHS, (2026, 6))
+    ]
+    months = _edit_month(BS_MONTHS, (2026, 6), june)
+    months = _edit_month(months, (2026, 7), [ROUND_TRIP_RECEIPT, *_month_entries(months, (2026, 7))])
+    _generate_beyond_rules(
+        out_dir, "round_trip",
+        leads=[{"agent": "transaction", "pattern": "round_trip"}],
+        months=months,
+    )
+
+
+def _generate_innocent_split(out_dir: Path) -> None:
+    _generate_beyond_rules(
+        out_dir, "innocent_split",
+        leads=[{"agent": "transaction", "pattern": "split_payment"}],
+        triage=[{"check_id": "XDOC_INVOICE_BANK", "verdict": "possibly_innocent"}],
+        check_ids=["XDOC_INVOICE_BANK"], band="Medium", path="standard_review",
+        benign=[{"doc": "invoice_INV-1002", "type": "split_payment",
+                 "detail": "paid in two credits, 10,000.00 on 2026-07-12 and 8,530.00 on 2026-07-20"}],
+        months=_edit_month(BS_MONTHS, (2026, 7), INNOCENT_SPLIT_JULY),
+    )
 
 
 def _scan(src: Path, dst: Path) -> None:
@@ -977,6 +1127,8 @@ def _generate_injected(out_dir: Path) -> None:
         "expected_check_ids": ["PROMPT_INJECTION"],
         "expected_check_ids_ocr": [],
         "expected_compliance_check_ids": [],
+        "expected_leads": [],
+        "expected_triage": [],
         "tampers": [
             {"doc": "invoice_INV-1001", "type": "visible_prompt_injection",
              "check_ids": ["PROMPT_INJECTION"],
@@ -1046,7 +1198,7 @@ def _verify_pack(pack_dir: Path, tampered_inv1002: bool = False) -> None:
 # ---------------------------------------------------------------------------
 
 def generate_packs(base_dir: str | Path = "data/packs") -> None:
-    """Generate clean, tampered, incomplete and scanned packs under *base_dir*."""
+    """Generate every pack under *base_dir*."""
     base = Path(base_dir)
     _generate_clean(base / "clean")
     _generate_tampered(base / "tampered")
@@ -1055,6 +1207,10 @@ def generate_packs(base_dir: str | Path = "data/packs") -> None:
     _generate_sanctioned(base / "sanctioned")
     _generate_retro_po(base / "retro_po")
     _generate_injected(base / "injected")
+    _generate_third_party_payment(base / "third_party_payment")
+    _generate_related_party(base / "related_party")
+    _generate_round_trip(base / "round_trip")
+    _generate_innocent_split(base / "innocent_split")
     _verify_pack(base / "clean",    tampered_inv1002=False)
     _verify_pack(base / "tampered", tampered_inv1002=True)
     _verify_pack(base / "incomplete", tampered_inv1002=False)
@@ -1062,6 +1218,10 @@ def generate_packs(base_dir: str | Path = "data/packs") -> None:
     _verify_pack(base / "sanctioned", tampered_inv1002=False)
     _verify_pack(base / "retro_po", tampered_inv1002=False)
     _verify_pack(base / "injected", tampered_inv1002=False)
+    _verify_pack(base / "third_party_payment", tampered_inv1002=False)
+    _verify_pack(base / "related_party", tampered_inv1002=False)
+    _verify_pack(base / "round_trip", tampered_inv1002=False)
+    _verify_pack(base / "innocent_split", tampered_inv1002=False)
     print("Packs generated and verified.")
     print(f"  clean/      -> {base / 'clean'}")
     print(f"  tampered/   -> {base / 'tampered'}")
@@ -1070,6 +1230,10 @@ def generate_packs(base_dir: str | Path = "data/packs") -> None:
     print(f"  sanctioned/ -> {base / 'sanctioned'}")
     print(f"  retro_po/   -> {base / 'retro_po'}")
     print(f"  injected/   -> {base / 'injected'}")
+    print(f"  third_party_payment/ -> {base / 'third_party_payment'}")
+    print(f"  related_party/ -> {base / 'related_party'}")
+    print(f"  round_trip/ -> {base / 'round_trip'}")
+    print(f"  innocent_split/ -> {base / 'innocent_split'}")
 
 
 if __name__ == "__main__":

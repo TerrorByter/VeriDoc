@@ -1,0 +1,36 @@
+{
+  "pack": "innocent_split",
+  "expected_band": "Medium",
+  "expected_path": "standard_review",
+  "expected_readiness": "Complete",
+  "expected_check_ids": [
+    "XDOC_INVOICE_BANK"
+  ],
+  "expected_check_ids_ocr": [],
+  "expected_compliance_check_ids": [],
+  "expected_leads": [
+    {
+      "agent": "transaction",
+      "pattern": "split_payment"
+    }
+  ],
+  "expected_triage": [
+    {
+      "check_id": "XDOC_INVOICE_BANK",
+      "verdict": "possibly_innocent"
+    }
+  ],
+  "tampers": [],
+  "benign": [
+    {
+      "doc": "invoice_INV-1001",
+      "type": "rounding",
+      "detail": "paid 32,699.50 vs invoiced 32,700.00"
+    },
+    {
+      "doc": "invoice_INV-1002",
+      "type": "split_payment",
+      "detail": "paid in two credits, 10,000.00 on 2026-07-12 and 8,530.00 on 2026-07-20"
+    }
+  ]
+}

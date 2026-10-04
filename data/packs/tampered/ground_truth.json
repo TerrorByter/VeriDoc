@@ -19,6 +19,8 @@
     "FORENSIC_OCR_MISMATCH"
   ],
   "expected_compliance_check_ids": [],
+  "expected_leads": [],
+  "expected_triage": [],
   "tampers": [
     {
       "doc": "invoice_INV-1002",

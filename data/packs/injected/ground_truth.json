@@ -11,6 +11,8 @@
   ],
   "expected_check_ids_ocr": [],
   "expected_compliance_check_ids": [],
+  "expected_leads": [],
+  "expected_triage": [],
   "tampers": [
     {
       "doc": "invoice_INV-1001",

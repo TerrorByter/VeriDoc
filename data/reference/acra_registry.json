@@ -1,7 +1,7 @@
 {
   "source": "Synthetic stand-in for the ACRA BizFile register (prototype only; all entities fictional)",
-  "version": "ACRA-SYN-2026.10.01",
-  "as_of": "2026-10-01",
+  "version": "ACRA-SYN-2026.10.04",
+  "as_of": "2026-10-04",
   "entities": {
     "202301234K": {
       "name": "Lumen Harbour Trading Pte. Ltd.",
@@ -35,6 +35,12 @@
       "status": "Struck Off",
       "incorporated": "2015-06-30",
       "officers": [{"name": "Ong Kai Wen", "role": "Director"}]
+    },
+    "202205551D": {
+      "name": "Seabright Provisions Pte. Ltd.",
+      "status": "Live",
+      "incorporated": "2022-02-14",
+      "officers": [{"name": "Daniel Brooks", "role": "Director"}]
     }
   }
 }

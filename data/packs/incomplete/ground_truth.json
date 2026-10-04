@@ -11,6 +11,8 @@
     "FORM_ENT_TIN_OR_REASON",
     "FORM_ENT_TYPE_SELECTION"
   ],
+  "expected_leads": [],
+  "expected_triage": [],
   "tampers": [],
   "benign": [
     {

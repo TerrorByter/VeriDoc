@@ -97,10 +97,10 @@ Gateway (MCP) expects, so a later move to AgentCore is deployment work.
 
 | Agent | Tools |
 |---|---|
-| Supervisor | `get_case_overview`, `get_score` (read-only) |
+| Supervisor | `get_case_overview` (includes the `parties` block, so it can brief KYC), `get_score` (read-only) |
 | Forensics | `get_page_text(doc_id, page)` · `get_forensic_facts(doc_id)` (the document's existing forensic and OCR findings, PDF producer and dates, OCR confidence; read from the case, never a re-run) |
 | Transaction | `get_chain(invoice_number)` · `search_bank_transactions(amount?, tolerance_pct?, date_from?, date_to?, text?)` · `get_document_fields(doc_id)` |
-| KYC & Registry | `registry_lookup(uen? \| name?)` → name, status, incorporated, officers (name, role) · `sanctions_search(name)` |
+| KYC & Registry | `get_parties()` → applicant name and UEN, guarantor and signatory names (no id numbers), and the seller, buyer, shipper and consignee of each invoice, PO and bill of lading (UEN where extracted), each with its doc_id · `registry_lookup(uen? \| name?)` → name, status, incorporated, officers (name, role) · `sanctions_search(name)` |
 | Timeline | `get_timeline(ref?)` · `get_incorporation()` |
 | All specialists | `record_lead(...)` · `draft_question(text, cites)` |
 

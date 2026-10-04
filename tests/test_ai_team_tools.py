@@ -61,6 +61,11 @@ def retro_po_result() -> CaseResult:
     return _assess("retro_po")
 
 
+@pytest.fixture(scope="module")
+def related_party_result() -> CaseResult:
+    return _assess("related_party")
+
+
 @pytest.fixture
 def clean(clean_result: CaseResult) -> CaseData:
     return _data(clean_result)
@@ -124,7 +129,8 @@ def test_each_agent_sees_only_its_tools() -> None:
     assert _names("forensics") == {"get_page_text", "get_forensic_facts", "record_lead", "draft_question"}
     assert _names("transaction") == {"get_chain", "search_bank_transactions", "get_document_fields",
                                      "record_lead", "draft_question"}
-    assert _names("kyc") == {"registry_lookup", "sanctions_search", "record_lead", "draft_question"}
+    assert _names("kyc") == {"get_parties", "registry_lookup", "sanctions_search", "record_lead",
+                             "draft_question"}
     assert _names("timeline") == {"get_timeline", "get_incorporation", "record_lead", "draft_question"}
     assert "get_score" not in _names("transaction") and "get_page_text" not in _names("supervisor")
     assert set(TOOLSETS) == set(TITLES)
@@ -357,31 +363,67 @@ def test_chain_and_document_fields(tampered: CaseData) -> None:
         assert _error("transaction", "get_document_fields", {"doc_id": doc_id}, tampered)
 
 
+def _rows(args: dict[str, Any], case: CaseData) -> list[dict[str, Any]]:
+    """The rows of a bank search that shows them all."""
+    found = _run("transaction", "search_bank_transactions", args, case)
+    assert found["more"] == 0, found
+    return found["rows"]
+
+
 def test_search_and_registry(clean: CaseData) -> None:
-    rows = _run("transaction", "search_bank_transactions", {"amount": 18530}, clean)
+    rows = _rows({"amount": 18530}, clean)
     assert [(r["date"], r["credit"]) for r in rows] == [("2026-07-12", "18530.00")]
     assert "BAYVIEW" in rows[0]["description"] and rows[0]["debit"] is None
     assert set(rows[0]) == {"doc_id", "page", "date", "description", "debit", "credit"}
 
     near = {"amount": 18000, "tolerance_pct": 5}
-    assert len(_run("transaction", "search_bank_transactions", near, clean)) == 1
-    assert _run("transaction", "search_bank_transactions", {"amount": 18000}, clean) == []  # 1% default
+    assert len(_rows(near, clean)) == 1
+    assert _rows({"amount": 18000}, clean) == []  # 1% default
 
-    by_text = _run("transaction", "search_bank_transactions", {"text": "bayview"}, clean)
+    by_text = _rows({"text": "bayview"}, clean)
     assert by_text and all("BAYVIEW" in r["description"] for r in by_text)
     window = {"date_from": "2026-07-01", "date_to": "2026-07-31"}
-    in_july = _run("transaction", "search_bank_transactions", window, clean)
+    in_july = _rows(window, clean)
     assert in_july and all("2026-07-01" <= r["date"] <= "2026-07-31" for r in in_july)
 
     every = [t for s in clean.pack.bank_statements for t in s.transactions]
-    assert len(every) > 0 and len(_run("transaction", "search_bank_transactions", {"text": ""}, clean)) == len(every)
+    assert len(every) > 0 and len(_rows({"text": ""}, clean)) == len(every)
 
 
-def test_search_returns_at_most_20_rows(clean: CaseData) -> None:
+def test_search_shows_at_most_20_rows_and_says_how_many_more(clean: CaseData, roomy: None) -> None:
     statement = clean.pack.bank_statements[0]
     padded = statement.model_copy(update={"transactions": statement.transactions * 30})
     case = replace(clean, pack=clean.pack.model_copy(update={"bank_statements": [padded]}))
-    assert len(_run("transaction", "search_bank_transactions", {"text": ""}, case)) == 20
+    ledger = Ledger()
+    found = _run("transaction", "search_bank_transactions", {"text": ""}, case, ledger)
+    total = len(padded.transactions)
+    assert len(found["rows"]) == 20 and found["more"] == total - 20
+    assert ledger.tool_calls[0].summary == f"text=: 20 rows, {total - 20} more"
+
+
+def test_parties_let_kyc_find_a_shared_officer(related_party_result: CaseResult, roomy: None) -> None:
+    case = _data(related_party_result)
+    parties = _run("kyc", "get_parties", {}, case)
+    applicant = parties["applicant"]
+    assert (applicant["name"], applicant["uen"]) == ("Lumen Harbour Trading Pte. Ltd.", "202301234K")
+    assert applicant["guarantors"] == ["Tan Wei Ming", "Daniel Brooks"]
+    assert applicant["signatories"] == ["Tan Wei Ming"]
+    raw = [g.id_number for g in case.pack.manifest.guarantors] if case.pack.manifest else []
+    assert raw and not any(r in json.dumps(parties) or mask_id(r) in json.dumps(parties) for r in raw)
+
+    counterparties = parties["counterparties"]
+    assert all(set(p) == {"doc_id", "role", "name", "uen"} for p in counterparties)
+    assert {p["role"] for p in counterparties} == {"seller", "buyer", "shipper", "consignee"}
+    assert {p["doc_id"] for p in counterparties} <= {d.doc_id for d in case.pack.docs}
+    seabright = [p for p in counterparties if p["name"] == "Seabright Provisions Pte. Ltd."]
+    assert seabright and {p["role"] for p in seabright} >= {"buyer"}
+    assert all(p["uen"] for p in counterparties if p["role"] == "seller")
+
+    officers = _run("kyc", "registry_lookup", {"name": seabright[0]["name"]}, case)["officers"]
+    assert {"name": "Daniel Brooks", "role": "Director"} in officers
+    assert "Daniel Brooks" in applicant["guarantors"]  # the shared person KYC can now see
+
+    assert _run("supervisor", "get_case_overview", {}, case)["parties"] == parties  # so it can brief KYC
 
 
 def test_registry_and_sanctions_lookups(clean: CaseData) -> None:

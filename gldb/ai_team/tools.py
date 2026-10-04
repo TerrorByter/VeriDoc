@@ -23,7 +23,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, TypeVar, get_args
 
-from gldb.checks import FORM_DOC_TYPES, incorporation
+from gldb.checks import FORM_DOC_TYPES, PACK_DOC, incorporation
 from gldb.config import AGENT_MAX_RESULT_CHARS, AGENT_TOKEN_BUDGET, SCREENING_MATCH_THRESHOLD
 from gldb.intake import model_view
 from gldb.llm_client import tool_spec
@@ -163,11 +163,35 @@ def _findings(case: CaseData, doc_id: str | None = None) -> list[dict[str, Any]]
     ]
 
 
+def _party(doc_id: str, role: str, name: str, uen: str | None = None) -> dict[str, Any]:
+    return {"doc_id": doc_id, "role": role, "name": name, "uen": uen}
+
+
+def _parties(case: CaseData, args: Args, agent: AgentName, ledger: Ledger) -> Any:
+    """Who is in the case: the applicant (with its guarantors' and signatories'
+    names, never their id numbers) and each trade document's parties."""
+    pack, manifest = case.pack, case.pack.manifest
+    applicant = None if manifest is None else {
+        "doc_id": PACK_DOC, "name": manifest.company_name, "uen": manifest.uen,
+        "guarantors": [g.name for g in manifest.guarantors], "signatories": manifest.authorised_signatories,
+    }
+    counterparties = [
+        *(p for i in pack.invoices for p in (_party(i.doc_id, "seller", i.seller_name, i.seller_uen),
+                                             _party(i.doc_id, "buyer", i.buyer_name))),
+        *(p for o in pack.purchase_orders for p in (_party(o.doc_id, "buyer", o.buyer_name),
+                                                    _party(o.doc_id, "seller", o.seller_name, o.seller_uen))),
+        *(p for b in pack.bills_of_lading for p in (_party(b.doc_id, "shipper", b.shipper_name),
+                                                    _party(b.doc_id, "consignee", b.consignee_name))),
+    ]
+    return {"applicant": applicant, "counterparties": counterparties}
+
+
 def _case_overview(case: CaseData, args: Args, agent: AgentName, ledger: Ledger) -> Any:
     pack = case.pack
     return {
         "documents": [{"doc_id": d.doc_id, "doc_type": d.doc_type, "page_count": d.page_count}
                       for d in pack.docs],
+        "parties": _parties(case, args, agent, ledger),
         "findings": _findings(case),
         "chain_breaks": [{"invoice": c.invoice_number, **s.model_dump(mode="json")}
                          for c in build_chains(pack, case.evidence)
@@ -236,7 +260,7 @@ def _search_bank_transactions(case: CaseData, args: Args, agent: AgentName, ledg
         and (end is None or txn.date <= end)
         and (text is None or text.lower() in txn.description.lower())
     ]
-    return rows[:_MAX_ROWS]
+    return {"rows": rows[:_MAX_ROWS], "more": max(len(rows) - _MAX_ROWS, 0)}
 
 
 def _document_fields(case: CaseData, args: Args, agent: AgentName, ledger: Ledger) -> Any:
@@ -326,9 +350,9 @@ _CITES = {"type": "array", "items": {"type": "string"},
 
 TOOLS: dict[str, Tool] = {
     "get_case_overview": Tool(
-        "The case at a glance: documents, the risky findings (id, check, severity, document, page, "
-        "explanation, expected, observed), broken transaction chains, dated anomalies, and documents "
-        "quarantined by the prompt screen.",
+        "The case at a glance: documents, the parties (as get_parties gives them), the risky findings (id, "
+        "check, severity, document, page, explanation, expected, observed), broken transaction chains, dated "
+        "anomalies, and documents quarantined by the prompt screen.",
         _schema(), _case_overview),
     "get_score": Tool(
         "The rule-based risk score, its band, the signals behind it and the review path. Read-only: "
@@ -348,7 +372,8 @@ TOOLS: dict[str, Tool] = {
         "of each step.",
         _schema({"invoice_number": _string("Invoice number, e.g. INV-1002")}, "invoice_number"), _chain),
     "search_bank_transactions": Tool(
-        f"Search the bank statements; give at least one filter. Returns up to {_MAX_ROWS} transactions.",
+        f"Search the bank statements; give at least one filter. Returns up to {_MAX_ROWS} transactions as "
+        "rows, and in more how many others matched: narrow the filters to see them.",
         _schema({
             "amount": {"type": "number", "description": "A debit or credit near this SGD amount"},
             "tolerance_pct": {"type": "number",
@@ -357,10 +382,16 @@ TOOLS: dict[str, Tool] = {
             "date_to": _string("Latest date, YYYY-MM-DD"),
             "text": _string("Case-insensitive text in the description"),
         }),
-        _search_bank_transactions),
+        _search_bank_transactions,
+        lambda a, d: f"{_args_summary(a, d)}: {len(d['rows'])} rows, {d['more']} more"),
     "get_document_fields": Tool(
         "The extracted fields of an invoice, purchase order or bill of lading.",
         _schema({"doc_id": _DOC_ID}, "doc_id"), _document_fields),
+    "get_parties": Tool(
+        "Who is in the case: the applicant's name and UEN with its guarantors' and signatories' names, and "
+        "the seller, buyer, shipper and consignee of each invoice, purchase order and bill of lading (with "
+        "the UEN where the document gives one), each with its document id.",
+        _schema(), _parties),
     "registry_lookup": Tool(
         "Look a company up in the company register by UEN or by name: status, incorporation date, officers.",
         _schema({"uen": _string("Company UEN"), "name": _string("Company name (closest match)")}),
@@ -399,7 +430,7 @@ TOOLSETS: dict[AgentName, tuple[str, ...]] = {
     "forensics": ("get_page_text", "get_forensic_facts", "record_lead", "draft_question"),
     "transaction": ("get_chain", "search_bank_transactions", "get_document_fields", "record_lead",
                     "draft_question"),
-    "kyc": ("registry_lookup", "sanctions_search", "record_lead", "draft_question"),
+    "kyc": ("get_parties", "registry_lookup", "sanctions_search", "record_lead", "draft_question"),
     "timeline": ("get_timeline", "get_incorporation", "record_lead", "draft_question"),
 }
 

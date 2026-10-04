@@ -150,6 +150,35 @@ def test_prompt_versions_cover_the_tools_each_agent_is_given(monkeypatch: pytest
     assert prompts.version(prompts.SUPERVISOR_MEMO, "supervisor", "submit_memo") != PROMPT_VERSIONS["supervisor_memo"]
 
 
+def test_every_specialist_records_leads_only_for_inconsistencies_and_verdicts() -> None:
+    for prompt in SPECIALIST.values():
+        assert ("Record a lead only for an inconsistency or a triage verdict on a finding; never record a "
+                "confirmation that something is in order.") in prompt
+
+
+def test_each_specialist_is_told_how_to_look() -> None:
+    transaction, kyc, timeline = SPECIALIST["transaction"], SPECIALIST["kyc"], SPECIALIST["timeline"]
+    assert "find its payment with search_bank_transactions (by amount, from the invoice date)" in transaction
+    assert "compare who paid with the invoice's buyer" in transaction
+    assert "several credits that add up to an invoice's total, none matching it alone (split_payment)" in transaction
+    assert "money paid out that comes back from the same counterparty (round_trip)" in transaction
+    assert ("Compare the officers of each counterparty in the register with the applicant's directors, "
+            "guarantors and signatories (get_parties)") in kyc
+    assert "purchase order, then shipment, then invoice" in timeline
+    assert "an invoice issued days after shipment is normal" in timeline
+    assert "a date before incorporation" in timeline
+    # Each procedure is its own specialist's: no other prompt carries another's
+    assert "compare who paid" not in kyc + timeline + SPECIALIST["forensics"]
+    assert "Compare the officers" not in transaction + timeline + SPECIALIST["forensics"]
+    assert "then shipment, then invoice" not in transaction + kyc + SPECIALIST["forensics"]
+
+
+def test_the_supervisor_prompts_cover_the_empty_memo_and_the_case_index() -> None:
+    assert "Always call submit_memo; if there are no leads, call it with empty lists." in prompts.SUPERVISOR_MEMO
+    assert "appends a case index to every brief automatically" in prompts.SUPERVISOR_PLAN
+    assert "need not list files" in prompts.SUPERVISOR_PLAN
+
+
 def test_hub_and_spoke_isolation(clean: CaseData) -> None:
     fake = ScriptedBedrock({
         "plan": _plan(),

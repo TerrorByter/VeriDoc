@@ -45,7 +45,7 @@ Edit `.env`. `.env` is gitignored and must never be committed. Each teammate nee
 1. Install the CLI (`brew install awscli`) and save an IAM user's keys as a profile: `aws configure --profile gldb` (region `ap-southeast-1`). The keys live in `~/.aws/credentials`, never in the project.
 2. The IAM user needs `bedrock:InvokeModel` and `textract:DetectDocumentText` (Resource `*`). Textract also has to be activated once for the account.
 3. In `.env`, set `AWS_PROFILE=gldb`, `AWS_REGION` and `BEDROCK_MODEL_ID` (a model ID, inference profile ID or inference profile ARN from the Bedrock console).
-4. Turn features on: `EXTRACTION_MODE=llm` (Bedrock extraction), `OCR_ENABLED=true` (Textract for scans), `SEMANTIC_REVIEW_ENABLED=true` (Semantic Review Agent). Restart the backend after editing `.env`.
+4. Turn features on: `EXTRACTION_MODE=llm` (Bedrock extraction), `OCR_ENABLED=true` (Textract for scans), `AGENTS_ENABLED=true` (AI agent team on Bedrock). Restart the backend after editing `.env`.
 
 Check the connection with `aws sts get-caller-identity --profile gldb`, then the live tests below.
 
@@ -55,7 +55,7 @@ Check the connection with `aws sts get-caller-identity --profile gldb`, then the
 pytest
 ```
 
-Tests do not call AWS by default. To run the live AWS smoke tests (one Bedrock call, one forced-schema call, one Textract call):
+Tests do not call AWS by default. To run the live AWS smoke tests (one Bedrock call, one forced-schema call, one Textract call, and one full AI team run on the `third_party_payment` pack, about US$0.10-0.30):
 
 ```bash
 RUN_LIVE=1 pytest tests/test_live_aws.py -v
@@ -67,6 +67,12 @@ To score the extractor against the ground truth of every pack in `data/packs/`:
 python -m gldb.evaluate                        # deterministic parser
 EXTRACTION_MODE=llm python -m gldb.evaluate    # Bedrock (about 30 small calls)
 python -m gldb.evaluate --save                 # also keep the report for the UI's controls page
+```
+
+To score the AI team (champion vs challenger) on the same packs:
+
+```bash
+python -m gldb.agent_eval [--save]             # Bedrock, whatever AGENTS_ENABLED says; about US$1-3 per run
 ```
 
 ### 6. Run the app
@@ -101,7 +107,13 @@ gldb/               Core package
   scoring.py        Rule-based risk score (LLMs never touch the score)
   audit.py          Append-only JSONL audit log
   pipeline.py       run(case_id, file_paths) -> CaseResult
-  semantic_review.py  Semantic Review Agent: LLM synthesis over verified facts, grounding-checked
+  ai_team/          AI agent team: a Supervisor and four specialists on Bedrock
+    tools.py        The tools the agents call, and the ledger of what they received
+    loop.py         One agent's tool-use loop (step and token limits)
+    verify.py       Deterministic gate: withholds leads and memo points that are ungrounded or give a verdict
+    prompts.py      Supervisor and specialist prompts, with their versions
+    team.py         run_team(): plan, fan out, verify leads, reconcile into a memo
+  agent_eval.py     Champion vs challenger evaluation of the AI team on the packs
   api.py            FastAPI app used by the frontend
   jobs.py           Progress of background pipeline runs, for the live run screen
   ocr.py            Textract OCR for scanned PDFs

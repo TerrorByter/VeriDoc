@@ -57,16 +57,20 @@ def _search() -> list[dict[str, Any]]:
     return [use("search_bank_transactions", text="INV")]
 
 
+def _test(cites: list[str]) -> dict[str, Any]:
+    return {"cites": cites, "expected": "one credit of the invoice total", "observed": "several smaller credits"}
+
+
 def _lead(cites: list[str], **fields: Any) -> list[dict[str, Any]]:
-    args = {"kind": "pattern", "pattern": "split_payment", "title": "Invoice settled by several credits",
-            "detail": "Several smaller credits appear to settle one invoice.", "cites": cites, **fields}
+    args = {"kind": "pattern", "pattern": "split_payment", "hypothesis": "An invoice was settled by several credits",
+            "tests": [_test(cites)], "status": "supported", **fields}
     return [use("record_lead", **args)]
 
 
-def _triage(cites: list[str], finding: str, verdict: str) -> list[dict[str, Any]]:
-    return [use("record_lead", kind="triage", title="Payment differs from the invoice",
-                detail="The credits do not match the invoice amount.", cites=cites, finding_ids=[finding],
-                verdict=verdict)]
+def _triage(cites: list[str], finding: str, status: str) -> list[dict[str, Any]]:
+    return [use("record_lead", kind="triage", hypothesis="The payment differs from the invoice",
+                tests=[_test(cites)], finding_ids=[finding], status=status,
+                missing_evidence=["the remitter's statement"])]
 
 
 def _pack(status: str = "ran") -> AgentPackResult:
@@ -90,7 +94,7 @@ def test_metrics_count_recall_noise_and_withheld(monkeypatch: pytest.MonkeyPatch
         _search(), _lead(["R01"]), DONE,
         # third_party_payment: the planted lead, and one that names a verdict, so is withheld
         _search(), _lead(["R01"], pattern="third_party_payment"),
-        _lead(["R01"], pattern="round_trip", title="Possible fraud on the invoice"), DONE,
+        _lead(["R01"], pattern="round_trip", hypothesis="Possible fraud on the invoice"), DONE,
     ])
 
     row = agent_eval.evaluate_team(MODELS, packs)
@@ -113,9 +117,19 @@ def test_metrics_count_recall_noise_and_withheld(monkeypatch: pytest.MonkeyPatch
     assert row.evaluated_at
 
 
-@pytest.mark.parametrize(("verdict", "correct"), [("possibly_innocent", 1), ("corroborated", 0)])
-def test_triage_is_correct_only_for_the_expected_verdict_on_the_expected_check(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, verdict: str, correct: int
+def test_a_clear_check_is_neither_a_found_pattern_nor_noise(monkeypatch: pytest.MonkeyPatch,
+                                                              tmp_path: Path) -> None:
+    same = {"cites": ["R01"], "expected": "paid by the buyer", "observed": "paid by the buyer"}
+    _script(monkeypatch, [_search(), _lead(["R01"], tests=[same], status="refuted"), DONE])
+
+    (clean,) = agent_eval.evaluate_team(MODELS, _packs(tmp_path, "clean")).packs
+
+    assert (clean.found_leads, clean.noise, clean.withheld, clean.leads) == ([], 0, 0, 1)
+
+
+@pytest.mark.parametrize(("status", "correct"), [("refuted", 1), ("supported", 0)])
+def test_triage_is_correct_only_for_the_expected_status_on_the_expected_check(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, status: str, correct: int
 ) -> None:
     packs = _packs(tmp_path, "innocent_split")
     folder = packs / "innocent_split"
@@ -124,7 +138,7 @@ def test_triage_is_correct_only_for_the_expected_verdict_on_the_expected_check(
         for e in assess("innocent_split", sorted(folder.glob("*.pdf")), load_manifest(folder), team=None).evidence
         if e.check_id == "XDOC_INVOICE_BANK" and e.severity != "info"
     )
-    _script(monkeypatch, [_search(), _triage(["R01"], finding, verdict), DONE])
+    _script(monkeypatch, [_search(), _triage(["R01"], finding, status), DONE])
 
     row = agent_eval.evaluate_team(MODELS, packs)
 

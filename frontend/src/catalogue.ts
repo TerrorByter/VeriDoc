@@ -1,4 +1,6 @@
-import type { AgentName, CaseStatus, Pattern, RailStageId, ReviewPath, SpecialistName, StageId, Verdict } from "./types";
+import type {
+  AgentName, CaseStatus, Lead, LeadStatus, Pattern, RailStageId, ReviewPath, SpecialistName, StageId, Strength,
+} from "./types";
 
 export type StageGroup = "Read" | "Check" | "Decide" | "Explain" | "Record";
 export type Service = "Textract" | "Guardrails" | "Bedrock";
@@ -89,10 +91,15 @@ export const AGENT_TITLE: Record<AgentName, string> = {
   timeline: "Timeline specialist",
 };
 
-export const VERDICT_LABEL: Record<Verdict, string> = {
-  corroborated: "Corroborated",
-  possibly_innocent: "Possibly innocent",
-  unclear: "Unclear",
+/** A lead's status as the analyst reads it: triage judges a finding, a pattern lead reports a hunt */
+export const LEAD_STATUS_LABEL: Record<Lead["kind"], Record<LeadStatus, string>> = {
+  triage: { supported: "Finding stands", refuted: "Ordinary explanation", unresolved: "Unresolved" },
+  pattern: { supported: "Pattern found", refuted: "Checked, clear", unresolved: "Unresolved" },
+};
+
+export const STRENGTH_LABEL: Record<Strength, { label: string; title: string }> = {
+  corroborated: { label: "Corroborated", title: "A rule finding, backed by the AI's cited evidence" },
+  unverified: { label: "Unverified", title: "No code check of this pattern yet: cited evidence only" },
 };
 
 export const PATTERN_LABEL: Record<Pattern, string> = {

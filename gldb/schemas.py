@@ -18,7 +18,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, BeforeValidator, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, Field, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -577,8 +577,13 @@ class ReviewPoint(BaseModel):
 AgentName = Literal["supervisor", "forensics", "transaction", "kyc", "timeline"]
 #: Specialists that investigate: not the supervisor
 SpecialistName = Literal["forensics", "transaction", "kyc", "timeline"]
-#: Verdict on a lead
-Verdict = Literal["corroborated", "possibly_innocent", "unclear"]
+#: What a lead's tests show, as its specialist proposes it. Triage: the finding
+#: stands / has an ordinary explanation / is not settled. Pattern: found /
+#: checked and clear / not settled.
+LeadStatus = Literal["supported", "refuted", "unresolved"]
+#: How strong a kept, supported lead's evidence is: assigned by the verifier's
+#: code, never by a model (see gldb.ai_team.verify.strength)
+Strength = Literal["corroborated", "unverified"]
 #: Fraud pattern families
 Pattern = Literal[
     "third_party_payment",
@@ -604,25 +609,58 @@ class ToolCall(BaseModel):
     error: bool = False
 
 
+class LeadTest(BaseModel):
+    """One test behind a lead: what the documents say should hold, and what
+    the cited tool results show."""
+
+    #: The tool results (R…) the test rests on: its agent's own recorded calls
+    cites: list[str]
+    expected: str
+    observed: str
+
+
+#: A stored lead's verdict (before the lead contract) -> its status
+_LEGACY_STATUS: dict[str | None, LeadStatus] = {
+    "corroborated": "supported", "possibly_innocent": "refuted", "unclear": "unresolved", None: "supported",
+}
+
+
 class Lead(BaseModel):
     #: L01…, assigned when recorded
     lead_id: str = ""
     agent: SpecialistName
-    #: triage: a judgement on a risky finding; pattern: a gap-hunt hit
+    #: triage: a judgement on risky findings; pattern: a gap-hunt for one of the specialist's patterns
     kind: Literal["triage", "pattern"]
     #: The findings (E…) a triage lead judges
     finding_ids: list[str] = []
-    #: Set for triage leads only
-    verdict: Verdict | None = None
     #: Set for pattern leads
     pattern: Pattern | None = None
-    title: str
-    detail: str
-    #: The tool results (R…) the lead rests on
-    cites: list[str]
+    #: The claim tested, e.g. "INV-1002 was paid by someone other than its buyer"
+    hypothesis: str
+    tests: list[LeadTest]
+    status: LeadStatus
+    #: What would settle an unresolved lead
+    missing_evidence: list[str] = []
     #: Set by the verifier; withheld leads stay on the record with the reason
     outcome: Literal["kept", "withheld"] = "kept"
     withheld_reason: str | None = None
+    #: Set by the verifier for a kept, supported lead
+    strength: Strength | None = None
+
+    @property
+    def cites(self) -> list[str]:
+        """Every tool result (R…) the lead's tests rest on, in order."""
+        return list(dict.fromkeys(c for test in self.tests for c in test.cites))
+
+    @model_validator(mode="before")
+    @classmethod
+    def _stored_before_the_contract(cls, data: Any) -> Any:
+        """A lead saved before the lead contract (title, detail, cites, verdict)
+        still loads: its detail becomes its one test's observation."""
+        if not isinstance(data, dict) or "hypothesis" in data or "title" not in data:
+            return data
+        return {**data, "hypothesis": data["title"], "status": _LEGACY_STATUS.get(data.get("verdict"), "unresolved"),
+                "tests": [{"cites": data.get("cites", []), "expected": "", "observed": data.get("detail", "")}]}
 
 
 class Memo(BaseModel):

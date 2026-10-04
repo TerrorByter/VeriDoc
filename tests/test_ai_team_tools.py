@@ -117,6 +117,14 @@ def _error(agent: AgentName, name: str, args: dict[str, Any], case: CaseData,
     return json.loads(_payload(text))["error"]
 
 
+def _lead_args(kind: str = "pattern", pattern: str = "third_party_payment", **fields: Any) -> dict[str, Any]:
+    """record_lead arguments under the lead contract; a pattern only for a pattern lead."""
+    test = {"cites": ["R01"], "expected": "payer: Bayview Marine Supplies", "observed": "payer: HARBOURLINE LOGISTICS"}
+    return {"kind": kind, **({"pattern": pattern} if kind == "pattern" else {}),
+            "hypothesis": "INV-1002 was paid by someone other than its buyer", "tests": [test],
+            "status": "supported", **fields}
+
+
 def _names(agent: AgentName, finish: str | None = None) -> set[str]:
     return {s["toolSpec"]["name"] for s in specs_for(agent, finish)}
 
@@ -189,18 +197,30 @@ def test_an_unknown_document_error_lists_the_valid_ids(clean: CaseData) -> None:
 
 def test_lead_fields_the_model_may_not_set_or_get_wrong_are_refused(clean: CaseData) -> None:
     ledger = Ledger()
-    lead = {"kind": "pattern", "pattern": "related_party", "title": "t", "detail": "d", "cites": ["R01"]}
-    assert _error("kyc", "record_lead", {**lead, "outcome": "kept"}, clean, ledger)
-    assert _error("kyc", "record_lead", {**lead, "lead_id": "L99"}, clean, ledger)
+    lead = _lead_args(pattern="related_party")
+    for key, value in (("outcome", "kept"), ("lead_id", "L99"), ("strength", "corroborated"), ("cites", ["R01"])):
+        assert _error("kyc", "record_lead", {**lead, key: value}, clean, ledger) == f"unknown argument: {key}"
     assert ledger.leads == []
 
 
+def test_each_test_of_a_lead_is_checked_against_its_schema(clean: CaseData) -> None:
+    lead = _lead_args(pattern="related_party")
+    test = lead["tests"][0]
+    assert _error("kyc", "record_lead", {**lead, "tests": ["R01"]}, clean) == "tests must be a list of objects"
+    assert _error("kyc", "record_lead", {**lead, "tests": [test, {"cites": ["R01"], "expected": "a"}]}, clean) == \
+        "tests[1]: missing argument: observed"
+    assert _error("kyc", "record_lead", {**lead, "tests": [{**test, "result": "ok"}]}, clean) == \
+        "tests[0]: unknown argument: result"
+    assert _error("kyc", "record_lead", {**lead, "tests": [{**test, "cites": "R01"}]}, clean) == \
+        "tests[0]: cites must be a list of strings"
+
+
 def test_a_value_outside_an_enum_names_the_allowed_ones(tampered: CaseData) -> None:
-    lead = {"kind": "triage", "title": "t", "detail": "d", "cites": ["R01"]}
+    lead = _lead_args(kind="triage")
     assert _error("kyc", "record_lead", {**lead, "kind": "gossip"}, tampered) == \
         "kind must be one of: triage, pattern"
-    assert _error("kyc", "record_lead", {**lead, "verdict": "guilty"}, tampered) == \
-        "verdict must be one of: corroborated, possibly_innocent, unclear"
+    assert _error("kyc", "record_lead", {**lead, "status": "guilty"}, tampered) == \
+        "status must be one of: supported, refuted, unresolved"
     assert _error("kyc", "record_lead", {**lead, "pattern": "made_up"}, tampered) == \
         "pattern must be one of: related_party, business_mismatch"
     assert _error("kyc", "record_lead", {**lead, "kind": 5}, tampered) == "kind must be a string"
@@ -209,11 +229,11 @@ def test_a_value_outside_an_enum_names_the_allowed_ones(tampered: CaseData) -> N
 def test_a_validation_error_comes_back_as_plain_field_messages(clean: CaseData,
                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
     def invalid(*_: Any) -> Any:
-        return Lead.model_validate({"agent": "kyc", "kind": "gossip", "title": "t", "cites": []})
+        return Lead.model_validate({"agent": "kyc", "kind": "gossip", "hypothesis": "h", "tests": []})
 
     monkeypatch.setitem(TOOLS, "get_score", replace(TOOLS["get_score"], fn=invalid))
     message = _error("supervisor", "get_score", {}, clean)
-    assert message == "kind: Input should be 'triage' or 'pattern'; detail: Field required"
+    assert message == "kind: Input should be 'triage' or 'pattern'; status: Field required"
 
 
 # ---------------------------------------------------------------------------
@@ -547,16 +567,16 @@ def test_timeline_and_incorporation(retro_po: CaseData) -> None:
 
 def test_record_lead_assigns_ids(tampered: CaseData) -> None:
     ledger = Ledger()
-    lead = {"kind": "pattern", "pattern": "third_party_payment", "title": "Paid by a non-buyer",
-            "detail": "SGD 18,530.00 credit", "cites": ["R01"]}
+    lead = _lead_args()
     assert _run("transaction", "record_lead", lead, tampered, ledger) == {"lead_id": "L01"}
-    triage = {"kind": "triage", "title": "t", "detail": "d", "cites": ["R01"], "finding_ids": ["E01"],
-              "verdict": "unclear"}
+    triage = _lead_args(kind="triage", finding_ids=["E01"], status="unresolved", missing_evidence=["remitter"])
     assert _run("kyc", "record_lead", triage, tampered, ledger) == {"lead_id": "L02"}
     assert [(x.lead_id, x.agent, x.kind) for x in ledger.leads] == \
         [("L01", "transaction", "pattern"), ("L02", "kyc", "triage")]
     assert ledger.leads[0].pattern == "third_party_payment" and ledger.leads[0].outcome == "kept"
-    assert ledger.leads[1].finding_ids == ["E01"] and ledger.leads[1].verdict == "unclear"
+    assert ledger.leads[0].tests[0].observed == "payer: HARBOURLINE LOGISTICS" and ledger.leads[0].cites == ["R01"]
+    assert ledger.leads[1].finding_ids == ["E01"] and ledger.leads[1].status == "unresolved"
+    assert ledger.leads[1].missing_evidence == ["remitter"]
     assert [c.tool for c in ledger.tool_calls] == ["record_lead", "record_lead"]
 
 
@@ -583,8 +603,7 @@ def test_citable_is_each_agents_successful_evidence_calls(clean: CaseData) -> No
     ledger = Ledger()
     call_tool("kyc", "registry_lookup", {"uen": "202301234K"}, clean, ledger)  # R01 evidence
     call_tool("kyc", "registry_lookup", {}, clean, ledger)  # R02 error
-    call_tool("kyc", "record_lead", {"kind": "pattern", "pattern": "related_party", "title": "t",
-                                     "detail": "d", "cites": ["R01"]}, clean, ledger)  # R03 receipt
+    call_tool("kyc", "record_lead", _lead_args(pattern="related_party"), clean, ledger)  # R03 receipt
     call_tool("kyc", "draft_question", {"text": "q", "cites": ["R01"]}, clean, ledger)  # R04 receipt
     call_tool("timeline", "get_incorporation", {}, clean, ledger)  # R05 another agent's
     assert ledger.citable("kyc") == {"R01"}
@@ -597,7 +616,7 @@ def test_ledger_numbers_calls_safely_across_threads() -> None:
 
     def work(i: int) -> tuple[str, str]:
         call_id = ledger.call("kyc", "registry_lookup", {"i": i}, "s", f"r{i}", 1, False)
-        lead_id = ledger.add_lead(Lead(agent="kyc", kind="triage", title="t", detail="d", cites=[]))
+        lead_id = ledger.add_lead(Lead(agent="kyc", kind="triage", hypothesis="h", tests=[], status="refuted"))
         return call_id, lead_id
 
     with ThreadPoolExecutor(8) as pool:
@@ -673,23 +692,25 @@ def test_a_specialist_is_offered_only_its_own_patterns(clean: CaseData) -> None:
     for agent in ("forensics", "transaction", "kyc", "timeline"):
         pattern = _schemas(agent, clean)["record_lead"]["properties"]["pattern"]
         assert set(pattern["enum"]) == tools.PATTERNS[agent]
-    lead = {"kind": "pattern", "pattern": "third_party_payment", "title": "t", "detail": "d", "cites": ["R01"]}
-    assert _error("kyc", "record_lead", lead, clean) == "pattern must be one of: related_party, business_mismatch"
+    assert _error("kyc", "record_lead", _lead_args(), clean) == \
+        "pattern must be one of: related_party, business_mismatch"
 
 
 def test_triage_is_offered_only_on_the_cases_risky_findings(tampered: CaseData) -> None:
     risky = [e.evidence_id for e in tampered.evidence if e.severity != "info"]
     lead = _schemas("kyc", tampered)["record_lead"]["properties"]
     assert risky and lead["finding_ids"]["items"]["enum"] == risky
-    assert lead["kind"]["enum"] == ["triage", "pattern"] and "enum" in lead["verdict"]
-    triage = {"kind": "triage", "title": "t", "detail": "d", "cites": ["R01"], "verdict": "unclear"}
+    assert lead["kind"]["enum"] == ["triage", "pattern"]
+    assert lead["status"]["enum"] == ["supported", "refuted", "unresolved"]
+    triage = _lead_args(kind="triage")
     assert _error("kyc", "record_lead", {**triage, "finding_ids": [risky[0], "E99"]}, tampered) == \
         f"finding_ids must be one of: {', '.join(risky)}"
 
     quiet = replace(tampered, evidence=[e for e in tampered.evidence if e.severity == "info"])
     lead = _schemas("kyc", quiet)["record_lead"]["properties"]
-    assert lead["kind"]["enum"] == ["pattern"] and "finding_ids" not in lead and "verdict" not in lead
-    assert _error("kyc", "record_lead", {**triage, "kind": "pattern"}, quiet) == "unknown argument: verdict"
+    assert lead["kind"]["enum"] == ["pattern"] and "finding_ids" not in lead
+    assert _error("kyc", "record_lead", {**triage, "kind": "pattern", "finding_ids": [risky[0]]}, quiet) == \
+        "unknown argument: finding_ids"
 
 
 def test_registry_uens_are_the_parties_uens(clean: CaseData) -> None:

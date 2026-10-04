@@ -14,8 +14,8 @@ Principle (unchanged, extended): *AI investigates. Rules quantify. Humans decide
 
 ### What the team adds that rules cannot
 
-1. **Triage.** For each risky finding: is it corroborated, possibly innocent,
-   or unclear, with cited evidence. (Clearing false positives is the largest
+1. **Triage.** For each risky finding: does it stand (supported), is there an
+   ordinary explanation (refuted), or is it unresolved, with cited tests. (Clearing false positives is the largest
    cost in fraud/AML operations.)
 2. **Gap hunting.** Patterns no rule encodes: third-party payment, related
    parties, round-tripping, business-profile mismatch, narrative inconsistency.
@@ -140,10 +140,12 @@ only, so a lead has no route into the score. Enforced by a test: score and
 route are identical with the AI team on and off.
 
 ```
-Lead:        lead_id L01…, agent, kind ("triage"|"pattern"),
-             finding_ids (triage), verdict ("corroborated"|"possibly_innocent"|"unclear"),
-             pattern (pattern), title, detail, cites [R…], outcome ("kept"|"withheld"),
-             withheld_reason
+Lead:        lead_id L01…, agent, kind ("triage"|"pattern"), finding_ids (triage),
+             pattern (pattern), hypothesis, tests [{cites [R…], expected, observed}],
+             status ("supported"|"refuted"|"unresolved"), missing_evidence,
+             outcome ("kept"|"withheld"), withheld_reason,
+             strength ("corroborated"|"unverified", set by code); cites = its tests' R ids
+             (the InvestigationLead contract: target architecture spec, section 3)
 ToolCall:    call_id R01…, agent, tool, args, summary (short, masked), duration_ms
 AgentTeam:   status, plan {specialist: brief|None}, tool_calls, leads,
              memo {observations[ReviewPoint], questions[ReviewPoint]},  # cites E… and L… ids
@@ -168,11 +170,15 @@ AgentTeam:   status, plan {specialist: brief|None}, tool_calls, leads,
   ones) per specialist; `AGENT_MAX_RESULT_CHARS` per tool
   result; `AGENT_TOKEN_BUDGET` per case (team stops, records "budget reached").
 - **Masking:** tool results pass identifiers through `privacy.mask_id`.
-- **Verifier withholds a lead** that cites an unknown `R` id or finding, contains
-  numbers not present in its cited results/findings, uses verdict words (fraud,
-  crim*, launder, guilt, approv*, reject, declin*, recommend), or has a verdict
-  or pattern outside the allowed lists. Withheld leads stay visible with the
-  reason. (Logic moved from `semantic_review._grounded`.)
+- **Verifier withholds a lead** that has no tests or a test without citations,
+  cites an `R` id its agent did not receive or that is not evidence, cites an
+  unknown finding, has a pattern outside its specialist's list, is supported
+  with no test whose observed differs from its expected, is unresolved with no
+  missing evidence, uses verdict words (fraud, crim*, launder, guilt, approv*,
+  reject, declin*, recommend), or states a number not in what it cites (each
+  test: its own citations) or an identifier (INV-1001, BL-3002, a UEN) in
+  neither its citations nor the case index. Withheld leads stay visible with
+  the reason. Kept supported leads get a code-assigned strength.
 - **Isolation:** any exception in `ai_team` → status `failed` with reason;
   pipeline continues on rule findings.
 
@@ -207,9 +213,10 @@ tool-call count, leads kept/withheld, error, strict_tools. `model_ledger` covers
 - **Stage 5:** "Mandatory tools: rule sweep" (agent table + findings, unchanged)
   then "AI agent team": status line (models, time, cost, calls) · Supervisor
   plan cards · per-specialist trace tabs (tool, args, summary; page-text calls
-  link to the document pane) · leads (labelled "AI lead", kind, verdict pill,
-  cited `R` ids jump to the trace) · withheld leads (collapsed, with reasons) ·
-  memo.
+  link to the document pane) · leads (labelled "AI lead", kind, status pill,
+  strength; each test's expected and observed with its cited `R` ids jumping
+  to the trace) · clear checks (refuted, collapsed, never counted as flags) ·
+  withheld leads (collapsed, with reasons) · memo.
 - **Rail:** stage 5 count "findings · AI leads"; 10 stages.
 - **Stage 9:** "AI leads to review" under the rule tasks.
 - **Live run:** stage 5 row shows current activity ("Transaction specialist:
@@ -229,7 +236,7 @@ which proves the rules really are silent; only `agent_eval` scores the leads.
 | `third_party_payment` | Credit of the exact invoice amount from a non-buyer company | silent (rule matches amount + date only) | pattern `third_party_payment` |
 | `related_party` | Buyer's registered director = applicant's director (registry data) | silent | pattern `related_party` |
 | `round_trip` | Debit to a supplier returning days later as "customer receipts" of a similar amount | silent | pattern `round_trip` |
-| `innocent_split` | Invoice paid in two instalments | `XDOC_INVOICE_BANK` fires | triage `possibly_innocent` citing both credits; pattern `split_payment` |
+| `innocent_split` | Invoice paid in two instalments | `XDOC_INVOICE_BANK` fires | triage `refuted` (an ordinary explanation) citing both credits; pattern `split_payment` |
 
 Each pack's rule expectations are verified while implementing; if a rule fires
 unexpectedly, the pack is adjusted to test what it claims.
@@ -237,8 +244,9 @@ unexpectedly, the pack is adjusted to test what it claims.
 ## 12. Agent evaluation (champion vs challenger)
 
 `python -m gldb.agent_eval [--supervisor M] [--specialist M] [--save]` runs all
-packs with the team on. Metrics: pattern recall, triage accuracy, noise (kept
-leads matching nothing planted, notably on `clean`), withheld rate, cost and
+packs with the team on. Metrics: pattern recall and noise (kept supported
+pattern leads matching nothing planted, notably on `clean`; a clear check is
+neither), triage accuracy (status on the expected check), withheld rate, cost and
 time per case. `--save` appends a row keyed by model setup to
 `logs/agent_eval.json`; Controls shows champion (Sonnet 4.6 + Haiku 4.5) next to
 challenger (Sonnet 4.6 + Nova Pro). Estimated $1-3 per live setup; measured and

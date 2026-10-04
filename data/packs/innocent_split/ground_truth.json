@@ -17,7 +17,7 @@
   "expected_triage": [
     {
       "check_id": "XDOC_INVOICE_BANK",
-      "verdict": "possibly_innocent"
+      "status": "refuted"
     }
   ],
   "tampers": [],

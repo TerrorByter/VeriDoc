@@ -381,7 +381,7 @@ EXPECTED_AI_TRUTH = {
         [{"agent": "transaction", "pattern": "round_trip"}], []),
     "innocent_split": (
         [{"agent": "transaction", "pattern": "split_payment"}],
-        [{"check_id": "XDOC_INVOICE_BANK", "verdict": "possibly_innocent"}]),
+        [{"check_id": "XDOC_INVOICE_BANK", "status": "refuted"}]),
 }
 
 

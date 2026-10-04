@@ -63,8 +63,9 @@ def _plan() -> list[list[dict[str, Any]]]:
 
 
 def _lead(cites: list[str], **fields: Any) -> dict[str, Any]:
-    args = {"kind": "pattern", "pattern": "split_payment", "title": "Invoice settled by several credits",
-            "detail": "Several smaller credits appear to settle one invoice.", "cites": cites, **fields}
+    test = {"cites": cites, "expected": "one credit of the invoice total", "observed": "several smaller credits"}
+    args = {"kind": "pattern", "pattern": "split_payment", "hypothesis": "An invoice was settled by several credits",
+            "tests": [test], "status": "supported", **fields}
     return use("record_lead", **args)
 
 
@@ -150,10 +151,12 @@ def test_prompt_versions_cover_the_tools_each_agent_is_given(monkeypatch: pytest
     assert prompts.version(prompts.SUPERVISOR_MEMO, "supervisor", "submit_memo") != PROMPT_VERSIONS["supervisor_memo"]
 
 
-def test_every_specialist_records_leads_only_for_inconsistencies_and_verdicts() -> None:
+def test_every_specialist_records_clear_checks_as_refuted() -> None:
     for prompt in SPECIALIST.values():
-        assert ("Record a lead only for an inconsistency or a triage verdict on a finding; never record a "
-                "confirmation that something is in order.") in prompt
+        assert "supported: a test's observed value differs from the expected one" in prompt
+        assert "refuted: the tests show it does not hold" in prompt and "this is not a flag" in prompt
+        assert "unresolved: the tests do not settle it; list the missing evidence" in prompt
+        assert "Never record a clear check as supported." in prompt
 
 
 def test_each_specialist_is_told_how_to_look() -> None:
@@ -186,8 +189,7 @@ def test_hub_and_spoke_isolation(clean: CaseData) -> None:
         "transaction": [[use("search_bank_transactions", text="INV")]],
         # Three calls are made in all (two by kyc), so R01 to R03 always includes transaction's one
         "kyc": [[use("registry_lookup", uen="000000000X")],
-                [use("record_lead", kind="pattern", pattern="related_party", title="Register entry",
-                     detail="The register result is unclear.", cites=["R01", "R02", "R03"])]],
+                [_lead(["R01", "R02", "R03"], pattern="related_party", hypothesis="A register entry is shared")]],
     })
 
     team = _run(fake, clean)
@@ -206,7 +208,7 @@ def test_hub_and_spoke_isolation(clean: CaseData) -> None:
         assert not any(f'"{call_id}"' in received or _result_tag(call_id) in received for call_id in own[other])
     (lead,) = team.leads
     # Nor does kyc's lead reach transaction, which was run alongside it
-    assert lead.title not in _received(fake.requests["transaction"])
+    assert lead.hypothesis not in _received(fake.requests["transaction"])
     assert lead.outcome == "withheld"
     assert lead.withheld_reason == f"cites a tool result it did not receive: {transaction_id}"
 
@@ -215,7 +217,7 @@ def test_unsupported_leads_are_withheld_not_hidden(tampered: CaseData) -> None:
     fake = ScriptedBedrock({
         "plan": _plan(),
         "transaction": [[use("search_bank_transactions", text="INV")],
-                        [_lead(["R01"], detail="This looks like invoice fraud.")]],
+                        [_lead(["R01"], hypothesis="This looks like invoice fraud.")]],
     })
 
     team = _run(fake, tampered)
@@ -224,7 +226,28 @@ def test_unsupported_leads_are_withheld_not_hidden(tampered: CaseData) -> None:
     assert lead.outcome == "withheld" and lead.withheld_reason == "uses verdict language: fraud"
     reconcile = _first_text(fake.requests["memo"][0])
     assert json.loads(reconcile)["leads"] == []
-    assert "fraud" not in reconcile and lead.title not in reconcile
+    assert "fraud" not in reconcile and lead.hypothesis not in reconcile
+
+
+def test_leads_carry_status_and_code_assigned_strength_to_the_supervisor(clean: CaseData) -> None:
+    # A clear check is kept as refuted with no strength; a supported pattern lead is unverified; INV-1001
+    # is named from the case index although no cited result holds it
+    same = {"cites": ["R01"], "expected": "one credit of the invoice total", "observed": "one credit of the invoice total"}
+    fake = ScriptedBedrock({
+        "plan": _plan(),
+        "transaction": [[use("search_bank_transactions", text="INV")],
+                        [_lead(["R01"], hypothesis="INV-1002, unlike INV-1001, was settled by several credits"),
+                         _lead(["R01"], tests=[same], status="refuted")]],
+    })
+
+    team = _run(fake, clean)
+
+    assert [(lead.outcome, lead.status, lead.strength) for lead in team.leads] == [
+        ("kept", "supported", "unverified"), ("kept", "refuted", None)]
+    sent = json.loads(_first_text(fake.requests["memo"][0]))["leads"]
+    assert [(lead["status"], lead["strength"]) for lead in sent] == [("supported", "unverified"), ("refuted", None)]
+    assert sent[0]["tests"] == [{"cites": ["R01"], "expected": "one credit of the invoice total",
+                                 "observed": "several smaller credits"}]
 
 
 def test_supervisor_without_submit_uses_defaults(clean: CaseData) -> None:
@@ -255,7 +278,7 @@ def test_memo_points_citing_withheld_leads_are_dropped(tampered: CaseData) -> No
         "plan": _plan(),
         "transaction": [[use("search_bank_transactions", text="INV")],
                         [_lead(["R01"])],
-                        [_lead(["R01"], detail="A recommended decline.")]],
+                        [_lead(["R01"], hypothesis="A recommended decline.")]],
         "memo": _memo([{"text": "Kept lead.", "cites": ["L01", finding]},
                        {"text": "Withheld lead.", "cites": ["L02"]},
                        {"text": "Unknown lead.", "cites": ["L09"]},

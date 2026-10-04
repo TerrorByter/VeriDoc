@@ -3,9 +3,9 @@ import { flushSync } from "react-dom";
 import { AGENT_TITLE, duration, SPECIALISTS, usd } from "../../catalogue";
 import type { AgentName, ReviewPoint } from "../../types";
 import type { StageProps } from "../workspace/StageDetail";
-import { keptLeads } from "../workspace/stageStatus";
+import { aiLeads, clearChecks } from "../workspace/stageStatus";
 import { ErrorNote } from "../ui";
-import { KeptLeads, WithheldLeads } from "./ai-team/Leads";
+import { ClearChecks, KeptLeads, WithheldLeads } from "./ai-team/Leads";
 import { Trace } from "./ai-team/Trace";
 import { OffNote, Section } from "./common";
 
@@ -41,7 +41,8 @@ export function AiTeam({ kase, onView }: StageProps) {
 
   const report = kase.stages.find((s) => s.stage_id === "ai_team");
   const cost = kase.cost?.usd_by_stage.ai_team;
-  const kept = keptLeads(kase);
+  const leads = aiLeads(kase);
+  const clear = clearChecks(kase);
   const withheld = team.leads.filter((l) => l.outcome === "withheld");
   const memo = team.memo;
   /** The team's note when the Supervisor ended without calling submit_memo */
@@ -100,9 +101,16 @@ export function AiTeam({ kase, onView }: StageProps) {
             <Trace calls={team.tool_calls} agent={agent} focus={focus} onAgent={setAgent} onView={onView} />
           </Section>
 
-          <Section title="AI leads" aside="Each lead cites the tool calls it rests on">
-            <KeptLeads leads={kept} withheld={withheld.length} evidence={kase.evidence} onCite={cite} onView={onView} />
+          <Section title="AI leads" aside="Each test cites the tool calls it rests on">
+            <KeptLeads leads={leads} withheld={withheld.length} clear={clear.length} evidence={kase.evidence}
+              onCite={cite} onView={onView} />
           </Section>
+
+          {clear.length > 0 && (
+            <Section title="Checks that came back clear" aside="A record of what was checked, not a flag">
+              <ClearChecks leads={clear} evidence={kase.evidence} onCite={cite} onView={onView} />
+            </Section>
+          )}
 
           {withheld.length > 0 && (
             <Section title="Withheld by the verifier" aside="Kept on the record with the reason">

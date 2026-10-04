@@ -48,11 +48,11 @@ from gldb.schemas import (
     ExtractedPack,
     Invoice,
     Lead,
+    LeadStatus,
     Pattern,
     PurchaseOrder,
     SpecialistName,
     ToolCall,
-    Verdict,
 )
 from gldb.scoring import readiness, score
 from gldb.screening import screen, similarity
@@ -472,18 +472,29 @@ TOOLS: dict[str, Tool] = {
         "The applicant's incorporation date and where it comes from (the register, else the application).",
         _schema(), _incorporation),
     "record_lead": Tool(
-        "Record a lead for the analyst: a triage verdict on a finding, or a pattern you found. Cite the tool "
-        "results it rests on. Describe inconsistencies; never accuse or recommend a decision.",
+        "Record what you tested, for the analyst: a triage of risky findings, or one of your patterns. Give the "
+        "hypothesis, the tests behind it and the status. A check that came back clear is recorded as refuted: "
+        "it is not a flag. Never accuse or recommend a decision.",
         _schema({
-            "kind": _string("triage (a verdict on a finding) or pattern", enum=_KINDS),
-            "title": _string("Short title"),
-            "detail": _string("What you found, using numbers exactly as the results give them"),
-            "cites": _CITES,
+            "kind": _string("triage (judges risky findings) or pattern", enum=_KINDS),
             "finding_ids": {"type": "array", "items": {"type": "string"},
-                            "description": "Finding ids (E01...) a triage lead is about"},
-            "verdict": _string("For triage", enum=list(get_args(Verdict))),
+                            "description": "Finding ids (E01...) a triage lead judges"},
             "pattern": _string("For pattern; one of your own pattern list", enum=list(get_args(Pattern))),
-        }, "kind", "title", "detail", "cites"),
+            "hypothesis": _string("The claim you tested, e.g. INV-1002 was paid by someone other than its buyer; "
+                                  "for triage, that the finding stands"),
+            "tests": {"type": "array", "description": "Each check you made, citing the results it rests on",
+                      "items": _schema({
+                          "cites": _CITES,
+                          "expected": _string("What the documents say should hold, copied from the results"),
+                          "observed": _string("What the cited results show, copied exactly"),
+                      }, "cites", "expected", "observed")},
+            "status": _string("supported: the tests show it (an observed value differs from the expected one); "
+                              "refuted: they show it does not hold; unresolved: they do not settle it",
+                              enum=list(get_args(LeadStatus))),
+            "missing_evidence": {"type": "array", "items": {"type": "string"},
+                                 "description": "Required when unresolved: the documents or records that would "
+                                                "settle it"},
+        }, "kind", "hypothesis", "tests", "status"),
         _record_lead),
     "draft_question": Tool(
         "Draft a question for the analyst to put to the applicant or a counterparty.",
@@ -564,7 +575,6 @@ _CASE_VALUES: dict[str, dict[str, Values]] = {
         # Without a risky finding there is nothing to triage: only a pattern lead can be recorded
         "kind": lambda c, a: [k for k in _KINDS if k != "triage" or c.risky],
         "finding_ids": lambda c, a: [e.evidence_id for e in c.risky],
-        "verdict": lambda c, a: list(get_args(Verdict)) if c.risky else [],
         "pattern": lambda c, a: [p for p in get_args(Pattern) if p in PATTERNS.get(a, ())],
     },
 }
@@ -617,29 +627,46 @@ _JSON_TYPES: dict[str, tuple[tuple[type, ...], str]] = {
     "string": ((str,), "a string"),
     "number": ((int, float), "a number"),
     "integer": ((int,), "an integer"),
-    "array": ((list,), "a list of strings"),
+    "object": ((dict,), "an object"),
 }
+
+
+def _check_value(key: str, prop: dict[str, Any], value: Any) -> None:
+    """Raise ToolError unless *value* is of *prop*'s type and, for an enum,
+    one of its values; a list's items (and an object's arguments) likewise."""
+    if prop["type"] == "array":
+        items = prop["items"]
+        label = "a list of objects" if items["type"] == "object" else f"a list of {items['type']}s"
+        if not isinstance(value, list) or not all(_is(items["type"], v) for v in value):
+            raise ToolError(f"{key} must be {label}")
+        for i, item in enumerate(value):
+            try:
+                _check_value(key, items, item)
+            except ToolError as exc:
+                raise ToolError(f"{key}[{i}]: {exc}" if items["type"] == "object" else str(exc)) from None
+        return
+    if not _is(prop["type"], value):
+        raise ToolError(f"{key} must be {_JSON_TYPES[prop['type']][1]}")
+    if prop["type"] == "object":
+        _check_args(prop, value)
+    elif (allowed := prop.get("enum")) is not None and value not in allowed:
+        raise ToolError(f"{key} must be one of: {', '.join(allowed)}")
+
+
+def _is(kind: str, value: Any) -> bool:
+    return isinstance(value, _JSON_TYPES[kind][0]) and not isinstance(value, bool)
 
 
 def _check_args(schema: dict[str, Any], args: Args) -> None:
     """Raise ToolError unless *args* has every required argument, no unknown
-    one, each of the right type, and each enum one (each item, for a list)
-    of its values."""
+    one, and each of the right type and (for an enum) of its values."""
     for key in schema.get("required", []):
         if key not in args:
             raise ToolError(f"missing argument: {key}")
     for key, value in args.items():
         if key not in schema["properties"]:
             raise ToolError(f"unknown argument: {key}")
-        kind = schema["properties"][key]["type"]
-        accepted, label = _JSON_TYPES[kind]
-        valid = isinstance(value, accepted) and not isinstance(value, bool)
-        if not valid or (kind == "array" and not all(isinstance(v, str) for v in value)):
-            raise ToolError(f"{key} must be {label}")
-        prop = schema["properties"][key]
-        allowed = prop.get("items", {}).get("enum") if kind == "array" else prop.get("enum")
-        if allowed is not None and any(v not in allowed for v in (value if kind == "array" else [value])):
-            raise ToolError(f"{key} must be one of: {', '.join(allowed)}")
+        _check_value(key, schema["properties"][key], value)
 
 
 def _plain(exc: Exception) -> str:

@@ -13,8 +13,13 @@ const risky = (e: Evidence) => e.severity !== "info";
 const byCheck = (kase: CaseView, ...checks: string[]) =>
   kase.evidence.filter((e) => risky(e) && checks.includes(e.check_id));
 
-/** The AI team's leads that passed the verifier, for the analyst */
-export const keptLeads = (kase: CaseView) => kase.ai_team?.leads.filter((l) => l.outcome === "kept") ?? [];
+const keptLeads = (kase: CaseView) => kase.ai_team?.leads.filter((l) => l.outcome === "kept") ?? [];
+
+/** The AI team's leads that passed the verifier and need the analyst: supported or unresolved */
+export const aiLeads = (kase: CaseView) => keptLeads(kase).filter((l) => l.status !== "refuted");
+
+/** Checks that passed the verifier and came back clear: a record, never a flag */
+export const clearChecks = (kase: CaseView) => keptLeads(kase).filter((l) => l.status === "refuted");
 
 /** The rail's view of one stage, from the stage record and the case's own outputs. */
 export function stageStatus(kase: CaseView, audit: AuditEvent[], id: RailStageId): StageStatus {
@@ -34,7 +39,7 @@ export function stageStatus(kase: CaseView, audit: AuditEvent[], id: RailStageId
     case "prompt_screen":
       return flagged(byCheck(kase, "PROMPT_INJECTION").length);
     case "agents":
-      return flagged(kase.evidence.filter(risky).length + keptLeads(kase).length);
+      return flagged(kase.evidence.filter(risky).length + aiLeads(kase).length);
     case "score":
       return { state: kase.risk.band === "Low" ? "ran" : "flag", report };
     case "readiness":

@@ -637,6 +637,9 @@ table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
 .lead { display: grid; gap: 8px; justify-items: start; padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .lead > .finding-top { justify-self: stretch; }
 .lead.withheld { border-style: dashed; background: var(--sunken); }
+.lead-tests { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; justify-self: stretch; }
+.lead-tests > li { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; align-items: baseline; padding: 8px 10px; border-radius: 6px; background: var(--sunken); }
+.lead-test-refs { grid-column: 1 / -1; }
 .lead.withheld p { color: var(--muted); }
 .withheld-leads summary { width: fit-content; color: var(--brand); font-weight: 500; cursor: pointer; }
 .withheld-leads[open] summary { margin-bottom: 10px; }

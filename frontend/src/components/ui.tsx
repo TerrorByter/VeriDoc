@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { PATH_LABEL, STATUS_LABEL, type Service } from "../catalogue";
-import type { Band, CaseSummary, ReviewPath, Severity, Verdict } from "../types";
+import type { Band, CaseSummary, LeadStatus, ReviewPath, Severity } from "../types";
 
 export type Tone = "low" | "med" | "high" | "crit" | "neutral" | "brand";
 
@@ -14,8 +14,8 @@ export const SEVERITY_TONE: Record<Severity, Tone> = {
   info: "neutral", low: "low", medium: "med", high: "high", critical: "crit",
 };
 
-export const VERDICT_TONE: Record<Verdict, Tone> = {
-  corroborated: "high", possibly_innocent: "low", unclear: "neutral",
+export const LEAD_STATUS_TONE: Record<LeadStatus, Tone> = {
+  supported: "high", refuted: "low", unresolved: "neutral",
 };
 
 export const PATH_TONE: Record<ReviewPath, Tone> = {

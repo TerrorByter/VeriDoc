@@ -175,7 +175,10 @@ export interface ReviewPoint {
 
 export type AgentName = "supervisor" | "forensics" | "transaction" | "kyc" | "timeline";
 export type SpecialistName = Exclude<AgentName, "supervisor">;
-export type Verdict = "corroborated" | "possibly_innocent" | "unclear";
+/** What a lead's tests show, as its specialist proposes it */
+export type LeadStatus = "supported" | "refuted" | "unresolved";
+/** How strong a kept, supported lead's evidence is: set by code, never by a model */
+export type Strength = "corroborated" | "unverified";
 export type Pattern =
   | "third_party_payment"
   | "round_trip"
@@ -201,17 +204,26 @@ export interface Lead {
   /** L01… */
   lead_id: string;
   agent: SpecialistName;
-  /** Triage: a judgement on a risky finding (finding_ids and verdict set). Pattern: a gap-hunt hit (pattern set) */
+  /** Triage: judges risky findings (finding_ids set). Pattern: a hunt for one of the specialist's patterns (pattern set) */
   kind: "triage" | "pattern";
   finding_ids: string[];
-  verdict: Verdict | null;
   pattern: Pattern | null;
-  title: string;
-  detail: string;
-  /** The tool calls (R…) the lead rests on */
-  cites: string[];
+  /** The claim tested */
+  hypothesis: string;
+  tests: LeadTest[];
+  status: LeadStatus;
+  /** What would settle an unresolved lead */
+  missing_evidence: string[];
   outcome: "kept" | "withheld";
   withheld_reason: string | null;
+  strength: Strength | null;
+}
+
+export interface LeadTest {
+  /** The tool calls (R…) the test rests on */
+  cites: string[];
+  expected: string;
+  observed: string;
 }
 
 export interface Memo {

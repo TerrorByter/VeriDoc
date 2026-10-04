@@ -13,7 +13,7 @@ import { ReadinessStage } from "../stages/ReadinessStage";
 import { RouteStage } from "../stages/RouteStage";
 import { ScoreStage } from "../stages/ScoreStage";
 import { Icon, Pill, ServiceTag } from "../ui";
-import { keptLeads, stageStatus } from "./stageStatus";
+import { aiLeads, stageStatus } from "./stageStatus";
 
 export interface StageProps {
   kase: CaseView;
@@ -43,7 +43,7 @@ function result(kase: CaseView, id: RailStageId): string {
     case "agents": {
       const rules = `${plural(risky.length, "finding")} from ${kase.agent_reports.reduce((n, a) => n + a.checks_run, 0)} checks`;
       const team = !kase.ai_team ? "AI team off"
-        : kase.ai_team.status === "failed" ? "AI team failed" : plural(keptLeads(kase).length, "AI lead");
+        : kase.ai_team.status === "failed" ? "AI team failed" : plural(aiLeads(kase).length, "AI lead");
       return `${rules} · ${team}`;
     }
     case "score":

@@ -16,7 +16,7 @@ from botocore.exceptions import NoCredentialsError
 from fastapi.testclient import TestClient
 
 from gldb import api, pipeline
-from gldb.schemas import AgentTeam, Lead
+from gldb.schemas import AgentTeam, Lead, LeadTest
 
 PACKS = Path(__file__).parent.parent / "data" / "packs"
 
@@ -347,13 +347,16 @@ def test_controls_show_the_saved_agent_evaluation(client: TestClient, tmp_path: 
 
 def test_case_view_has_ai_team_and_no_trace(client: TestClient) -> None:
     cid = _case(client)["case_id"]
-    lead = Lead(agent="transaction", kind="triage", title="Odd payment", detail="Paid by a third party",
-                cites=["R01"])
+    test = LeadTest(cites=["R01"], expected="payer: the buyer", observed="Paid by a third party")
+    lead = Lead(agent="transaction", kind="triage", hypothesis="Odd payment", tests=[test], status="supported",
+                strength="corroborated")
     team = AgentTeam(status="ran", leads=[lead], trace={"R01": "PAGE TEXT"})
     pipeline._persist(api._load(cid).model_copy(update={"ai_team": team}))
     response = client.get(f"/api/cases/{cid}")
     assert response.status_code == 200
-    assert [lead["title"] for lead in response.json()["ai_team"]["leads"]] == ["Odd payment"]
+    (sent,) = response.json()["ai_team"]["leads"]
+    assert (sent["hypothesis"], sent["status"], sent["strength"]) == ("Odd payment", "supported", "corroborated")
+    assert sent["tests"] == [{"cites": ["R01"], "expected": "payer: the buyer", "observed": "Paid by a third party"}]
     assert "PAGE TEXT" not in response.text and "trace" not in response.json()["ai_team"]
 
 

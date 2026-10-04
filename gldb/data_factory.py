@@ -1075,7 +1075,7 @@ def _generate_innocent_split(out_dir: Path) -> None:
     _generate_beyond_rules(
         out_dir, "innocent_split",
         leads=[{"agent": "transaction", "pattern": "split_payment"}],
-        triage=[{"check_id": "XDOC_INVOICE_BANK", "verdict": "possibly_innocent"}],
+        triage=[{"check_id": "XDOC_INVOICE_BANK", "status": "refuted"}],
         check_ids=["XDOC_INVOICE_BANK"], band="Medium", path="standard_review",
         benign=[{"doc": "invoice_INV-1002", "type": "split_payment",
                  "detail": "paid in two credits, 10,000.00 on 2026-07-12 and 8,530.00 on 2026-07-20"}],

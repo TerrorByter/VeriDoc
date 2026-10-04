@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { navigate } from "../../route";
 import type { StageProps } from "../workspace/StageDetail";
-import { keptLeads } from "../workspace/stageStatus";
+import { aiLeads } from "../workspace/stageStatus";
 import { LeadTags } from "./ai-team/Leads";
 import { Section } from "./common";
 import { Chains } from "./investigation/Chains";
@@ -14,7 +14,7 @@ type View = "queue" | "chains" | "timeline";
 function LeadsToReview({ kase }: StageProps) {
   const team = kase.ai_team;
   if (!team) return null;
-  const leads = keptLeads(kase);
+  const leads = aiLeads(kase);
   return (
     <Section title="AI leads to review" aside="Leads never change the score">
       {team.status === "failed" ? (
@@ -34,9 +34,9 @@ function LeadsToReview({ kase }: StageProps) {
                 className="link"
                 onClick={() => navigate({ screen: "case", caseId: kase.case_id, stage: "agents" })}
               >
-                {lead.title}
+                {lead.hypothesis}
               </button>
-              <p>{lead.detail}</p>
+              <p className="muted small">{lead.tests.map((t) => t.observed).join("; ")}</p>
             </li>
           ))}
         </ul>

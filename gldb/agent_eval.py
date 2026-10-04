@@ -10,7 +10,8 @@ use, the challenger the one being tried.
 One AgentEvalRow per setup, each with an AgentPackResult per pack. Metrics:
 pattern recall (planted patterns the team found), triage accuracy, noise
 (kept pattern leads matching nothing planted), withheld rate (leads the
-verifier dropped), and cost and time per case.
+verifier dropped), and the team's cost (its own Bedrock calls only) and time
+per case.
 
 The rows are kept as a JSON list at AGENT_EVAL_PATH, for the API's controls
 page. The rules-only evaluation (gldb.evaluate) never runs the team.
@@ -19,13 +20,15 @@ Run:  python -m gldb.agent_eval [--supervisor MODEL] [--specialist MODEL] [--sav
 
 It calls Bedrock for every pack, whatever AGENTS_ENABLED says. The models
 default to the configured ones; --save keeps the row, replacing any saved row
-of the same two models.
+of the same two models. The table is printed first; if no pack ran, nothing
+is saved and the exit code is 1.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 from datetime import datetime, timezone
@@ -33,7 +36,7 @@ from decimal import Decimal
 from pathlib import Path
 from time import perf_counter
 
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from gldb.ai_team.team import TeamModels
 from gldb.config import AGENT_EVAL_PATH, AGENT_SPECIALIST_MODEL, AGENT_SUPERVISOR_MODEL, PACKS_DIR
@@ -42,6 +45,8 @@ from gldb.intake import load_manifest
 from gldb.pipeline import assess
 from gldb.schemas import AgentTeam, Evidence
 from gldb.usage import case_cost
+
+log = logging.getLogger(__name__)
 
 
 class AgentPackResult(BaseModel):
@@ -56,9 +61,10 @@ class AgentPackResult(BaseModel):
     noise: int
     withheld: int
     leads: int
+    #: The team's own cost (stage ai_team); None when unknown
     usd: Decimal | None
     seconds: float
-    #: ai_team.status, or "error: ..."
+    #: "ran", "failed: <the team's error>", or "error: ..."
     status: str
 
 
@@ -86,9 +92,16 @@ def _report_path() -> Path:
 
 
 def load_saved() -> list[AgentEvalRow]:
-    """The saved evaluation rows, if any."""
+    """The saved evaluation rows, if any. A file that is malformed or from an
+    older schema is reported in the log and read as none."""
     path = _report_path()
-    return _ROWS.validate_json(path.read_text(encoding="utf-8")) if path.is_file() else []
+    if not path.is_file():
+        return []
+    try:
+        return _ROWS.validate_json(path.read_text(encoding="utf-8"))
+    except ValidationError as exc:
+        log.warning("ignoring unreadable agent evaluation %s: %s", path, exc)
+        return []
 
 
 def save(row: AgentEvalRow) -> None:
@@ -123,7 +136,10 @@ def _pack_result(folder: Path, truth: dict, models: TeamModels, stamp: str) -> A
     try:
         result = assess(case_id, sorted(folder.glob("*.pdf")), load_manifest(folder), team=models)
         team, evidence = result.ai_team, result.evidence
-        status = team.status if team else "error: no AI team result"
+        if team is None:
+            status = "error: no AI team result"
+        else:
+            status = "ran" if team.status == "ran" else f"failed: {team.error}"
     except Exception as exc:  # noqa: BLE001 - report any pipeline failure per pack
         status = f"error: {type(exc).__name__}: {exc}"
     seconds = perf_counter() - start
@@ -151,7 +167,7 @@ def _pack_result(folder: Path, truth: dict, models: TeamModels, stamp: str) -> A
         noise=sum(lead not in expected for lead in found),
         withheld=len(leads) - len(kept),
         leads=len(leads),
-        usd=cost.usd if cost else None,
+        usd=cost.usd_by_stage.get("ai_team") if cost else None,
         seconds=seconds,
         status=status,
     )
@@ -221,9 +237,12 @@ def main(argv: list[str]) -> int:
     print("This calls Bedrock for every pack (estimated US$1-3).")
     # Always runs the team, whatever AGENTS_ENABLED says: evaluating it is the point
     row = evaluate_team(TeamModels(args.supervisor, args.specialist), Path(PACKS_DIR))
+    _print(row)
+    if not any(r.status == "ran" for r in row.packs):
+        print("no pack ran: nothing saved")
+        return 1
     if args.save:
         save(row)
-    _print(row)
     return 0
 
 

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { duration, PATH_LABEL, STAGE_BY_ID, STAGES, usd } from "../../catalogue";
 import { href } from "../../route";
-import type { AuditEvent, CaseView, FlagDecision, ReasonCode, StageId, ViewTarget } from "../../types";
+import type { AuditEvent, CaseView, FlagDecision, RailStageId, ReasonCode, ViewTarget } from "../../types";
 import { AgentsStage } from "../stages/AgentsStage";
 import { AuditStage } from "../stages/AuditStage";
 import { ExtractStage } from "../stages/ExtractStage";
@@ -10,11 +10,10 @@ import { InvestigationStage } from "../stages/InvestigationStage";
 import { OcrStage } from "../stages/OcrStage";
 import { PromptScreenStage } from "../stages/PromptScreenStage";
 import { ReadinessStage } from "../stages/ReadinessStage";
-import { ReviewStage } from "../stages/ReviewStage";
 import { RouteStage } from "../stages/RouteStage";
 import { ScoreStage } from "../stages/ScoreStage";
 import { Icon, Pill, ServiceTag } from "../ui";
-import { stageStatus } from "./stageStatus";
+import { keptLeads, stageStatus } from "./stageStatus";
 
 export interface StageProps {
   kase: CaseView;
@@ -26,7 +25,7 @@ export interface StageProps {
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** What the stage produced for this case, in one line. */
-function result(kase: CaseView, id: StageId): string {
+function result(kase: CaseView, id: RailStageId): string {
   const risky = kase.evidence.filter((e) => e.severity !== "info");
   switch (id) {
     case "ocr": {
@@ -41,8 +40,12 @@ function result(kase: CaseView, id: StageId): string {
     }
     case "extract":
       return kase.extraction_mode === "llm" ? "Fields extracted by the model" : "Fields extracted by the rule-based parser";
-    case "agents":
-      return `${plural(risky.length, "finding")} from ${kase.agent_reports.reduce((n, a) => n + a.checks_run, 0)} checks`;
+    case "agents": {
+      const rules = `${plural(risky.length, "finding")} from ${kase.agent_reports.reduce((n, a) => n + a.checks_run, 0)} checks`;
+      const team = !kase.ai_team ? "AI team off"
+        : kase.ai_team.status === "failed" ? "AI team failed" : plural(keptLeads(kase).length, "AI lead");
+      return `${rules} · ${team}`;
+    }
     case "score":
       return `${kase.risk.score} / 100, ${kase.risk.band}`;
     case "readiness":
@@ -51,14 +54,12 @@ function result(kase: CaseView, id: StageId): string {
       return kase.routing ? PATH_LABEL[kase.routing.path] : "Not routed";
     case "projections":
       return `${plural(kase.investigation.length, "task")}, ${plural(kase.chains.length, "chain")}, ${plural(kase.timeline.length, "dated event")}`;
-    case "semantic_review":
-      return kase.review ? `${plural(kase.review.observations.length, "observation")}` : "Nothing to review";
     case "record":
       return "Result stored, audit event written";
   }
 }
 
-const BODY: Record<StageId, (p: StageProps) => ReactNode> = {
+const BODY: Record<RailStageId, (p: StageProps) => ReactNode> = {
   ocr: (p) => <OcrStage {...p} />,
   intake: (p) => <IntakeStage {...p} />,
   prompt_screen: (p) => <PromptScreenStage {...p} />,
@@ -68,11 +69,10 @@ const BODY: Record<StageId, (p: StageProps) => ReactNode> = {
   readiness: (p) => <ReadinessStage {...p} />,
   route: (p) => <RouteStage {...p} />,
   projections: (p) => <InvestigationStage {...p} />,
-  semantic_review: (p) => <ReviewStage {...p} />,
   record: (p) => <AuditStage {...p} />,
 };
 
-export function StageDetail(props: StageProps & { stage: StageId }) {
+export function StageDetail(props: StageProps & { stage: RailStageId }) {
   const { stage, kase, audit } = props;
   const info = STAGE_BY_ID[stage];
   const status = stageStatus(kase, audit, stage);

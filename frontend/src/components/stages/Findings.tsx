@@ -1,12 +1,16 @@
 import { useState } from "react";
 import { APPLICATION_DOC, REASON_CODES } from "../../types";
-import type { AuditEvent, Evidence, ReasonCode, Severity, Signal } from "../../types";
+import type { AuditEvent, Evidence, ReasonCode, Severity, Signal, ViewTarget } from "../../types";
 import type { StageProps } from "../workspace/StageDetail";
 import { Empty, Pill, SEVERITY_TONE } from "../ui";
 
 const SEVERITY_RANK: Record<Severity, number> = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
 
 export const bySeverity = (a: Evidence, b: Evidence) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity];
+
+/** Where the document pane opens a finding; null for application data, which has no page */
+export const findingTarget = (ev: Evidence): ViewTarget | null =>
+  ev.document === APPLICATION_DOC ? null : { docId: ev.document, page: ev.page, evidenceId: ev.evidence_id };
 
 function latestDecision(audit: AuditEvent[], evidenceId: string): string | null {
   const events = audit.filter((e) => e.evidence_id === evidenceId && e.action.startsWith("flag_"));
@@ -23,6 +27,7 @@ function FindingCard({ ev, signal, decision, editable, onView, onDecideFlag }: {
   const [note, setNote] = useState("");
   const canDismiss = code !== "" && (code !== "other" || note.trim() !== "");
   const where = ev.document === APPLICATION_DOC ? "Application data" : `${ev.document}, page ${ev.page}`;
+  const target = findingTarget(ev);
 
   return (
     <li className={`finding sev-${ev.severity}`}>
@@ -33,8 +38,8 @@ function FindingCard({ ev, signal, decision, editable, onView, onDecideFlag }: {
         <Pill tone={SEVERITY_TONE[ev.severity]}>{ev.severity}</Pill>
         {decision && <Pill tone={decision === "confirmed" ? "crit" : "neutral"}>{decision}</Pill>}
         <span className="spacer" />
-        {ev.document !== APPLICATION_DOC && (
-          <button type="button" className="link" onClick={() => onView({ docId: ev.document, page: ev.page, evidenceId: ev.evidence_id })}>
+        {target && (
+          <button type="button" className="link" onClick={() => onView(target)}>
             Show in document
           </button>
         )}

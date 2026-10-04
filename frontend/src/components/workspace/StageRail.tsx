@@ -1,10 +1,10 @@
 import { STAGES, type StageGroup } from "../../catalogue";
 import { href } from "../../route";
-import type { AuditEvent, CaseView, StageId } from "../../types";
+import type { AuditEvent, CaseView, RailStageId } from "../../types";
 import { Icon } from "../ui";
 import { stageStatus } from "./stageStatus";
 
-export function StageRail({ kase, audit, current }: { kase: CaseView; audit: AuditEvent[]; current: StageId }) {
+export function StageRail({ kase, audit, current }: { kase: CaseView; audit: AuditEvent[]; current: RailStageId }) {
   let group: StageGroup | null = null;
   return (
     <nav className="rail" aria-label="Pipeline stages">

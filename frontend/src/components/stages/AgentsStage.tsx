@@ -2,6 +2,7 @@ import { useState } from "react";
 import { duration } from "../../catalogue";
 import type { Category } from "../../types";
 import type { StageProps } from "../workspace/StageDetail";
+import { AiTeam } from "./AiTeam";
 import { Section } from "./common";
 import { Findings } from "./Findings";
 
@@ -21,7 +22,7 @@ export function AgentsStage(props: StageProps) {
 
   return (
     <>
-      <Section title="Agents" aside="Run in parallel; select one to filter its findings">
+      <Section title="Mandatory tools: rule sweep" aside="Run in parallel; select one to filter its findings">
         <div className="table-wrap">
           <table className="data">
             <thead>
@@ -67,6 +68,8 @@ export function AgentsStage(props: StageProps) {
         </div>
         <Findings {...props} evidence={inScope.filter((e) => e.category === tab)} empty="No findings in this category" />
       </Section>
+
+      <AiTeam {...props} />
     </>
   );
 }

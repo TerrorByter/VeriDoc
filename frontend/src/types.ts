@@ -173,11 +173,65 @@ export interface ReviewPoint {
   evidence_ids: string[];
 }
 
-export interface SemanticReview {
+export type AgentName = "supervisor" | "forensics" | "transaction" | "kyc" | "timeline";
+export type SpecialistName = Exclude<AgentName, "supervisor">;
+export type Verdict = "corroborated" | "possibly_innocent" | "unclear";
+export type Pattern =
+  | "third_party_payment"
+  | "round_trip"
+  | "split_payment"
+  | "related_party"
+  | "business_mismatch"
+  | "document_inconsistency"
+  | "sequence_anomaly";
+
+export interface ToolCall {
+  /** R01… */
+  call_id: string;
+  agent: AgentName;
+  tool: string;
+  args: Record<string, unknown>;
+  /** Short and masked; never page text */
+  summary: string;
+  duration_ms: number;
+  error: boolean;
+}
+
+export interface Lead {
+  /** L01… */
+  lead_id: string;
+  agent: SpecialistName;
+  /** Triage: a verdict on a finding. Pattern: one we are watching for */
+  kind: "triage" | "pattern";
+  finding_ids: string[];
+  verdict: Verdict | null;
+  pattern: Pattern | null;
+  title: string;
+  detail: string;
+  /** The tool calls (R…) the lead rests on */
+  cites: string[];
+  outcome: "kept" | "withheld";
+  withheld_reason: string | null;
+}
+
+export interface Memo {
   observations: ReviewPoint[];
   questions: ReviewPoint[];
-  source: "llm" | "template";
-  rejected: number;
+  /** Points dropped by the verifier */
+  withheld: number;
+}
+
+export interface AgentTeam {
+  status: "ran" | "failed";
+  /** Specialist -> its brief */
+  plan: Partial<Record<SpecialistName, string>>;
+  tool_calls: ToolCall[];
+  leads: Lead[];
+  memo: Memo | null;
+  models: Partial<Record<"supervisor" | "specialist", string>>;
+  prompt_versions: Record<string, string>;
+  notes: string[];
+  error: string | null;
 }
 
 export type CaseStatus =
@@ -194,18 +248,21 @@ export type StageId =
   | "prompt_screen"
   | "extract"
   | "agents"
+  | "ai_team"
   | "score"
   | "readiness"
   | "route"
   | "projections"
-  | "semantic_review"
   | "record";
 
-export type StageState = "running" | "ran" | "off";
+/** The stages the rail shows: the AI team runs inside stage 5 */
+export type RailStageId = Exclude<StageId, "ai_team">;
+
+export type StageState = "running" | "ran" | "off" | "failed";
 
 export interface StageReport {
   stage_id: StageId;
-  status: "ran" | "off";
+  status: "ran" | "off" | "failed";
   duration_ms: number;
   version: string;
 }
@@ -241,7 +298,8 @@ export interface CaseView {
   chains: TransactionChain[];
   timeline: TimelineEvent[];
   investigation: InvestigationTask[];
-  review: SemanticReview | null;
+  /** Null when the AI team was off */
+  ai_team: AgentTeam | null;
   extraction_mode: string;
   status: CaseStatus;
   allowed_actions: string[];
@@ -265,6 +323,8 @@ export interface Progress {
   state: RunState;
   stages: { stage_id: StageId; state: StageState }[];
   current: StageId | null;
+  /** What the running stage is doing now, e.g. an AI team tool call */
+  detail: string | null;
   error: string | null;
 }
 
@@ -330,9 +390,39 @@ export interface EvaluationReport {
 }
 
 export interface Capability {
-  name: "ocr" | "prompt_screen" | "llm_extraction" | "semantic_review";
+  name: "ocr" | "prompt_screen" | "llm_extraction" | "ai_team";
   enabled: boolean;
   detail: string;
+}
+
+export interface AgentPackResult {
+  pack: string;
+  /** "agent:pattern" */
+  expected_leads: string[];
+  found_leads: string[];
+  triage_expected: number;
+  triage_correct: number;
+  noise: number;
+  withheld: number;
+  leads: number;
+  usd: Usd | null;
+  seconds: number;
+  /** The team's status, or "error: …" */
+  status: string;
+}
+
+/** One saved AI team evaluation, for one model setup */
+export interface AgentEvalRow {
+  evaluated_at: string;
+  supervisor: string;
+  specialist: string;
+  packs: AgentPackResult[];
+  pattern_recall: number;
+  triage_accuracy: number;
+  noise: number;
+  withheld_rate: number;
+  usd_per_case: Usd | null;
+  seconds_per_case: number;
 }
 
 export interface CheckFeedback {
@@ -351,6 +441,7 @@ export interface Controls {
   signals: Signal[];
   cost: { cases: number; usd_total: Usd; usd_per_case: Usd | null };
   evaluation: EvaluationReport | null;
+  agent_eval: AgentEvalRow[];
   feedback: CheckFeedback[];
 }
 

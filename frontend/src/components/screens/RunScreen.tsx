@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
 import { getProgress } from "../../api";
-import { STAGES } from "../../catalogue";
+import { STAGES, stageOf, type StageInfo } from "../../catalogue";
 import { DEFAULT_STAGE, href, navigate } from "../../route";
-import type { Progress, StageState } from "../../types";
+import type { Progress, StageId, StageState } from "../../types";
 import { ErrorNote, Icon, ServiceTag } from "../ui";
 
 const POLL_MS = 500;
 /** Pause on the finished list before opening the case, so the last tick is seen */
 const OPEN_AFTER_MS = 700;
 
-type RowState = StageState | "pending" | "failed";
+type RowState = StageState | "pending";
 
 function useElapsed(running: boolean): number {
   const [start] = useState(() => Date.now());
@@ -54,15 +54,25 @@ export function RunScreen({ caseId }: { caseId: string }) {
   }, [caseId]);
 
   const states = new Map(progress?.stages.map((s) => [s.stage_id, s.state]));
-  const stateOf = (id: (typeof STAGES)[number]["id"]): RowState => {
+  const stateOf = (id: StageId): RowState => {
     const st = states.get(id) ?? "pending";
     return st === "running" && progress?.state === "failed" ? "failed" : st;
   };
+  // The AI team failing never stops the run: its row still counts as finished
+  const teamFailed = states.get("ai_team") === "failed";
+  /** A row's state from its steps: stage 5 runs both the rule agents and the AI team */
+  const rowOf = (s: StageInfo): RowState => {
+    const steps = (s.steps ?? [s.id]).map(stateOf);
+    if (steps.includes("failed")) return "failed";
+    if (steps.includes("running")) return "running";
+    if (steps.every((st) => st === "off")) return "off";
+    return steps.every((st) => st === "ran" || st === "off") ? "ran" : "pending";
+  };
   const finished = STAGES.filter((s) => {
-    const st = stateOf(s.id);
-    return st === "ran" || st === "off";
+    const st = rowOf(s);
+    return st === "ran" || st === "off" || (st === "failed" && teamFailed && s.steps?.includes("ai_team"));
   }).length;
-  const current = STAGES.find((s) => s.id === progress?.current);
+  const current = progress?.current ? stageOf(progress.current) : undefined;
 
   return (
     <main className="page narrow">
@@ -102,7 +112,8 @@ export function RunScreen({ caseId }: { caseId: string }) {
 
       <ol className="run-list panel">
         {STAGES.map((s) => {
-          const st = stateOf(s.id);
+          const st = rowOf(s);
+          const team = s.steps?.includes("ai_team");
           return (
             <li key={s.id} className={`run-row ${st}`} aria-current={st === "running" ? "step" : undefined}>
               <span className="run-icon">
@@ -117,8 +128,13 @@ export function RunScreen({ caseId }: { caseId: string }) {
               </span>
               <span>{s.service && st !== "off" && <ServiceTag service={s.service} />}</span>
               <span className="run-state">
-                {{ running: "Running", ran: "Done", off: "Switched off", failed: "Failed", pending: "Waiting" }[st]}
+                {st === "failed" && team && teamFailed
+                  ? "Finished, AI team failed"
+                  : { running: "Running", ran: "Done", off: "Switched off", failed: "Failed", pending: "Waiting" }[st]}
               </span>
+              {team && stateOf("ai_team") === "running" && progress?.detail && (
+                <span className="run-detail muted small">{progress.detail}</span>
+              )}
             </li>
           );
         })}

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getControls } from "../../api";
-import { PATH_LABEL, usd, when } from "../../catalogue";
-import type { Capability, Controls, EvaluationReport, ReviewPath, SignalFamily } from "../../types";
+import { duration, PATH_LABEL, usd, when } from "../../catalogue";
+import type { AgentEvalRow, Capability, Controls, EvaluationReport, ReviewPath, SignalFamily } from "../../types";
 import { Metric, Section } from "../stages/common";
 import { Empty, ErrorNote, Pill } from "../ui";
 
@@ -9,7 +9,7 @@ const CAPABILITY_LABEL: Record<Capability["name"], string> = {
   ocr: "OCR",
   prompt_screen: "Prompt attack screen",
   llm_extraction: "Model extraction",
-  semantic_review: "Semantic review",
+  ai_team: "AI agent team",
 };
 
 const FAMILY_LABEL: Record<SignalFamily, string> = {
@@ -103,6 +103,45 @@ function Evaluation({ report }: { report: EvaluationReport }) {
   );
 }
 
+/** One row per model setup, so a challenger is read against the champion */
+function AgentEvaluation({ rows }: { rows: AgentEvalRow[] }) {
+  return (
+    <div className="table-wrap">
+      <table className="data">
+        <thead>
+          <tr>
+            <th scope="col">Setup</th>
+            <th scope="col" className="num">Pattern recall</th>
+            <th scope="col" className="num">Triage accuracy</th>
+            <th scope="col" className="num">Noise</th>
+            <th scope="col" className="num">Withheld rate</th>
+            <th scope="col" className="num">Cost per case</th>
+            <th scope="col" className="num">Time per case</th>
+            <th scope="col">Evaluated</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={`${r.supervisor}-${r.specialist}`}>
+              <td>
+                <span className="mono">{r.supervisor}</span>
+                <span className="muted small block">+ <span className="mono">{r.specialist}</span></span>
+              </td>
+              <td className="num mono">{pct(r.pattern_recall)}</td>
+              <td className="num mono">{pct(r.triage_accuracy)}</td>
+              <td className="num mono">{r.noise}</td>
+              <td className="num mono">{pct(r.withheld_rate)}</td>
+              <td className="num mono">{usd(r.usd_per_case)}</td>
+              <td className="num mono">{duration(Math.round(r.seconds_per_case * 1000))}</td>
+              <td className="nowrap muted">{when(r.evaluated_at)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function ControlsScreen() {
   const [controls, setControls] = useState<Controls | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -145,6 +184,16 @@ export function ControlsScreen() {
         ) : (
           <Empty title="No saved evaluation yet">
             Run the evaluation on the server with <code>--save</code> to score the pipeline against every test pack.
+          </Empty>
+        )}
+      </Section>
+
+      <Section title="Agent evaluation" aside="The AI team on every test pack, one row per model setup">
+        {controls.agent_eval.length ? (
+          <AgentEvaluation rows={controls.agent_eval} />
+        ) : (
+          <Empty title="No agent evaluation yet">
+            Run <code>python -m gldb.agent_eval --save</code> on the server to score the AI team against every test pack.
           </Empty>
         )}
       </Section>

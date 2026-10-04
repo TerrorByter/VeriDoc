@@ -1,12 +1,14 @@
-import type { CaseStatus, ReviewPath, StageId } from "./types";
+import type { AgentName, CaseStatus, Pattern, RailStageId, ReviewPath, SpecialistName, StageId, Verdict } from "./types";
 
 export type StageGroup = "Read" | "Check" | "Decide" | "Explain" | "Record";
 export type Service = "Textract" | "Guardrails" | "Bedrock";
 
 export interface StageInfo {
-  id: StageId;
+  id: RailStageId;
   /** Position in the run, 1-based */
   n: number;
+  /** The server stages this rail stage runs, when more than its own */
+  steps?: StageId[];
   group: StageGroup;
   name: string;
   /** What the stage does, in one or two plain sentences */
@@ -39,8 +41,8 @@ export const STAGES: StageInfo[] = [
     input: "Model-visible page text", output: "Fields with source quotes",
   },
   {
-    id: "agents", n: 5, group: "Check", name: "Agents",
-    what: "Six agents run deterministic checks in parallel. No model decides here: every finding cites a document, a page and a quote or observed value.",
+    id: "agents", n: 5, group: "Check", name: "Agents", steps: ["agents", "ai_team"], service: "Bedrock",
+    what: "The 36 checks run first as mandatory tools, so no AI can skip one. Then a Supervisor briefs four AI specialists, who investigate with read-only tools and report leads. Leads never change the score.",
     input: "Extracted fields and raw files", output: "Findings",
   },
   {
@@ -64,18 +66,44 @@ export const STAGES: StageInfo[] = [
     input: "Findings and extracted fields", output: "Tasks, chains and a timeline",
   },
   {
-    id: "semantic_review", n: 10, group: "Explain", name: "Semantic review", service: "Bedrock",
-    what: "A model reads the verified facts, never the documents, and writes observations and questions for the applicant. Any point citing an unknown finding, a new number or a verdict is withheld.",
-    input: "Findings, chain breaks, date anomalies", output: "Observations and questions",
-  },
-  {
-    id: "record", n: 11, group: "Record", name: "Audit record",
+    id: "record", n: 10, group: "Record", name: "Audit record",
     what: "The result is stored and one audit event records everything needed to reconstruct the decision later: versions, file hashes and evidence coverage.",
     input: "Case result", output: "Stored result and audit event",
   },
 ];
 
-export const STAGE_BY_ID = Object.fromEntries(STAGES.map((s) => [s.id, s])) as Record<StageId, StageInfo>;
+export const STAGE_BY_ID = Object.fromEntries(STAGES.map((s) => [s.id, s])) as Record<RailStageId, StageInfo>;
+
+/** The rail stage a server stage belongs to: the AI team runs in stage 5 */
+export const stageOf = (id: StageId): StageInfo => STAGE_BY_ID[id === "ai_team" ? "agents" : id];
+
+/** The AI team in its order: the Supervisor plans, then the specialists investigate */
+export const SPECIALISTS: SpecialistName[] = ["forensics", "transaction", "kyc", "timeline"];
+export const AGENTS: AgentName[] = ["supervisor", ...SPECIALISTS];
+
+export const AGENT_TITLE: Record<AgentName, string> = {
+  supervisor: "Supervisor",
+  forensics: "Forensics specialist",
+  transaction: "Transaction specialist",
+  kyc: "KYC and registry specialist",
+  timeline: "Timeline specialist",
+};
+
+export const VERDICT_LABEL: Record<Verdict, string> = {
+  corroborated: "Corroborated",
+  possibly_innocent: "Possibly innocent",
+  unclear: "Unclear",
+};
+
+export const PATTERN_LABEL: Record<Pattern, string> = {
+  third_party_payment: "Third-party payment",
+  round_trip: "Round trip",
+  split_payment: "Split payment",
+  related_party: "Related party",
+  business_mismatch: "Business mismatch",
+  document_inconsistency: "Document inconsistency",
+  sequence_anomaly: "Sequence anomaly",
+};
 
 export const PATH_LABEL: Record<ReviewPath, string> = {
   fast_track: "Fast track",

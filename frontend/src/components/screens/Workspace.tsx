@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { decideFlag, getAudit, getCase } from "../../api";
 import { STAGE_BY_ID, STAGES } from "../../catalogue";
 import { href, navigate } from "../../route";
-import type { AuditEvent, CaseView, FlagDecision, ReasonCode, StageId, ViewTarget } from "../../types";
+import type { AuditEvent, CaseView, FlagDecision, ReasonCode, RailStageId, ViewTarget } from "../../types";
 import { ErrorNote } from "../ui";
 import { CaseHeader } from "../workspace/CaseHeader";
 import { DecisionDrawer } from "../workspace/DecisionDrawer";
@@ -11,7 +11,7 @@ import { StageDetail } from "../workspace/StageDetail";
 import { StageRail } from "../workspace/StageRail";
 
 /** Arrow keys step through stages, unless the person is typing. */
-function useStageKeys(caseId: string, stage: StageId) {
+function useStageKeys(caseId: string, stage: RailStageId) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
@@ -28,7 +28,7 @@ function useStageKeys(caseId: string, stage: StageId) {
   }, [caseId, stage]);
 }
 
-export function Workspace({ caseId, stage }: { caseId: string; stage: StageId }) {
+export function Workspace({ caseId, stage }: { caseId: string; stage: RailStageId }) {
   const [kase, setKase] = useState<CaseView | null>(null);
   const [audit, setAudit] = useState<AuditEvent[]>([]);
   const [error, setError] = useState<string | null>(null);

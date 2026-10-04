@@ -1,4 +1,4 @@
-import type { AuditEvent, CaseView, Evidence, StageId, StageReport } from "../../types";
+import type { AuditEvent, CaseView, Evidence, RailStageId, StageReport } from "../../types";
 
 export type RailState = "ran" | "flag" | "off";
 
@@ -13,8 +13,11 @@ const risky = (e: Evidence) => e.severity !== "info";
 const byCheck = (kase: CaseView, ...checks: string[]) =>
   kase.evidence.filter((e) => risky(e) && checks.includes(e.check_id));
 
+/** The AI team's leads that passed the verifier, for the analyst */
+export const keptLeads = (kase: CaseView) => kase.ai_team?.leads.filter((l) => l.outcome === "kept") ?? [];
+
 /** The rail's view of one stage, from the stage record and the case's own outputs. */
-export function stageStatus(kase: CaseView, audit: AuditEvent[], id: StageId): StageStatus {
+export function stageStatus(kase: CaseView, audit: AuditEvent[], id: RailStageId): StageStatus {
   if (id === "record") {
     return { state: audit.some((e) => e.action === "pipeline_completed") ? "ran" : "off" };
   }
@@ -31,7 +34,7 @@ export function stageStatus(kase: CaseView, audit: AuditEvent[], id: StageId): S
     case "prompt_screen":
       return flagged(byCheck(kase, "PROMPT_INJECTION").length);
     case "agents":
-      return flagged(kase.evidence.filter(risky).length);
+      return flagged(kase.evidence.filter(risky).length + keptLeads(kase).length);
     case "score":
       return { state: kase.risk.band === "Low" ? "ran" : "flag", report };
     case "readiness":
@@ -40,10 +43,6 @@ export function stageStatus(kase: CaseView, audit: AuditEvent[], id: StageId): S
       return flagged(kase.routing?.hard_flags.length ?? 0);
     case "projections":
       return flagged(kase.investigation.length);
-    case "semantic_review":
-      return kase.review
-        ? { state: "ran", count: kase.review.observations.length, report }
-        : { state: "ran", report };
     default:
       return { state: "ran", report };
   }

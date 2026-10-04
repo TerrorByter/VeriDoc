@@ -1,10 +1,49 @@
 import { useState } from "react";
+import { navigate } from "../../route";
 import type { StageProps } from "../workspace/StageDetail";
+import { keptLeads } from "../workspace/stageStatus";
+import { LeadTags } from "./ai-team/Leads";
+import { Section } from "./common";
 import { Chains } from "./investigation/Chains";
 import { Queue } from "./investigation/Queue";
 import { Timeline } from "./investigation/Timeline";
 
 type View = "queue" | "chains" | "timeline";
+
+/** The AI team's kept leads, beside the rule tasks; each opens stage 5 for its trace. */
+function LeadsToReview({ kase }: StageProps) {
+  const team = kase.ai_team;
+  if (!team) return null;
+  const leads = keptLeads(kase);
+  return (
+    <Section title="AI leads to review" aside="Leads never change the score">
+      {team.status === "failed" ? (
+        <p className="muted">The AI team failed on this case; the rule tasks above are complete without it.</p>
+      ) : leads.length === 0 ? (
+        <p className="muted">The AI team raised no leads.</p>
+      ) : (
+        <ul className="leads">
+          {leads.map((lead) => (
+            <li key={lead.lead_id} className="lead">
+              <div className="finding-top">
+                <span className="mono muted">{lead.lead_id}</span>
+                <LeadTags lead={lead} />
+              </div>
+              <button
+                type="button"
+                className="link"
+                onClick={() => navigate({ screen: "case", caseId: kase.case_id, stage: "agents" })}
+              >
+                {lead.title}
+              </button>
+              <p>{lead.detail}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Section>
+  );
+}
 
 export function InvestigationStage(props: StageProps) {
   const { kase } = props;
@@ -25,7 +64,12 @@ export function InvestigationStage(props: StageProps) {
           </button>
         ))}
       </div>
-      {view === "queue" && <Queue {...props} />}
+      {view === "queue" && (
+        <>
+          <Queue {...props} />
+          <LeadsToReview {...props} />
+        </>
+      )}
       {view === "chains" && <Chains {...props} />}
       {view === "timeline" && <Timeline {...props} />}
     </>

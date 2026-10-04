@@ -386,6 +386,7 @@ table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
 .run-row.ran .run-icon .icon { animation: tick 0.3s ease-out; }
 @keyframes tick { from { transform: scale(0.6); opacity: 0; } }
 .run-state { text-align: right; font-size: 13px; color: var(--muted); }
+.run-detail { grid-column: 2 / -1; margin-top: -6px; overflow-wrap: anywhere; }
 .step-n { font: 500 11px var(--mono); color: var(--faint); margin-right: 8px; }
 
 /* ---- Case header ------------------------------------------------------ */
@@ -626,6 +627,19 @@ table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
 .timeline time { color: var(--muted); padding-top: 2px; }
 .timeline li.flagged time { color: var(--high); font-weight: 500; }
 .tl-body { display: grid; gap: 4px; justify-items: start; }
+
+/* ---- AI team ------------------------------------------------------------ */
+.team-plan { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.team-plan li { display: grid; gap: 4px; align-content: start; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.trace-tabs { max-width: 100%; }
+.trace-args { min-width: 180px; overflow-wrap: anywhere; }
+.leads { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.lead { display: grid; gap: 8px; justify-items: start; padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.lead > .finding-top { justify-self: stretch; }
+.lead.withheld { border-style: dashed; background: var(--sunken); }
+.lead.withheld p { color: var(--muted); }
+.withheld-leads summary { width: fit-content; color: var(--brand); font-weight: 500; cursor: pointer; }
+.withheld-leads[open] summary { margin-bottom: 10px; }
 
 /* ---- Review and audit ------------------------------------------------ */
 .review-points { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }

@@ -18,19 +18,32 @@ from gldb import api, pipeline
 PACKS = Path(__file__).parent.parent / "data" / "packs"
 
 
+@pytest.fixture(autouse=True)
+def _fresh_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(api.jobs, "_runs", {})
+
+
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
     for module in (api, pipeline):
         monkeypatch.setattr(module, "CASES_DIR", str(tmp_path / "cases"))
     monkeypatch.setattr(api, "UPLOADS_DIR", str(tmp_path / "uploads"))
     monkeypatch.setenv("AUDIT_LOG_PATH", str(tmp_path / "audit.jsonl"))
+    monkeypatch.setenv("EVAL_REPORT_PATH", str(tmp_path / "evaluation.json"))
     return TestClient(api.app)
 
 
+def _finished(client: TestClient, response: Any) -> dict[str, Any]:
+    """The case a run started. TestClient runs background tasks before
+    returning, so the run has finished by the time the response arrives."""
+    assert response.status_code == 202, response.text
+    cid = response.json()["case_id"]
+    assert client.get(f"/api/cases/{cid}/progress").json()["state"] == "done"
+    return client.get(f"/api/cases/{cid}").json()
+
+
 def _case(client: TestClient, pack: str = "tampered") -> dict[str, Any]:
-    response = client.post(f"/api/cases/from-pack/{pack}")
-    assert response.status_code == 200
-    return response.json()
+    return _finished(client, client.post(f"/api/cases/from-pack/{pack}"))
 
 
 def test_list_packs(client: TestClient) -> None:
@@ -114,9 +127,7 @@ def test_upload_runs_pipeline_with_uploaded_manifest(client: TestClient) -> None
         ("files", (p.name, p.read_bytes()))
         for p in [*sorted(folder.glob("*.pdf")), folder / "application.json"]
     ]
-    response = client.post("/api/cases", files=files)
-    assert response.status_code == 200
-    assert response.json()["risk"]["band"] == "Low"
+    assert _finished(client, client.post("/api/cases", files=files))["risk"]["band"] == "Low"
 
 
 def test_upload_rejects_non_pdf(client: TestClient) -> None:
@@ -187,7 +198,7 @@ def test_request_info_then_new_documents_rerun_the_case(client: TestClient, tmp_
     folder = PACKS / "incomplete"
     files = [("files", (p.name, p.read_bytes())) for p in
              [*sorted(folder.glob("*.pdf")), folder / "application.json"]]
-    case = client.post("/api/cases", files=files).json()
+    case = _finished(client, client.post("/api/cases", files=files))
     cid = case["case_id"]
     assert case["routing"]["path"] == "standard_review"
 
@@ -197,10 +208,9 @@ def test_request_info_then_new_documents_rerun_the_case(client: TestClient, tmp_
 
     rfi = {"decision": "request_info", "reason": "April statement missing"}
     assert client.post(f"/api/cases/{cid}/decision", json=rfi).status_code == 200
-    rerun = client.post(f"/api/cases/{cid}/documents", files=upload)
-    assert rerun.status_code == 200
-    assert rerun.json()["status"] == "assessed"
-    assert "BANK_COVERAGE" not in {e["check_id"] for e in rerun.json()["evidence"]}
+    rerun = _finished(client, client.post(f"/api/cases/{cid}/documents", files=upload))
+    assert rerun["status"] == "assessed"
+    assert "BANK_COVERAGE" not in {e["check_id"] for e in rerun["evidence"]}
     assert client.post(f"/api/cases/{cid}/decision", json=rfi).status_code == 200
     duplicate = client.post(f"/api/cases/{cid}/documents", files=upload)
     assert duplicate.status_code == 409 and "already" in duplicate.json()["detail"]
@@ -221,3 +231,67 @@ def test_feedback_endpoint_reports_overrides(client: TestClient) -> None:
     rows = client.get("/api/feedback").json()
     assert [r["dismissed"] for r in rows] == [1]
     assert rows[0]["reasons"] == {"duplicate_finding": 1}
+
+
+def test_progress_lists_every_stage_in_run_order(client: TestClient) -> None:
+    cid = client.post("/api/cases/from-pack/clean").json()["case_id"]
+    progress = client.get(f"/api/cases/{cid}/progress").json()
+    assert (progress["state"], progress["current"], progress["error"]) == ("done", None, None)
+    assert [s["stage_id"] for s in progress["stages"]] == [*pipeline.ASSESS_STAGES, "record"]
+    states = {s["stage_id"]: s["state"] for s in progress["stages"]}
+    assert states["ocr"] == "off" and states["agents"] == "ran" and states["record"] == "ran"
+
+
+def test_progress_tracks_the_stage_running_now() -> None:
+    api.jobs.start("CASE-P")
+    api.jobs.stage("CASE-P", "intake", "ran")
+    api.jobs.stage("CASE-P", "extract", "running")
+    progress = api.jobs.get("CASE-P")
+    assert progress is not None and (progress.state, progress.current) == ("running", "extract")
+    assert [(s.stage_id, s.state) for s in progress.stages] == [("intake", "ran"), ("extract", "running")]
+
+
+def test_a_failed_run_reports_why(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(*_: Any, **__: Any) -> None:
+        raise api.ExtractionError("Bedrock unavailable")
+    monkeypatch.setattr(api, "run", broken)
+    cid = client.post("/api/cases/from-pack/clean").json()["case_id"]
+    progress = client.get(f"/api/cases/{cid}/progress").json()
+    assert (progress["state"], progress["error"]) == ("failed", "Bedrock unavailable")
+    assert client.get(f"/api/cases/{cid}").status_code == 404
+
+
+def test_progress_of_an_unknown_case_is_404(client: TestClient) -> None:
+    assert client.get("/api/cases/CASE-NOPE/progress").status_code == 404
+
+
+def test_progress_survives_a_restart_from_the_stored_result(client: TestClient) -> None:
+    cid = _case(client, "clean")["case_id"]
+    api.jobs.forget(cid)
+    progress = client.get(f"/api/cases/{cid}/progress").json()
+    assert progress["state"] == "done" and progress["stages"][-1]["stage_id"] == "record"
+
+
+def test_case_view_carries_stages_ocr_screen_and_cost(client: TestClient) -> None:
+    case = _case(client, "clean")
+    assert [s["stage_id"] for s in case["stages"]] == list(pipeline.ASSESS_STAGES)
+    assert (case["ocr_confidence"], case["prompt_screen"], case["cost"]) == ({}, None, None)
+
+
+def test_cases_are_listed_newest_first(client: TestClient) -> None:
+    first = _case(client, "clean")["case_id"]
+    second = _case(client, "tampered")["case_id"]
+    rows = client.get("/api/cases").json()
+    assert [r["case_id"] for r in rows] == [second, first]
+    top = rows[0]
+    assert (top["band"], top["path"], top["status"]) == ("High", "enhanced_review", "assessed")
+    assert top["company_name"] and top["doc_count"] > 0 and top["created_at"]
+
+
+def test_controls_show_versions_capabilities_and_signals(client: TestClient) -> None:
+    controls = client.get("/api/controls").json()
+    assert controls["policy_version"] == api.POLICY_VERSION
+    assert controls["rule_version"] == api.RULE_VERSION
+    assert {c["name"]: c["enabled"] for c in controls["capabilities"]}["ocr"] is False
+    assert len(controls["signals"]) == len(api.SIGNALS)
+    assert controls["evaluation"] is None  # no saved report in the temp folder

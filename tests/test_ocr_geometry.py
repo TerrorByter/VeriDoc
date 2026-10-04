@@ -86,7 +86,8 @@ def test_ocr_lines_are_stored_with_the_case_not_shown(
 ) -> None:
     monkeypatch.setattr(pipeline, "OCR_ENABLED", True)
     monkeypatch.setattr("gldb.ocr._default_client", lambda: FakeTextract())
-    case = client.post("/api/cases/from-pack/clean").json()
+    cid = client.post("/api/cases/from-pack/clean").json()["case_id"]
+    case = client.get(f"/api/cases/{cid}").json()
     stored = json.loads((tmp_path / "cases" / case["case_id"] / "ocr_lines.json").read_text())
     assert stored["invoice_INV-1001"][0][1]["text"] == "Total: SGD 32,700.00"
     assert "Invoice No: INV-1001" not in json.dumps(case)
@@ -95,8 +96,7 @@ def test_ocr_lines_are_stored_with_the_case_not_shown(
 def test_viewer_places_quotes_on_scanned_pages_from_stored_lines(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, client: TestClient
 ) -> None:
-    case = client.post("/api/cases/from-pack/clean").json()
-    cid = case["case_id"]
+    cid = client.post("/api/cases/from-pack/clean").json()["case_id"]
     # The case's invoice is now the scanned copy: no text layer to search
     (tmp_path / "uploads" / cid / "invoice_INV-1001.pdf").write_bytes(SCANNED.read_bytes())
     (tmp_path / "cases" / cid / "ocr_lines.json").write_text(

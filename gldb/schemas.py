@@ -445,6 +445,26 @@ class AgentReport(BaseModel):
     duration_ms: int
 
 
+#: Pipeline stages in run order; "record" (persist + audit) runs outside assess()
+StageId = Literal[
+    "ocr", "intake", "prompt_screen", "extract", "agents", "score", "readiness", "route",
+    "projections", "semantic_review", "record",
+]
+#: "running" is only ever reported live; a finished stage is "ran" or "off"
+StageState = Literal["running", "ran", "off"]
+
+
+class StageReport(BaseModel):
+    """What one pipeline stage did in a run: whether it ran or was switched
+    off, how long it took, and the version (model, guardrail, rule set,
+    policy) that ran."""
+
+    stage_id: StageId
+    status: Literal["ran", "off"]
+    duration_ms: int
+    version: str = ""
+
+
 class ClaimRef(BaseModel):
     """A fact as one document states it, with where it is stated."""
 
@@ -580,6 +600,8 @@ class CaseResult(BaseModel):
     investigation: list[InvestigationTask] = []
     #: None when the review is off or there was nothing to review
     review: SemanticReview | None = None
+    #: Empty only for results stored before stages were recorded
+    stages: list[StageReport] = []
 
 
 # ---------------------------------------------------------------------------

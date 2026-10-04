@@ -4,8 +4,11 @@ gldb/pipeline.py
 Pipeline orchestration for the gldb-prototype.
 
 Stage functions are named after future LangGraph nodes:
-    ocr -> intake -> prompt_screen -> classify_and_extract -> run_checks -> score -> route
-    -> chains, timeline, investigation -> semantic_review
+    ocr -> intake -> prompt_screen -> extract -> agents -> score -> readiness -> route
+    -> projections (chains, timeline, investigation) -> semantic_review -> record
+
+Each stage is timed and recorded as a StageReport ("ran" or "off"), and an
+optional callback hears each stage start and end, for live progress.
 
 pack_from_folder is a test helper that builds an ExtractedPack directly
 from a pre-generated data pack directory (no AWS calls).
@@ -16,18 +19,22 @@ from __future__ import annotations
 import json
 import sys
 from collections import Counter
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from time import perf_counter
+from typing import Any, TypeVar
 
 from gldb.audit import log_event
-from gldb.checks import FORM_DOC_TYPES, run_agents
+from gldb.checks import AGENTS, FORM_DOC_TYPES, run_agents
 from gldb.config import (
     BEDROCK_MODEL_ID,
     CASES_DIR,
+    EXTRACTION_MODE,
     GUARDRAIL_ID,
     GUARDRAIL_VERSION,
     OCR_ENABLED,
+    POLICY_VERSION,
     PROMPT_SCREEN_ENABLED,
     SEMANTIC_REVIEW_ENABLED,
 )
@@ -46,13 +53,18 @@ from gldb.schemas import (
     ApplicationManifest,
     AuditEvent,
     CaseResult,
-    Evidence,
     ExtractedPack,
+    StageId,
+    StageReport,
+    StageState,
 )
 from gldb.scoring import readiness, score
 from gldb.semantic_review import PROMPT_VERSION as REVIEW_PROMPT_VERSION
 from gldb.semantic_review import review
+from gldb.signal_library import RULE_VERSION
 from gldb.timeline import build_timeline
+
+T = TypeVar("T")
 
 
 # ---------------------------------------------------------------------------
@@ -84,38 +96,52 @@ def pack_from_folder(folder: str | Path) -> ExtractedPack:
 
 
 # ---------------------------------------------------------------------------
-# Internal stage helpers (named for future LangGraph node parity)
+# Stages (named for future LangGraph node parity)
 # ---------------------------------------------------------------------------
 
 
-def _intake(
-    case_id: str,
-    file_paths: list[Path],
-    manifest: ApplicationManifest | None,
-) -> tuple[ExtractedPack, list[Evidence]]:
-    """ocr → intake → prompt_screen → classify_and_extract stage.
+#: The stages assess() runs, in order; run() adds "record"
+ASSESS_STAGES: tuple[StageId, ...] = (
+    "ocr", "intake", "prompt_screen", "extract", "agents", "score", "readiness", "route",
+    "projections", "semantic_review",
+)
 
-    OCRs every page once when OCR_ENABLED, then validates, hashes, classifies
-    all files and parses their content. Returns the populated ExtractedPack
-    and an empty stage_evidence list (reserved for intake-level findings in
-    future stages).
-    """
-    ocr = ocr_files(file_paths, case_id) if OCR_ENABLED else OcrResult()
-    docs = intake(case_id, file_paths, ocr.text)
-    screened = None
-    if PROMPT_SCREEN_ENABLED:
-        # Screen exactly what a model would read; forms never go to a model
-        paths = {p.stem: p for p in file_paths}
-        screened = screen({
-            d.doc_id: model_view(paths[d.doc_id], ocr.text.get(d.doc_id))
-            for d in docs if d.doc_type not in FORM_DOC_TYPES
-        }, case_id)
-    pack = parse_pack(case_id, docs, file_paths, manifest, ocr.text)
-    pack = pack.model_copy(update={
-        "ocr_confidence": ocr.confidence, "ocr_lines": ocr.lines, "prompt_screen": screened,
-    })
-    stage_evidence: list[Evidence] = []
-    return pack, stage_evidence
+#: Told each stage as it starts ("running") and ends ("ran" or "off")
+StageCallback = Callable[[StageId, StageState], None]
+
+
+def ignore_stage(stage: StageId, state: StageState) -> None:
+    """The default StageCallback: nobody is watching."""
+
+
+class _Stages:
+    """Runs and times pipeline stages, recording a StageReport for each and
+    telling *on_stage* as each starts and ends."""
+
+    def __init__(self, on_stage: StageCallback) -> None:
+        self._on_stage = on_stage
+        self.reports: list[StageReport] = []
+
+    def run(self, stage: StageId, step: Callable[[], T], version: str = "") -> T:
+        self._on_stage(stage, "running")
+        start = perf_counter()
+        value = step()
+        self.reports.append(StageReport(
+            stage_id=stage, status="ran", duration_ms=round((perf_counter() - start) * 1000),
+            version=version,
+        ))
+        self._on_stage(stage, "ran")
+        return value
+
+    def off(self, stage: StageId) -> None:
+        self.reports.append(StageReport(stage_id=stage, status="off", duration_ms=0))
+        self._on_stage(stage, "off")
+
+
+def _extract_version() -> str:
+    if EXTRACTION_MODE == "stub":
+        return "stub parser"
+    return f"{BEDROCK_MODEL_ID} · prompt {EXTRACT_PROMPT_VERSION}"
 
 
 def screen_ledger(screened: bool) -> dict[str, Any]:
@@ -139,17 +165,62 @@ def assess(
     case_id: str,
     file_paths: list[Path],
     manifest: ApplicationManifest | None,
+    on_stage: StageCallback = ignore_stage,
 ) -> CaseResult:
-    """Run the stages intake -> classify_and_extract -> run_checks -> score
-    -> readiness -> route -> chains, timeline and investigation queue ->
-    semantic review. No audit log, no files written: run()
+    """Run the stages in ASSESS_STAGES: ocr -> intake -> prompt_screen ->
+    extract -> agents -> score -> readiness -> route -> projections (chains,
+    timeline, investigation queue) -> semantic_review. A stage switched off
+    in config is recorded as "off". No audit log, no files written: run()
     adds those, and the evaluation harness calls this directly."""
-    pack, stage_evidence = _intake(case_id, file_paths, manifest)
-    evidence, agent_reports = run_agents(pack, stage_evidence)
-    risk = score(evidence)
-    ready = readiness(evidence, pack)
-    chains = build_chains(pack, evidence)
-    timeline = build_timeline(pack, evidence)
+    stages = _Stages(on_stage)
+
+    if OCR_ENABLED:
+        ocr = stages.run("ocr", lambda: ocr_files(file_paths, case_id),
+                         version="Textract DetectDocumentText")
+    else:
+        stages.off("ocr")
+        ocr = OcrResult()
+
+    docs = stages.run("intake", lambda: intake(case_id, file_paths, ocr.text))
+
+    screened = None
+    if PROMPT_SCREEN_ENABLED:
+        # Screen exactly what a model would read; forms never go to a model
+        paths = {p.stem: p for p in file_paths}
+        screened = stages.run("prompt_screen", lambda: screen({
+            d.doc_id: model_view(paths[d.doc_id], ocr.text.get(d.doc_id))
+            for d in docs if d.doc_type not in FORM_DOC_TYPES
+        }, case_id), version=f"{GUARDRAIL_ID} v{GUARDRAIL_VERSION}")
+    else:
+        stages.off("prompt_screen")
+
+    pack = stages.run("extract", lambda: parse_pack(case_id, docs, file_paths, manifest, ocr.text),
+                      version=_extract_version())
+    pack = pack.model_copy(update={
+        "ocr_confidence": ocr.confidence, "ocr_lines": ocr.lines, "prompt_screen": screened,
+    })
+
+    evidence, agent_reports = stages.run("agents", lambda: run_agents(pack),
+                                         version=f"{sum(len(a.checks) for a in AGENTS)} checks")
+    risk = stages.run("score", lambda: score(evidence), version=RULE_VERSION)
+    ready = stages.run("readiness", lambda: readiness(evidence, pack))
+    routing = stages.run("route", lambda: route(case_id, evidence, risk, ready, pack),
+                         version=POLICY_VERSION)
+    chains, timeline, investigation = stages.run("projections", lambda: (
+        build_chains(pack, evidence),
+        build_timeline(pack, evidence),
+        build_queue(case_id, evidence, pack, risk),
+    ))
+
+    reviewed = None
+    if SEMANTIC_REVIEW_ENABLED:
+        reviewed = stages.run(
+            "semantic_review", lambda: review(case_id, evidence, chains, timeline),
+            version=f"{BEDROCK_MODEL_ID} · prompt {REVIEW_PROMPT_VERSION}",
+        )
+    else:
+        stages.off("semantic_review")
+
     return CaseResult(
         case_id=case_id,
         pack=pack,
@@ -157,11 +228,12 @@ def assess(
         agent_reports=agent_reports,
         risk=risk,
         readiness=ready,
-        routing=route(case_id, evidence, risk, ready, pack),
+        routing=routing,
         chains=chains,
         timeline=timeline,
-        investigation=build_queue(case_id, evidence, pack, risk),
-        review=review(case_id, evidence, chains, timeline) if SEMANTIC_REVIEW_ENABLED else None,
+        investigation=investigation,
+        review=reviewed,
+        stages=stages.reports,
     )
 
 
@@ -198,6 +270,7 @@ def run(
     manifest_path: Path | None = None,
     actor: str = "system",
     new_case: bool = True,
+    on_stage: StageCallback = ignore_stage,
 ) -> CaseResult:
     """Run the full loan-assessment pipeline for *case_id*.
 
@@ -209,19 +282,18 @@ def run(
     ------
     1. Log ``case_created`` audit event (new cases only).
     2. Load manifest from *manifest_path* (or None).
-    3. intake → classify_and_extract: build ExtractedPack.
-    4. run_checks: collect all Evidence.
-    5. score: compute RiskResult (fraud_signal evidence only).
-    6. readiness: compute ReadinessResult (compliance/completeness evidence only).
-    7. semantic review: LLM synthesis if SEMANTIC_REVIEW_ENABLED, else None.
-    8. Persist CaseResult JSON to ``<CASES_DIR>/<case_id>/result.json``.
-    9. Log ``pipeline_completed`` audit event.
+    3-7. assess(): the stages in ASSESS_STAGES (OCR, intake, prompt screen,
+         extract, agents, score, readiness, route, projections, semantic review).
+    8-9. The "record" stage: persist CaseResult JSON to
+         ``<CASES_DIR>/<case_id>/result.json`` and log the
+         ``pipeline_completed`` audit event.
 
     Args:
         case_id: Unique identifier for this assessment run.
         file_paths: Paths to the uploaded PDF files.
         manifest_path: Optional path to application.json.
         actor: Who/what is running the pipeline (default "system").
+        on_stage: Told as each stage starts and ends, for live progress.
 
     Returns:
         A fully populated CaseResult.
@@ -249,7 +321,8 @@ def run(
             manifest = ApplicationManifest.model_validate(raw)
 
     # ------------------------------------------------------------------ 3-7  assess
-    result = assess(case_id, resolved, manifest)
+    result = assess(case_id, resolved, manifest, on_stage)
+    on_stage("record", "running")
     pack, evidence, risk, ready = (
         result.pack, result.evidence, result.risk, result.readiness
     )
@@ -283,6 +356,7 @@ def run(
             "sha256s": doc_sha256s,
         },
     ))
+    on_stage("record", "ran")
 
     return result
 

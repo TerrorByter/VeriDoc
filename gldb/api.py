@@ -15,6 +15,10 @@ Rules:
   decides which actions are allowed; an illegal action returns 409.
 - Each case keeps its documents in UPLOADS_DIR/<case_id>/, so documents can
   re-enter the case after a request for information.
+- Starting a run (new case, demo pack, or documents after a request for
+  information) answers 202 with the case ID at once; the pipeline runs in the
+  background and GET /api/cases/{id}/progress says which stage it is on
+  (gldb.jobs).
 - Document pages are served as images for the evidence viewer: the one
   place the browser sees unmasked document content. In production this needs
   access control and an audit entry per document viewed.
@@ -26,24 +30,44 @@ Rules:
 from __future__ import annotations
 
 import json
+import logging
 import re
 import secrets
 import shutil
+from collections import defaultdict
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, File, HTTPException, Response, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field, model_validator
 
-from gldb import lifecycle
+from gldb import jobs, lifecycle, usage
 from gldb.audit import log_event, read_all_events, read_events
 from gldb.checks import PACK_DOC
-from gldb.config import CASES_DIR, PACKS_DIR, UPLOADS_DIR
+from gldb.config import (
+    BEDROCK_MODEL_ID,
+    CASES_DIR,
+    EXTRACTION_MODE,
+    GUARDRAIL_ID,
+    GUARDRAIL_VERSION,
+    OCR_ENABLED,
+    PACKS_DIR,
+    POLICY_VERSION,
+    PROMPT_SCREEN_ENABLED,
+    SEMANTIC_REVIEW_ENABLED,
+    UPLOADS_DIR,
+)
+from gldb.evaluate import Report, load_saved
 from gldb.extract_llm import ExtractionError
 from gldb.feedback import CheckFeedback, report
-from gldb.intake import IntakeError
-from gldb.pipeline import OCR_LINES_FILE, run
+from gldb.intake import IntakeError, validate_file
+from gldb.jobs import Progress, StageProgress
+from gldb.pipeline import ASSESS_STAGES, OCR_LINES_FILE, run
+from gldb.reference import versions as reference_versions
+from gldb.signal_library import RULE_VERSION, SIGNALS
+from gldb.usage import CaseCost
 from gldb.viewer import locate, render_page
 from gldb.schemas import (
     AgentReport,
@@ -55,11 +79,14 @@ from gldb.schemas import (
     Evidence,
     InvestigationTask,
     OcrLine,
+    PromptAttackHit,
     ReadinessResult,
     ReasonCode,
     RiskResult,
     Routing,
     SemanticReview,
+    Signal,
+    StageReport,
     TimelineEvent,
     TransactionChain,
 )
@@ -71,6 +98,8 @@ _FLAG_ACTION: dict[str, Literal["flag_confirmed", "flag_dismissed"]] = {
     "dismissed": "flag_dismissed",
 }
 _CASE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+log = logging.getLogger(__name__)
 
 app = FastAPI(title="GLDB Loan Document Assessment (prototype)")
 
@@ -94,6 +123,63 @@ class CaseView(BaseModel):
     allowed_actions: list[str]
     #: Fraud flags from the latest assessment not yet confirmed or dismissed
     open_flags: list[str]
+    stages: list[StageReport]
+    #: OCR confidence per document page (no text); empty when OCR was off
+    ocr_confidence: dict[str, list[float]]
+    #: Prompt attack hits per screened document; None when the screen was off
+    prompt_screen: dict[str, list[PromptAttackHit]] | None
+    #: Estimated AWS cost of the case; None when it used no AWS service
+    cost: CaseCost | None
+
+
+class RunStarted(BaseModel):
+    """A pipeline run accepted: follow it at /api/cases/{case_id}/progress."""
+
+    case_id: str
+
+
+class CaseSummary(BaseModel):
+    """One row of the case list."""
+
+    case_id: str
+    company_name: str | None
+    doc_count: int
+    band: str | None
+    score: int | None
+    path: str | None
+    status: CaseStatus | Literal["running", "failed"]
+    #: When the case was opened (ISO 8601); empty if the run has not logged it yet
+    created_at: str
+
+
+class Capability(BaseModel):
+    """An optional pipeline capability and whether this server has it on."""
+
+    name: Literal["ocr", "prompt_screen", "llm_extraction", "semantic_review"]
+    enabled: bool
+    detail: str
+
+
+class CostSummary(BaseModel):
+    cases: int
+    usd_total: Decimal
+    #: Mean over cases with a cost; None before any case used AWS
+    usd_per_case: Decimal | None
+
+
+class Controls(BaseModel):
+    """How the pipeline is governed: versions, capabilities, the signal
+    library, spend, the latest evaluation and analyst override statistics."""
+
+    policy_version: str
+    rule_version: str
+    reference_data: dict[str, str]
+    capabilities: list[Capability]
+    signals: list[Signal]
+    cost: CostSummary
+    #: None until `python -m gldb.evaluate --save` has run
+    evaluation: Report | None
+    feedback: list[CheckFeedback]
 
 
 class FlagDecision(BaseModel):
@@ -157,6 +243,10 @@ def _view(result: CaseResult) -> CaseView:
         status=status,
         allowed_actions=lifecycle.allowed_actions(status),
         open_flags=lifecycle.open_flags(result.evidence, events),
+        stages=result.stages,
+        ocr_confidence=result.pack.ocr_confidence,
+        prompt_screen=result.pack.prompt_screen,
+        cost=usage.case_cost(result.case_id),
     )
 
 
@@ -201,21 +291,34 @@ def _save(folder: Path, files: list[UploadFile]) -> list[str]:
     return names
 
 
-def _run(case_id: str, new_case: bool = True) -> CaseView:
-    """Assess every document in the case folder."""
+def _execute(case_id: str, files: list[Path], manifest: Path | None, new_case: bool) -> None:
+    """Run the pipeline in the background, reporting each stage to gldb.jobs."""
+    try:
+        run(case_id, files, manifest_path=manifest, actor=SYSTEM, new_case=new_case,
+            on_stage=lambda stage, state: jobs.stage(case_id, stage, state))
+    except (IntakeError, ExtractionError) as exc:
+        jobs.fail(case_id, str(exc))
+    except Exception:
+        log.exception("pipeline run failed for %s", case_id)
+        jobs.fail(case_id, "unexpected error; see the server log")
+    else:
+        jobs.finish(case_id)
+
+
+def _start(case_id: str, background: BackgroundTasks, new_case: bool = True) -> RunStarted:
+    """Assess every document in the case folder in the background. Files are
+    validated first, so an unreadable upload is refused (422) before the run."""
     folder = _case_folder(case_id)
     manifest = folder / MANIFEST
     files = sorted(p for p in folder.iterdir() if p != manifest)
     try:
-        result = run(
-            case_id, files, manifest_path=manifest if manifest.is_file() else None,
-            actor=SYSTEM, new_case=new_case,
-        )
+        for path in files:
+            validate_file(path)
     except IntakeError as exc:
         raise HTTPException(422, str(exc)) from exc
-    except ExtractionError as exc:
-        raise HTTPException(502, str(exc)) from exc
-    return _view(result)
+    jobs.start(case_id)
+    background.add_task(_execute, case_id, files, manifest if manifest.is_file() else None, new_case)
+    return RunStarted(case_id=case_id)
 
 
 @app.get("/api/packs")
@@ -224,8 +327,8 @@ def list_packs() -> list[str]:
     return sorted(p.name for p in Path(PACKS_DIR).iterdir() if p.is_dir())
 
 
-@app.post("/api/cases/from-pack/{name}")
-def create_case_from_pack(name: str) -> CaseView:
+@app.post("/api/cases/from-pack/{name}", status_code=202)
+def create_case_from_pack(name: str, background: BackgroundTasks) -> RunStarted:
     """Open a case from a demo pack: its files are copied into the case, as
     an upload would be, so the case can later take more documents."""
     if name not in list_packs():
@@ -237,17 +340,69 @@ def create_case_from_pack(name: str) -> CaseView:
     for path in [*source.glob("*.pdf"), source / MANIFEST]:
         if path.is_file():
             shutil.copy2(path, folder / path.name)
-    return _run(case_id)
+    return _start(case_id, background)
 
 
-@app.post("/api/cases")
-def create_case(files: list[UploadFile] = File(...)) -> CaseView:
+@app.post("/api/cases", status_code=202)
+def create_case(background: BackgroundTasks, files: list[UploadFile] = File(...)) -> RunStarted:
     """Upload PDFs plus an optional application.json (the ApplicationManifest)."""
     case_id = _new_case_id()
     folder = _case_folder(case_id)
     folder.mkdir(parents=True)
     _save(folder, files)
-    return _run(case_id)
+    return _start(case_id, background)
+
+
+def _summary(result: CaseResult, events: list[AuditEvent]) -> CaseSummary:
+    manifest = result.pack.manifest
+    created = next((e.timestamp for e in events if e.action == "case_created"), None)
+    return CaseSummary(
+        case_id=result.case_id,
+        company_name=manifest.company_name if manifest else None,
+        doc_count=len(result.pack.docs),
+        band=result.risk.band,
+        score=result.risk.score,
+        path=result.routing.path if result.routing else None,
+        status=lifecycle.status(events),
+        created_at=created.isoformat() if created else "",
+    )
+
+
+@app.get("/api/cases")
+def list_cases() -> list[CaseSummary]:
+    """Every case, newest first; runs still going (or failed before a result
+    was stored) are listed too."""
+    by_case: dict[str, list[AuditEvent]] = defaultdict(list)
+    for event in read_all_events():
+        by_case[event.case_id].append(event)
+    root = Path(CASES_DIR)
+    stored = [
+        _summary(CaseResult.model_validate_json(path.read_text(encoding="utf-8")),
+                 by_case[path.parent.name])
+        for path in (root.glob("*/result.json") if root.is_dir() else [])
+    ]
+    known = {s.case_id for s in stored}
+    pending = [
+        CaseSummary(case_id=p.case_id, company_name=None, doc_count=0, band=None, score=None,
+                    path=None, status=p.state if p.state == "failed" else "running",
+                    created_at="")
+        for p in jobs.unfinished() if p.case_id not in known
+    ]
+    # Unfinished runs first, then newest first
+    return pending + sorted(stored, key=lambda s: s.created_at, reverse=True)
+
+
+@app.get("/api/cases/{case_id}/progress")
+def get_progress(case_id: str) -> Progress:
+    """Which stage the case's run is on. After a server restart a finished
+    case still reports "done", rebuilt from its stored result."""
+    progress = jobs.get(case_id)
+    if progress is not None:
+        return progress
+    result = _load(case_id)
+    stages = [StageProgress(stage_id=s.stage_id, state=s.status) for s in result.stages]
+    return Progress(case_id=case_id, state="done",
+                    stages=[*stages, StageProgress(stage_id="record", state="ran")])
 
 
 @app.get("/api/cases/{case_id}")
@@ -329,8 +484,10 @@ def mlro_decision(case_id: str, body: MlroDecision) -> AuditEvent:
     return event
 
 
-@app.post("/api/cases/{case_id}/documents")
-def add_documents(case_id: str, files: list[UploadFile] = File(...)) -> CaseView:
+@app.post("/api/cases/{case_id}/documents", status_code=202)
+def add_documents(
+    case_id: str, background: BackgroundTasks, files: list[UploadFile] = File(...)
+) -> RunStarted:
     """Documents answering a request for information: added to the case,
     which is then re-assessed on its full document set."""
     _load(case_id)
@@ -339,7 +496,7 @@ def add_documents(case_id: str, files: list[UploadFile] = File(...)) -> CaseView
     log_event(AuditEvent(
         case_id=case_id, actor=SYSTEM, action="documents_added", details={"filenames": names},
     ))
-    return _run(case_id, new_case=False)
+    return _start(case_id, background, new_case=False)
 
 
 def _document(result: CaseResult, doc_id: str, page: int) -> tuple[Path, DocMeta]:
@@ -395,3 +552,35 @@ def get_evidence_location(case_id: str, evidence_id: str) -> EvidenceLocation:
 def get_feedback() -> list[CheckFeedback]:
     """Override statistics per check, from the whole audit log."""
     return report(read_all_events())
+
+
+def _cost_summary() -> CostSummary:
+    costs = [c for c in usage.report(usage.read_usage()) if c.case_id != usage.UNATTRIBUTED]
+    priced = [c.usd for c in costs if c.usd is not None]
+    total = sum(priced, Decimal(0))
+    return CostSummary(cases=len(costs), usd_total=total,
+                       usd_per_case=total / len(priced) if priced else None)
+
+
+@app.get("/api/controls")
+def get_controls() -> Controls:
+    """Versions, capabilities, signal library, spend, the latest saved
+    evaluation and analyst override statistics."""
+    return Controls(
+        policy_version=POLICY_VERSION,
+        rule_version=RULE_VERSION,
+        reference_data=reference_versions(),
+        capabilities=[
+            Capability(name="ocr", enabled=OCR_ENABLED, detail="Amazon Textract DetectDocumentText"),
+            Capability(name="prompt_screen", enabled=PROMPT_SCREEN_ENABLED,
+                       detail=f"Bedrock guardrail {GUARDRAIL_ID} v{GUARDRAIL_VERSION}"),
+            Capability(name="llm_extraction", enabled=EXTRACTION_MODE == "llm",
+                       detail=BEDROCK_MODEL_ID),
+            Capability(name="semantic_review", enabled=SEMANTIC_REVIEW_ENABLED,
+                       detail=BEDROCK_MODEL_ID),
+        ],
+        signals=list(SIGNALS),
+        cost=_cost_summary(),
+        evaluation=load_saved(),
+        feedback=report(read_all_events()),
+    )

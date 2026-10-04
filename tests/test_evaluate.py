@@ -108,3 +108,18 @@ def test_crashing_pack_is_reported_and_counted_as_missed(
 def test_main_passes_on_real_packs(capsys: pytest.CaptureFixture[str]) -> None:
     assert evaluate.main([]) == 0
     assert "precision 1.00  recall 1.00" in capsys.readouterr().out
+
+
+def test_saved_report_is_stamped_and_read_back(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("EVAL_REPORT_PATH", str(tmp_path / "evaluation.json"))
+    assert evaluate.load_saved() is None
+    report = evaluate.Report(
+        packs=[], true_positives=0, false_positives=0, false_negatives=0, precision=1.0,
+        recall=1.0, band_accuracy=1.0, readiness_accuracy=1.0, routing_accuracy=1.0,
+        clean_pack_false_positives=0, attacks=[], attack_detection_rate=1.0, evidence_coverage=1.0,
+    )
+    evaluate.save(report)
+    saved = evaluate.load_saved()
+    assert saved is not None and saved.evaluated_at
+    assert saved.capabilities == evaluate.CAPABILITIES
+    assert saved.extraction_mode == "stub"

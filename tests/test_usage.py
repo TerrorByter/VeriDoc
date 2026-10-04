@@ -74,3 +74,23 @@ def test_bedrock_call_is_metered_against_its_case(monkeypatch: pytest.MonkeyPatc
     llm_client.converse("s", "u", purpose="t", case_id="CASE-E", client=FakeBedrock())
     (record,) = usage.read_usage()
     assert (record["service"], record["case_id"], record["input_tokens"]) == ("bedrock", "CASE-E", 3)
+
+
+def test_cost_is_split_by_pipeline_stage() -> None:
+    usage.log_usage("textract", "ocr", "CASE-D", pages=10)
+    usage.log_usage("guardrails", "prompt_screen", "CASE-D", text_units=10)
+    usage.log_usage("bedrock", "extract_invoice", "CASE-D", model_id=SONNET,
+                    input_tokens=1000, output_tokens=0)
+    usage.log_usage("bedrock", "extract_bank_statement", "CASE-D", model_id=SONNET,
+                    input_tokens=1000, output_tokens=0)
+    (row,) = usage.report(usage.read_usage())
+    assert row.usd_by_stage == {
+        "ocr": Decimal("0.015"), "prompt_screen": Decimal("0.0015"), "extract": Decimal("0.006"),
+    }
+
+
+def test_case_cost_finds_one_case() -> None:
+    usage.log_usage("textract", "ocr", "CASE-E", pages=2)
+    cost = usage.case_cost("CASE-E")
+    assert cost is not None and cost.usd == Decimal("0.003")
+    assert usage.case_cost("CASE-NONE") is None

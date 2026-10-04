@@ -226,6 +226,10 @@ AUDIT_LOG_PATH: str = os.getenv("AUDIT_LOG_PATH", "logs/audit_log.jsonl")
 #: document content (gldb.usage).
 USAGE_LOG_PATH: str = os.getenv("USAGE_LOG_PATH", "logs/usage.jsonl")
 
+#: Where `python -m gldb.evaluate --save` keeps the latest evaluation report,
+#: which the API's controls page shows (gldb.evaluate).
+EVAL_REPORT_PATH: str = os.getenv("EVAL_REPORT_PATH", "logs/evaluation.json")
+
 # ---------------------------------------------------------------------------
 # Unit prices for cost estimates (gldb.usage). From the AWS Price List API,
 # ap-southeast-1 on-demand list prices, as of PRICES_AS_OF. Estimates only:

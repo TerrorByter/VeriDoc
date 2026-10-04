@@ -80,11 +80,19 @@ class CaseCost(BaseModel):
     #: None when any usage could not be priced (see unpriced)
     usd: Decimal | None = Decimal(0)
     unpriced: list[str] = []
+    #: Priced cost per pipeline stage (see stage_of); unpriced usage is left out
+    usd_by_stage: dict[str, Decimal] = {}
 
 
 def _model(model_id: str) -> str:
     """Inference profile ID from a bare ID or an ARN."""
     return model_id.rsplit("/", 1)[-1]
+
+
+def stage_of(purpose: str) -> str:
+    """The pipeline stage a metered call belongs to: purposes are named after
+    stages, with extraction metered per document type (extract_invoice, ...)."""
+    return "extract" if purpose.startswith("extract") else purpose
 
 
 def report(records: list[dict[str, Any]]) -> list[CaseCost]:
@@ -113,7 +121,15 @@ def report(records: list[dict[str, Any]]) -> list[CaseCost]:
             if price is None and model not in row.unpriced:
                 row.unpriced.append(model)
         row.usd = None if row.usd is None or amount is None else row.usd + amount
+        if amount is not None:
+            stage = stage_of(r.get("purpose", ""))
+            row.usd_by_stage[stage] = row.usd_by_stage.get(stage, Decimal(0)) + amount
     return sorted(costs.values(), key=lambda c: c.last_seen, reverse=True)
+
+
+def case_cost(case_id: str) -> CaseCost | None:
+    """Usage and estimated cost of one case; None if it used no AWS service."""
+    return next((c for c in report(read_usage()) if c.case_id == case_id), None)
 
 
 def main() -> int:

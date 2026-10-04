@@ -4,7 +4,10 @@ gldb/evaluate.py
 Evaluation harness: runs every pack under PACKS_DIR through the pipeline
 stages and compares the result with the pack's ground_truth.json.
 
-Run:  python -m gldb.evaluate [--json]
+Run:  python -m gldb.evaluate [--json] [--save]
+
+--save keeps the report at EVAL_REPORT_PATH, stamped with when it ran and
+which capabilities were on, for the API's controls page.
 
 Uses the configured extractor (EXTRACTION_MODE), so the same command
 compares the stub and the LLM extractor. Nothing is written to the audit log
@@ -32,12 +35,20 @@ and quote (gldb.coverage). Anything below 1.0 fails the run.
 from __future__ import annotations
 
 import json
+import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from pydantic import BaseModel
 
-from gldb.config import OCR_ENABLED, PACKS_DIR, PROMPT_SCREEN_ENABLED
+from gldb.config import (
+    EVAL_REPORT_PATH,
+    EXTRACTION_MODE,
+    OCR_ENABLED,
+    PACKS_DIR,
+    PROMPT_SCREEN_ENABLED,
+)
 from gldb.coverage import untraceable
 from gldb.intake import load_manifest
 from gldb.pipeline import assess
@@ -114,6 +125,10 @@ class Report(BaseModel):
     evidence_coverage: float
     #: Packs not run because a capability they require is off
     skipped: list[str] = []
+    #: Set by save(): when the run finished, and the configuration it ran with
+    evaluated_at: str = ""
+    capabilities: dict[str, bool] = {}
+    extraction_mode: str = ""
 
 
 def expected_ids(truth: dict, ocr_enabled: bool) -> set[tuple[str, bool]]:
@@ -272,8 +287,33 @@ def _print(report: Report) -> None:
         print(f"skipped (a required capability is off): {', '.join(report.skipped)}")
 
 
+def _report_path() -> Path:
+    return Path(os.environ.get("EVAL_REPORT_PATH", "").strip() or EVAL_REPORT_PATH)
+
+
+def save(report: Report) -> None:
+    """Keep *report* as the latest evaluation, stamped with the time and the
+    configuration it ran with."""
+    stamped = report.model_copy(update={
+        "evaluated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "capabilities": CAPABILITIES,
+        "extraction_mode": EXTRACTION_MODE,
+    })
+    path = _report_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(stamped.model_dump_json(indent=2), encoding="utf-8")
+
+
+def load_saved() -> Report | None:
+    """The latest saved evaluation, if any."""
+    path = _report_path()
+    return Report.model_validate_json(path.read_text(encoding="utf-8")) if path.is_file() else None
+
+
 def main(argv: list[str]) -> int:
     report = evaluate(Path(PACKS_DIR))
+    if "--save" in argv:
+        save(report)
     if "--json" in argv:
         print(report.model_dump_json(indent=2))
     else:

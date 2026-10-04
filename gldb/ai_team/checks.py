@@ -10,8 +10,13 @@ text, and never call a model.
 
 from __future__ import annotations
 
+import re
+from datetime import date
+
+from gldb.checks import matching_po
 from gldb.config import SCREENING_MATCH_THRESHOLD
-from gldb.schemas import BankStatement, ExtractedPack, Transaction
+from gldb.ordering import TradeDates
+from gldb.schemas import BankStatement, ExtractedPack, Invoice, Transaction
 from gldb.screening import screening_key, similarity
 
 
@@ -47,3 +52,19 @@ def counterparties(pack: ExtractedPack) -> dict[str, str]:
 def counterparty_id(pack: ExtractedPack, name: str) -> str | None:
     """The id of the counterparty *name*, or None for the applicant."""
     return counterparties(pack).get(screening_key(name))
+
+
+def names(number: str) -> re.Pattern[str]:
+    """A pattern matching *number* as a whole token in a description."""
+    return re.compile(rf"(?<![\w-]){re.escape(number)}(?![\w-])")
+
+
+def trade_dates(invoice: Invoice, pack: ExtractedPack, incorporated: date | None) -> TradeDates:
+    """*invoice*'s trade: its matching purchase order, the bill of lading that
+    references it, and the earliest credit whose description names it."""
+    po = matching_po(invoice, pack)
+    bl = next((b for b in pack.bills_of_lading if b.invoice_reference == invoice.invoice_number), None)
+    named = names(invoice.invoice_number)
+    credits = [txn.date for _, _, txn in bank_rows(pack) if txn.credit is not None and named.search(txn.description)]
+    return TradeDates(purchase_order=po.po_date if po else None, shipped=bl.shipped_date if bl else None,
+                      invoice=invoice.invoice_date, payment=min(credits, default=None), incorporated=incorporated)

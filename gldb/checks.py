@@ -48,6 +48,7 @@ from gldb.forensics import (
     mixed_font_tokens,
 )
 from gldb.intake import read_text
+from gldb.ordering import TradeDates, breaks, violations
 from gldb.privacy import mask_id
 from gldb.reference import registry, watchlist
 from gldb.screening import screen, screening_key, similarity
@@ -1509,8 +1510,16 @@ def check_temp_before_incorporation(pack: ExtractedPack) -> list[Evidence]:
         )
         for f in dated_facts(pack)
         # a payment is already covered by its statement's period
-        if f.kind not in ("incorporated", "application", "payment") and f.on < incorporated
+        if f.kind not in ("incorporated", "application", "payment") and breaks(incorporated, f.on)
     ]
+
+
+def _out_of_order(po_date: date, step: str, on: date) -> bool:
+    """Whether *step* dated *on* breaks the ordering policy against its
+    purchase order (gldb.ordering, which the AI team's check reads too)."""
+    dates = TradeDates(purchase_order=po_date, shipped=on if step == "shipped" else None,
+                       invoice=on if step == "invoice" else po_date, payment=None, incorporated=None)
+    return any(v.rule == "TEMP_TRADE_SEQUENCE" and v.later == step for v in violations(dates))
 
 
 def check_temp_trade_sequence(pack: ExtractedPack) -> list[Evidence]:
@@ -1521,7 +1530,7 @@ def check_temp_trade_sequence(pack: ExtractedPack) -> list[Evidence]:
     invoices = {i.invoice_number: i for i in pack.invoices}
     for inv in pack.invoices:
         po = matching_po(inv, pack)
-        if po is not None and inv.invoice_date < po.po_date:
+        if po is not None and _out_of_order(po.po_date, "invoice", inv.invoice_date):
             results.append(_ev(
                 "TEMP_TRADE_SEQUENCE", "fraud_signal", "medium", inv.doc_id, inv.page, 0.9,
                 f"Invoice {inv.invoice_number} is dated {inv.invoice_date}, before its "
@@ -1532,7 +1541,7 @@ def check_temp_trade_sequence(pack: ExtractedPack) -> list[Evidence]:
     for bl in pack.bills_of_lading:
         inv = invoices.get(bl.invoice_reference)
         po = matching_po(inv, pack) if inv is not None else None
-        if po is not None and bl.shipped_date < po.po_date:
+        if po is not None and _out_of_order(po.po_date, "shipped", bl.shipped_date):
             results.append(_ev(
                 "TEMP_TRADE_SEQUENCE", "fraud_signal", "medium", bl.doc_id, bl.page, 0.9,
                 f"Bill of lading {bl.bl_number} says goods were shipped on {bl.shipped_date}, "

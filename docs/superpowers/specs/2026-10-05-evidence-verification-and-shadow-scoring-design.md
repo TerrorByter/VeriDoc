@@ -1,6 +1,6 @@
 # Evidence Verification and Shadow Scoring — Design
 
-Date: 2026-10-05 · Status: draft for review (no code before approval)
+Date: 2026-10-05 · Status: approved with changes (sections 4.6, 5, 11)
 Builds on: `2026-10-04-target-architecture.md` (steps 5, 9, 10, 11, 12) and
 `2026-10-04-ai-agent-team-design.md`.
 
@@ -33,7 +33,7 @@ In this milestone:
 7. Evaluation metrics and run-5 regression fixtures.
 
 Not in this milestone: checks for the other four patterns (they stay
-`unverified`, section 4.5), the investigation prioritizer, screening of
+`unverified`, section 4.6), the investigation prioritizer, screening of
 metadata and fields (F), the cross-case store (D), applying any AI output to
 the live route.
 
@@ -193,7 +193,14 @@ verified.
 - It never calls a model.
 - It never changes a finding, the score or the route.
 
-### 4.5 Patterns without a check
+### 4.5 The principle for every check
+
+If code cannot establish a condition, the lead is `unverified`, never
+"probably true". Every future pattern check keeps this: explicit
+preconditions, each unmet one giving `unverified`, and `verified` only when
+all of them hold on case data.
+
+### 4.6 Patterns without a check
 
 `round_trip`, `split_payment`, `business_mismatch` and
 `document_inconsistency` stay `unverified` in this milestone. Planned next,
@@ -217,10 +224,15 @@ stay unverified, so they become analyst observations only.
 - Never corroboration: two agents agreeing, the same agent twice, or a
   triage lead agreeing with the finding it judges. Two models repeating a
   mistake is one source.
+- Invariant: corroborated is strictly downstream of verified.
+  `unverified` never becomes `corroborated`; `contradicted` never becomes
+  `corroborated`; only `verified` may.
 - A verified `sequence_anomaly` always coincides with its rule finding (one
-  policy, section 4.2). It is shown merged with that finding, as "AI
-  confirmed E07", and adds no flag of its own. Where a rule exists, the AI
-  cannot out-vote it in either direction.
+  policy, section 4.2). It is shown merged with that finding, worded "AI
+  confirmed existing rule finding TEMP_TRADE_SEQUENCE (E07)", never as an
+  AI-generated flag, and adds no flag of its own. The risk was determined by
+  the rule; the AI only confirmed it. Where a rule exists, the AI cannot
+  out-vote it in either direction.
 - Triage leads: the finding already counts in the champion score. A triage
   lead adds no evidence status of its own (`unverified`) and is an analyst
   observation. Planned: a verified explanation, such as a verified
@@ -357,6 +369,15 @@ checks are pure functions, and scripted fakes stand in for Bedrock.
 | a refuted third_party_payment lead that code verifies | `verified` (a caught AI miss) |
 | champion route with the scorer and gate on vs off | identical |
 | scorer input | contains no memo, hypothesis, tests or unverified lead (asserted on the captured request) |
+
+**False-positive safety invariant** (one named, parametrised test over every
+fixture and pack): a lead whose `evidence_status` is not `verified` or
+`corroborated` may not
+- affect the champion score or route,
+- create an applicant question,
+- enter the memo,
+- enter the shadow scorer's input,
+- cause a disposition escalation (`would_route`).
 
 The milestone passes when every row holds and a live run on
 `third_party_payment` (about US$0.30, approved separately) shows: L12-like

@@ -3,18 +3,20 @@ gldb/ai_team/prompts.py
 -----------------------
 The team's system prompts. Every prompt carries the same three rules
 (untrusted tool results, describe never judge, copy numbers); the code-side
-verifier enforces them again. Each prompt's content hash is its version, so a
-case records the exact instructions its team was given.
+verifier enforces them again. Each prompt's content hash, taken with the
+tool definitions its agent is given (they are instructions too), is its
+version, so a case records the exact instructions its team was given.
 """
 
 from __future__ import annotations
 
+import json
 from typing import get_args
 
-from gldb.ai_team.tools import TITLES
+from gldb.ai_team.tools import TITLES, specs_for
 from gldb.ai_team.verify import PATTERNS
 from gldb.llm_client import prompt_version
-from gldb.schemas import SpecialistName, Verdict
+from gldb.schemas import AgentName, SpecialistName, Verdict
 
 _RULES = (
     "Rules:\n"
@@ -106,9 +108,14 @@ SUPERVISOR_MEMO = (
 
 SPECIALIST: dict[SpecialistName, str] = {s: _specialist(s) for s in get_args(SpecialistName)}
 
-#: Content hash of each prompt, recorded with the team's output
+def version(system: str, agent: AgentName, finish: str | None = None) -> str:
+    """Content hash of *system* and the tools *agent* is given with it."""
+    return prompt_version(system, json.dumps(specs_for(agent, finish), sort_keys=True))
+
+
+#: Content hash of each prompt and its tools, recorded with the team's output
 PROMPT_VERSIONS: dict[str, str] = {
-    "supervisor_plan": prompt_version(SUPERVISOR_PLAN),
-    "supervisor_memo": prompt_version(SUPERVISOR_MEMO),
-    **{s: prompt_version(p) for s, p in SPECIALIST.items()},
+    "supervisor_plan": version(SUPERVISOR_PLAN, "supervisor", "submit_plan"),
+    "supervisor_memo": version(SUPERVISOR_MEMO, "supervisor", "submit_memo"),
+    **{s: version(p, s) for s, p in SPECIALIST.items()},
 }

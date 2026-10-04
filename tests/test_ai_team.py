@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import functools
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +21,8 @@ import pytest
 from botocore.exceptions import ClientError
 
 from gldb import llm_client, pipeline
-from gldb.ai_team.prompts import DEFAULT_BRIEF, PROMPT_VERSIONS
+from gldb.ai_team import prompts, tools
+from gldb.ai_team.prompts import DEFAULT_BRIEF, PROMPT_VERSIONS, SPECIALIST
 from gldb.ai_team.team import TeamModels, run_team
 from gldb.ai_team.tools import CaseData
 from gldb.audit import read_events
@@ -131,6 +133,16 @@ def test_team_plans_fans_out_and_writes_a_memo(tampered: CaseData) -> None:
     assert [lead["lead_id"] for lead in reconcile["leads"]] == ["L01"]
     assert "tool_result" not in _first_text(fake.requests["memo"][0])
     assert team.trace["R01"] not in _first_text(fake.requests["memo"][0])
+
+
+def test_prompt_versions_cover_the_tools_each_agent_is_given(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert prompts.version(SPECIALIST["kyc"], "kyc") == PROMPT_VERSIONS["kyc"]
+    assert prompts.version(prompts.SUPERVISOR_PLAN, "supervisor", "submit_plan") == PROMPT_VERSIONS["supervisor_plan"]
+    monkeypatch.setitem(tools.TOOLS, "get_parties", replace(tools.TOOLS["get_parties"], description="changed"))
+    assert prompts.version(SPECIALIST["kyc"], "kyc") != PROMPT_VERSIONS["kyc"]  # a tool is an instruction
+    assert prompts.version(SPECIALIST["timeline"], "timeline") == PROMPT_VERSIONS["timeline"]  # not its tool
+    monkeypatch.setitem(tools.FINISH_TOOLS, "submit_memo", {**tools.FINISH_TOOLS["submit_memo"], "description": "x"})
+    assert prompts.version(prompts.SUPERVISOR_MEMO, "supervisor", "submit_memo") != PROMPT_VERSIONS["supervisor_memo"]
 
 
 def test_hub_and_spoke_isolation(clean: CaseData) -> None:

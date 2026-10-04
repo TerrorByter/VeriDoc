@@ -447,11 +447,11 @@ class AgentReport(BaseModel):
 
 #: Pipeline stages in run order; "record" (persist + audit) runs outside assess()
 StageId = Literal[
-    "ocr", "intake", "prompt_screen", "extract", "agents", "score", "readiness", "route",
+    "ocr", "intake", "prompt_screen", "extract", "agents", "ai_team", "score", "readiness", "route",
     "projections", "semantic_review", "record",
 ]
-#: "running" is only ever reported live; a finished stage is "ran" or "off"
-StageState = Literal["running", "ran", "off"]
+#: "running" is only ever reported live; a finished stage is "ran", "failed", or "off"
+StageState = Literal["running", "ran", "failed", "off"]
 
 
 class StageReport(BaseModel):
@@ -460,7 +460,7 @@ class StageReport(BaseModel):
     policy) that ran."""
 
     stage_id: StageId
-    status: Literal["ran", "off"]
+    status: Literal["ran", "failed", "off"]
     duration_ms: int
     version: str = ""
 
@@ -569,8 +569,100 @@ class Routing(BaseModel):
 
 class ReviewPoint(BaseModel):
     text: str
-    #: Findings the point relies on; never empty
+    #: Finding IDs (E…) and lead IDs (L…) the point relies on; never empty
     evidence_ids: list[str]
+
+
+#: Agent roles: supervisor orchestrates, specialists investigate
+AgentName = Literal["supervisor", "forensics", "transaction", "kyc", "timeline"]
+#: Specialists that investigate: not the supervisor
+SpecialistName = Literal["forensics", "transaction", "kyc", "timeline"]
+#: Verdict on a lead
+Verdict = Literal["corroborated", "possibly_innocent", "unclear"]
+#: Fraud pattern families
+Pattern = Literal[
+    "third_party_payment",
+    "round_trip",
+    "split_payment",
+    "related_party",
+    "business_mismatch",
+    "document_inconsistency",
+    "sequence_anomaly",
+]
+
+
+class ToolCall(BaseModel):
+    #: R01…
+    call_id: str
+    #: Agent that made the call
+    agent: AgentName
+    #: Tool name
+    tool: str
+    #: Tool arguments
+    args: dict[str, Any]
+    #: Short, masked; never page text
+    summary: str
+    #: Milliseconds taken
+    duration_ms: int
+    #: Whether the call raised an error
+    error: bool = False
+
+
+class Lead(BaseModel):
+    #: L01…, assigned when recorded
+    lead_id: str = ""
+    #: Specialist that surfaced this lead
+    agent: SpecialistName
+    #: Triage (routine finding) or pattern (one we're watching)
+    kind: Literal["triage", "pattern"]
+    #: Evidence IDs (E…) supporting this lead
+    finding_ids: list[str] = []
+    #: Verdict on the lead (None until verified)
+    verdict: Verdict | None = None
+    #: Pattern, if kind is "pattern"
+    pattern: Pattern | None = None
+    #: Brief title
+    title: str
+    #: Detailed explanation
+    detail: str
+    #: R ids (tool call IDs) that support this lead
+    cites: list[str]
+    #: Whether the lead is kept or withheld in the final output
+    outcome: Literal["kept", "withheld"] = "kept"
+    #: Reason for withholding (None if kept)
+    withheld_reason: str | None = None
+
+
+class Memo(BaseModel):
+    #: Observations made by the supervisor
+    observations: list[ReviewPoint] = []
+    #: Questions for the applicant
+    questions: list[ReviewPoint] = []
+    #: Memo points dropped by the verifier
+    withheld: int = 0
+
+
+class AgentTeam(BaseModel):
+    #: Whether the team's run completed ("ran") or hit an error ("failed")
+    status: Literal["ran", "failed"]
+    #: Brief per specialist (specialist -> brief)
+    plan: dict[str, str] = {}
+    #: Tool calls made during the run
+    tool_calls: list[ToolCall] = []
+    #: Leads surfaced and verified
+    leads: list[Lead] = []
+    #: Supervisor's reconciliation
+    memo: Memo | None = None
+    #: Model IDs used: {"supervisor": id, "specialist": id}
+    models: dict[str, str] = {}
+    #: Prompt versions used
+    prompt_versions: dict[str, str] = {}
+    #: Notes (e.g. "transaction: step limit reached", "budget reached")
+    notes: list[str] = []
+    #: Error message if status is "failed"
+    error: str | None = None
+    #: call_id -> full tool result text; server-only (agent_trace.json), never serialised
+    trace: dict[str, str] = Field(default_factory=dict, exclude=True)
 
 
 class SemanticReview(BaseModel):
@@ -600,6 +692,8 @@ class CaseResult(BaseModel):
     investigation: list[InvestigationTask] = []
     #: None when the review is off or there was nothing to review
     review: SemanticReview | None = None
+    #: None when the team is off
+    ai_team: AgentTeam | None = None
     #: Empty only for results stored before stages were recorded
     stages: list[StageReport] = []
 

@@ -18,6 +18,7 @@ from gldb.config import money
 from gldb.privacy import mask_id
 from gldb.schemas import (
     Address,
+    AgentTeam,
     ApplicationManifest,
     AuditEvent,
     BankStatement,
@@ -34,6 +35,7 @@ from gldb.schemas import (
     ReadinessResult,
     RiskResult,
     Signatory,
+    StageReport,
     TaxResidencyRow,
     Transaction,
 )
@@ -526,3 +528,19 @@ def test_entity_self_cert_in_pack_roundtrip():
     assert restored.entity_self_certs[0].legal_name == "Acme Pte Ltd"
     assert restored.manifest is not None
     assert restored.manifest.uen == "202312345A"
+
+
+# ---------------------------------------------------------------------------
+# AI Team records
+# ---------------------------------------------------------------------------
+
+
+def test_agent_team_trace_is_never_serialised():
+    team = AgentTeam(status="ran", trace={"R01": "PAGE TEXT"})
+    json_str = team.model_dump_json()
+    assert "PAGE TEXT" not in json_str
+
+
+def test_stage_report_accepts_failed():
+    report = StageReport(stage_id="agents", status="failed", duration_ms=100)
+    assert report.status == "failed"

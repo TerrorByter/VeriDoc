@@ -86,6 +86,37 @@ def test_step_cap_applies_within_a_turn(case: CaseData, monkeypatch: pytest.Monk
     assert len(fake.requests["transaction"]) == 1
 
 
+def _lead() -> dict[str, Any]:
+    return use("record_lead", kind="pattern", pattern="split_payment", title="t", detail="d", cites=["R01"])
+
+
+def test_leads_and_questions_do_not_count_towards_the_step_cap(case: CaseData,
+                                                                monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(loop, "AGENT_MAX_STEPS", 1)
+    question = use("draft_question", text="q", cites=["R01"])
+    fake = ScriptedBedrock({"transaction": [[_lead(), question], [_search()], [_lead()], [{"text": "done"}]]})
+    ledger = Ledger()
+
+    assert _run(fake, case, ledger) is None
+
+    assert [c.tool for c in ledger.tool_calls] == ["record_lead", "draft_question", "search_bank_transactions",
+                                                   "record_lead"]
+    assert ledger.notes == [] and len(ledger.leads) == 2
+
+
+def test_leads_are_recorded_even_in_the_turn_that_hits_the_cap(case: CaseData,
+                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(loop, "AGENT_MAX_STEPS", 1)
+    fake = ScriptedBedrock({"transaction": [[_search(), _lead(), _search(), _lead()]]})
+    ledger = Ledger()
+
+    assert _run(fake, case, ledger) is None
+
+    assert [c.tool for c in ledger.tool_calls] == ["search_bank_transactions", "record_lead", "record_lead"]
+    assert len(ledger.leads) == 2 and ledger.notes == ["transaction: step limit reached"]
+    assert len(fake.requests["transaction"]) == 1
+
+
 def test_budget_stops_the_loop(case: CaseData, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(tools, "AGENT_TOKEN_BUDGET", 1)
     fake = ScriptedBedrock({"transaction": _searches(3)})

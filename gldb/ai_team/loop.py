@@ -4,7 +4,8 @@ gldb/ai_team/loop.py
 One agent's bounded tool-use loop on the Bedrock Converse API. The agent
 calls its read-only tools until it hands in its answer (the finish tool) or
 ends its turn; the step cap and the case's token budget stop one that does
-neither. A stop is a note in the ledger, never an error: the team carries on
+neither. The cap counts evidence calls only: recording a lead or drafting a
+question never counts, and is still run in the turn that hits the cap. A stop is a note in the ledger, never an error: the team carries on
 with what it has.
 """
 
@@ -13,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from gldb.ai_team.tools import TITLES, CaseData, Ledger, call_tool, specs_for
+from gldb.ai_team.tools import RECEIPT_TOOLS, TITLES, CaseData, Ledger, call_tool, specs_for
 from gldb.config import AGENT_MAX_STEPS
 from gldb.llm_client import converse_turn
 from gldb.schemas import AgentName
@@ -68,13 +69,18 @@ def run_agent(
         if answer is not None:
             return answer["input"]
         results: list[dict[str, Any]] = []
+        capped = False
         for tool_use in turn.tool_uses:
-            if steps >= AGENT_MAX_STEPS:
-                ledger.note(f"{agent}: step limit reached")
-                return None
+            evidence = tool_use["name"] not in RECEIPT_TOOLS
+            if evidence and steps >= AGENT_MAX_STEPS:
+                capped = True
+                continue
             on_activity(f"{TITLES[agent]}: {tool_use['name']}")
             text, error = call_tool(agent, tool_use["name"], tool_use["input"], case, ledger)
-            steps += 1
+            steps += evidence
             results.append({"toolResult": {"toolUseId": tool_use["toolUseId"], "content": [{"text": text}],
                                            **({"status": "error"} if error else {})}})
+        if capped:
+            ledger.note(f"{agent}: step limit reached")
+            return None
         messages.append({"role": "user", "content": results})

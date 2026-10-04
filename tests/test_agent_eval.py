@@ -92,7 +92,7 @@ def test_metrics_count_recall_noise_and_withheld(monkeypatch: pytest.MonkeyPatch
     _script(monkeypatch, [
         # clean: a pattern lead that matches nothing planted
         _search(), _lead(["R01"]), DONE,
-        # third_party_payment: the planted lead, and one that names a verdict, so is withheld
+        # third_party_payment: the planted lead, and one that names a verdict, so is refused when recorded
         _search(), _lead(["R01"], pattern="third_party_payment"),
         _lead(["R01"], pattern="round_trip", hypothesis="Possible fraud on the invoice"), DONE,
     ])

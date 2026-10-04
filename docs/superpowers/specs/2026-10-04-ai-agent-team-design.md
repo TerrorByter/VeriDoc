@@ -177,8 +177,12 @@ AgentTeam:   status, plan {specialist: brief|None}, tool_calls, leads,
   missing evidence, uses verdict words (fraud, crim*, launder, guilt, approv*,
   reject, declin*, recommend), or states a number not in what it cites (each
   test: its own citations) or an identifier (INV-1001, BL-3002, a UEN) in
-  neither its citations nor the case index. Withheld leads stay visible with
-  the reason. Kept supported leads get a code-assigned strength.
+  neither its citations nor the case index (documents, invoice, purchase
+  order and bill of lading numbers). The same rules run when `record_lead` is
+  called: a failing lead is refused with the reason as a tool error, so the
+  agent can correct it, and the refusal stays in the trace. The team verifies
+  every lead again at the end; withheld leads stay visible with the reason.
+  Kept supported leads get a code-assigned strength.
 - **Isolation:** any exception in `ai_team` → status `failed` with reason;
   pipeline continues on rule findings.
 

@@ -119,8 +119,11 @@ Lead
   "checked, clear", never as a flag. This is where "sanctions clear" belongs.
 - **Narrow logic checks in code:** a supported lead needs a test whose
   observed differs from its expected; an unresolved lead needs missing
-  evidence; a triage lead needs a risky finding; a pattern must be the
-  specialist's own.
+  evidence; a triage lead needs a risky finding; a pattern lead names its
+  pattern, and it must be the specialist's own.
+- **Checked when recorded, and again at the end.** `record_lead` runs the
+  verifier and returns its reason as a tool error, so the agent corrects the
+  lead in the same run (validate and retry); the refusal stays in the trace.
 - **Strength (code):** `corroborated` for a supported triage lead (a rule
   finding plus AI evidence that it stands); `unverified` for a supported
   pattern lead until its pattern's evidence check exists, which then adds

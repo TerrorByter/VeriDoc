@@ -140,7 +140,7 @@ def test_pattern_rule_applies_to_any_lead_that_carries_a_pattern() -> None:
     triage = _lead(kind="triage", agent="kyc", pattern="round_trip", finding_ids=["E01"])
     assert _check(triage, findings) == "pattern not in this specialist's list: round_trip"
     assert _check(triage.model_copy(update={"pattern": "related_party"}), findings) is None
-    assert _check(_lead(pattern=None)) == "pattern not in this specialist's list: None"
+    assert _check(_lead(pattern=None)) == "a pattern lead needs its pattern"
 
 
 def test_supported_lead_needs_a_test_whose_observed_differs_from_its_expected() -> None:

@@ -206,14 +206,14 @@ def test_hub_and_spoke_isolation(clean: CaseData) -> None:
         assert _first_text(fake.requests[name][0]) == _task(BRIEFS[name], clean)
         assert BRIEFS[other] not in received
         assert not any(f'"{call_id}"' in received or _result_tag(call_id) in received for call_id in own[other])
-    (lead,) = team.leads
-    # Nor does kyc's lead reach transaction, which was run alongside it
-    assert lead.hypothesis not in _received(fake.requests["transaction"])
-    assert lead.outcome == "withheld"
-    assert lead.withheld_reason == f"cites a tool result it did not receive: {transaction_id}"
+    # kyc's lead cites transaction's result, so it is refused when recorded; nor does it reach transaction
+    assert "A register entry is shared" not in _received(fake.requests["transaction"])
+    (refused,) = [c for c in team.tool_calls if c.tool == "record_lead"]
+    assert refused.error and refused.summary == f"error: cites a tool result it did not receive: {transaction_id}"
+    assert team.leads == []
 
 
-def test_unsupported_leads_are_withheld_not_hidden(tampered: CaseData) -> None:
+def test_unsupported_leads_are_refused_and_stay_in_the_trace(tampered: CaseData) -> None:
     fake = ScriptedBedrock({
         "plan": _plan(),
         "transaction": [[use("search_bank_transactions", text="INV")],
@@ -222,11 +222,13 @@ def test_unsupported_leads_are_withheld_not_hidden(tampered: CaseData) -> None:
 
     team = _run(fake, tampered)
 
-    (lead,) = team.leads
-    assert lead.outcome == "withheld" and lead.withheld_reason == "uses verdict language: fraud"
+    assert team.leads == []
+    (refused,) = [c for c in team.tool_calls if c.tool == "record_lead"]
+    assert refused.error and refused.summary == "error: uses verdict language: fraud"
+    # The agent was told why, so it could correct the lead
+    assert "uses verdict language: fraud" in _received(fake.requests["transaction"][1:])
     reconcile = _first_text(fake.requests["memo"][0])
-    assert json.loads(reconcile)["leads"] == []
-    assert "fraud" not in reconcile and lead.hypothesis not in reconcile
+    assert json.loads(reconcile)["leads"] == [] and "fraud" not in reconcile
 
 
 def test_leads_carry_status_and_code_assigned_strength_to_the_supervisor(clean: CaseData) -> None:
@@ -289,7 +291,7 @@ def test_memo_points_citing_withheld_leads_are_dropped(tampered: CaseData) -> No
 
     team = _run(fake, tampered)
 
-    assert [lead.outcome for lead in team.leads] == ["kept", "withheld"]
+    assert [lead.outcome for lead in team.leads] == ["kept"]  # the second was refused when recorded
     assert team.memo is not None
     assert [p.text for p in team.memo.observations] == ["Kept lead."]
     assert team.memo.questions == []
@@ -335,8 +337,8 @@ def test_question_citing_another_agents_result_is_withheld(clean: CaseData) -> N
     assert json.loads(reconcile)["questions"] == [] and "Who is the payer?" not in reconcile
 
 
-def test_lead_citing_its_own_receipt_or_an_error_is_withheld(clean: CaseData) -> None:
-    # Only kyc calls tools: R01 an error, R02 a lead receipt, R03 and R04 leads citing them
+def test_lead_citing_its_own_receipt_or_an_error_is_refused(clean: CaseData) -> None:
+    # Only kyc calls tools: R01 an error, R02 a refused lead citing it, R03 and R04 leads citing those
     fake = ScriptedBedrock({
         "plan": _plan(),
         "kyc": [[use("registry_lookup")],
@@ -346,9 +348,10 @@ def test_lead_citing_its_own_receipt_or_an_error_is_withheld(clean: CaseData) ->
 
     team = _run(fake, clean)
 
-    assert [lead.withheld_reason for lead in team.leads] == [
-        "cites a result that is not evidence: R01", "cites a result that is not evidence: R01",
-        "cites a result that is not evidence: R02"]
+    assert team.leads == []
+    assert [c.summary for c in team.tool_calls if c.tool == "record_lead"] == [
+        "error: cites a result that is not evidence: R01", "error: cites a result that is not evidence: R01",
+        "error: cites a result that is not evidence: R02"]
 
 
 # ---------------------------------------------------------------------------

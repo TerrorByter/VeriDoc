@@ -161,8 +161,8 @@ def _bad() -> dict[str, Any]:
     return use("get_chain")
 
 
-def _lead() -> dict[str, Any]:
-    test = {"cites": ["R01"], "expected": "one credit", "observed": "two credits"}
+def _lead(cite: str = "R01") -> dict[str, Any]:
+    test = {"cites": [cite], "expected": "one credit", "observed": "two credits"}
     return use("record_lead", kind="pattern", pattern="split_payment", hypothesis="h", tests=[test],
                status="supported")
 
@@ -171,12 +171,12 @@ def test_leads_and_questions_do_not_count_towards_the_step_cap(case: CaseData,
                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(loop, "AGENT_MAX_STEPS", 1)
     question = use("draft_question", text="q", cites=["R01"])
-    fake = ScriptedBedrock({"transaction": [[_lead(), question], [_search()], [_lead()], [{"text": "done"}]]})
+    fake = ScriptedBedrock({"transaction": [[question], [_search()], [_lead("R02"), _lead("R02")], [{"text": "done"}]]})
     ledger = Ledger()
 
     assert _run(fake, case, ledger) is None
 
-    assert [c.tool for c in ledger.tool_calls] == ["record_lead", "draft_question", "search_bank_transactions",
+    assert [c.tool for c in ledger.tool_calls] == ["draft_question", "search_bank_transactions", "record_lead",
                                                    "record_lead"]
     assert ledger.notes == [] and len(ledger.leads) == 2
 

@@ -9,8 +9,9 @@ use, the challenger the one being tried.
 
 One AgentEvalRow per setup, each with an AgentPackResult per pack. Metrics:
 pattern recall (planted patterns the team found), triage accuracy, noise
-(kept pattern leads matching nothing planted), withheld rate (leads the
-verifier dropped), and the team's cost (its own Bedrock calls only) and time
+(kept supported pattern leads matching nothing planted), withheld rate (leads
+the verifier refused when they were recorded or withheld at the end, out of
+all the team tried to record), and the team's cost (its own Bedrock calls only) and time
 per case.
 
 The rows are kept as a JSON list at AGENT_EVAL_PATH, for the API's controls
@@ -59,7 +60,9 @@ class AgentPackResult(BaseModel):
     triage_correct: int
     #: Kept pattern leads not expected
     noise: int
+    #: Leads refused when recorded (a record_lead error) or withheld at the end
     withheld: int
+    #: Leads the team tried to record
     leads: int
     #: The team's own cost (stage ai_team); None when unknown
     usd: Decimal | None
@@ -146,6 +149,7 @@ def _pack_result(folder: Path, truth: dict, models: TeamModels, stamp: str) -> A
 
     leads = team.leads if team else []
     kept = [lead for lead in leads if lead.outcome == "kept"]
+    refused = sum(c.tool == "record_lead" and c.error for c in team.tool_calls) if team else 0
     expected = [f"{lead['agent']}:{lead['pattern']}" for lead in truth["expected_leads"]]
     # A refuted or unresolved lead records a check, not a pattern found
     found = [f"{lead.agent}:{lead.pattern}" for lead in kept if lead.kind == "pattern" and lead.status == "supported"]
@@ -166,8 +170,8 @@ def _pack_result(folder: Path, truth: dict, models: TeamModels, stamp: str) -> A
             for want in expected_triage
         ),
         noise=sum(lead not in expected for lead in found),
-        withheld=len(leads) - len(kept),
-        leads=len(leads),
+        withheld=len(leads) - len(kept) + refused,
+        leads=len(leads) + refused,
         usd=cost.usd_by_stage.get("ai_team") if cost else None,
         seconds=seconds,
         status=status,

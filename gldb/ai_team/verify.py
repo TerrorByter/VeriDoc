@@ -145,6 +145,8 @@ def _contract_reason(lead: Lead, findings: dict[str, Evidence], issued: set[str]
         return f"cites an unknown finding: {unknown}"
     if lead.kind == "triage" and not lead.finding_ids:
         return "triage lead without a finding"
+    if lead.kind == "pattern" and lead.pattern is None:
+        return "a pattern lead needs its pattern"
     if (lead.kind == "pattern" or lead.pattern is not None) and lead.pattern not in PATTERNS[lead.agent]:
         return f"pattern not in this specialist's list: {lead.pattern}"
     if lead.status == "supported" and all(_same(t.expected, t.observed) for t in lead.tests):

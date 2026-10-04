@@ -3,8 +3,9 @@ gldb/ai_team/team.py
 --------------------
 The Supervisor-led team, hub and spoke: the Supervisor plans, our code fans
 the four specialists out in parallel (each given only its brief and the case
-index), the verifier gates their leads, and the Supervisor reconciles the kept
-leads into a memo that is gated in turn. Our code is the switchboard: no agent
+index), the verifier gates their leads, code checks each kept lead's pattern
+against the case data, and the Supervisor reconciles the flags (leads code
+verified) into a memo that is gated in turn. Our code is the switchboard: no agent
 talks to another, so every handoff is a logged record. Exceptions propagate;
 the pipeline turns them into a failed team.
 """
@@ -28,7 +29,8 @@ _SPECIALISTS: tuple[SpecialistName, ...] = get_args(SpecialistName)
 _PLAN_TASK = "Plan the investigation of this case."
 #: What the Supervisor is told of each kept lead when it reconciles
 _LEAD_FIELDS = {"lead_id", "agent", "kind", "finding_ids", "pattern", "invoice_number", "transaction_ids",
-                "counterparty", "hypothesis", "tests", "investigation_status", "missing_evidence", "evidence_status"}
+                "counterparty", "hypothesis", "tests", "investigation_status", "missing_evidence", "evidence_status",
+                "check_facts"}
 
 
 @dataclass(frozen=True)
@@ -67,13 +69,26 @@ def _verified(lead: Lead, ledger: Ledger, case: CaseData, index: str) -> Lead:
                                    "check_facts": outcome.facts, "check_reason": outcome.reason})
 
 
-def _verified_questions(ledger: Ledger, index: str) -> list[dict[str, Any]]:
-    """The drafted questions that pass the verifier; a note for each that does not."""
+def flagged(lead: Lead) -> bool:
+    """Whether *lead* is a flag for the analyst: kept, verified or corroborated
+    by code, and not merely confirming a rule finding (the rule's flag already
+    stands). Only a flag may become a memo point, an applicant question or a
+    shadow scorer input."""
+    return (lead.outcome == "kept" and lead.evidence_status in ("verified", "corroborated")
+            and "rule_finding" not in lead.check_facts)
+
+
+def _verified_questions(ledger: Ledger, index: str, flags: list[Lead]) -> list[dict[str, Any]]:
+    """The drafted questions that pass the verifier and rest only on results a
+    flag of the same agent cites; a note for each that does not."""
     passed = []
     for question in ledger.questions:
         agent, text, cites = question["agent"], question["text"], question["cites"]
         reason = check_question(text, cites, ledger.issued_to(agent), ledger.citable(agent), ledger.results,
                                 index)
+        backed = {c for lead in flags if lead.agent == agent for c in lead.cites}
+        if reason is None and not set(cites) <= backed:
+            reason = "no verified lead rests on it"
         if reason is None:
             passed.append(question)
         else:
@@ -129,19 +144,19 @@ def run_team(case: CaseData, models: TeamModels, *, on_activity: Activity = lamb
 
     findings = {e.evidence_id: e for e in case.risky}
     leads = [_verified(lead, ledger, case, index) for lead in ledger.leads]
-    kept = [lead for lead in leads if lead.outcome == "kept"]
+    flags = [lead for lead in leads if flagged(lead)]
 
-    # The Supervisor sees the kept leads and verified questions, never a tool result
-    task = json.dumps({"leads": [lead.model_dump(mode="json", include=_LEAD_FIELDS) for lead in kept],
-                       "questions": _verified_questions(ledger, index)}, ensure_ascii=False)
+    # The Supervisor sees the flags and the questions resting on them, never a tool result or an unverified lead
+    task = json.dumps({"leads": [lead.model_dump(mode="json", include=_LEAD_FIELDS) for lead in flags],
+                       "questions": _verified_questions(ledger, index, flags)}, ensure_ascii=False)
     raw = run("supervisor", models.supervisor, SUPERVISOR_MEMO, task, "submit_memo")
     if raw is None:
         ledger.note("supervisor: no memo submitted")
         memo = Memo()
     else:
-        known_ids = set(findings) | {lead.lead_id for lead in kept}
+        known_ids = set(findings) | {lead.lead_id for lead in flags}
         overview = result_json(_case_overview(case, {}, "supervisor", ledger))
-        cited = " ".join(ledger.results[c] for lead in kept for c in lead.cites)
+        cited = " ".join(ledger.results[c] for lead in flags for c in lead.cites)
         memo = _memo(raw, known_ids, known(overview, cited, index))
 
     return AgentTeam(

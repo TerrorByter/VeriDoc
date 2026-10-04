@@ -55,6 +55,16 @@ def tampered() -> CaseData:
     return _case("tampered")
 
 
+@pytest.fixture(scope="module")
+def tpp() -> CaseData:
+    return _case("third_party_payment")
+
+
+def _harbourline(case: CaseData) -> str:
+    """The planted payment's bank row: INV-1002 paid by Harbourline Logistics, not its buyer."""
+    return next(r for r, _, t in bank_rows(case.pack) if "HARBOURLINE LOGISTICS INV-1002" in t.description)
+
+
 def _finding(case: CaseData) -> str:
     return next(e.evidence_id for e in case.evidence if e.severity != "info")
 
@@ -104,26 +114,27 @@ def _result_tag(call_id: str) -> str:
     return f'id=\\"{call_id}\\"'
 
 
-def test_team_plans_fans_out_and_writes_a_memo(tampered: CaseData) -> None:
-    finding = _finding(tampered)
+def test_team_plans_fans_out_and_writes_a_memo(tpp: CaseData) -> None:
     fake = ScriptedBedrock({
         "plan": _plan(),
         # Only the transaction specialist calls tools, so its ids are deterministic: R01 search, R02 lead
-        "transaction": [[use("search_bank_transactions", text="INV")], [_lead(["R01"])]],
-        "memo": _memo([{"text": "One invoice appears settled by several credits.", "cites": ["L01", finding]}],
-                      [{"text": "Who made each of the credits?", "cites": [finding]}]),
+        "transaction": [[use("search_bank_transactions", text="INV-1002")],
+                        [_lead(["R01"], pattern="third_party_payment", invoice_number="INV-1002",
+                               transaction_ids=[_harbourline(tpp)])]],
+        "memo": _memo([{"text": "INV-1002 was paid by Harbourline Logistics, not its buyer.", "cites": ["L01"]}],
+                      [{"text": "Who is Harbourline Logistics to the buyer?", "cites": ["L01"]}]),
     })
 
-    team = _run(fake, tampered)
+    team = _run(fake, tpp)
 
     assert team.status == "ran"
     assert team.plan == BRIEFS
     assert [(c.call_id, c.agent, c.tool) for c in team.tool_calls] == [
         ("R01", "transaction", "search_bank_transactions"), ("R02", "transaction", "record_lead")]
-    assert [(lead.lead_id, lead.outcome) for lead in team.leads] == [("L01", "kept")]
+    assert [(lead.lead_id, lead.outcome, lead.evidence_status) for lead in team.leads] == [("L01", "kept", "verified")]
     assert team.memo is not None
     assert len(team.memo.observations) + len(team.memo.questions) == 2 and team.memo.withheld == 0
-    assert team.memo.observations[0].evidence_ids == ["L01", finding]
+    assert team.memo.observations[0].evidence_ids == ["L01"]
     assert set(team.prompt_versions) == {"supervisor_plan", "supervisor_memo", *SPECIALISTS}
     assert team.prompt_versions == PROMPT_VERSIONS
     assert team.models == {"supervisor": "sup-model", "specialist": "spec-model"}
@@ -132,7 +143,7 @@ def test_team_plans_fans_out_and_writes_a_memo(tampered: CaseData) -> None:
     # Each specialist was given exactly its brief and the case index; the models are the configured ones
     for name in SPECIALISTS:
         first = fake.requests[name][0]
-        assert first["messages"] == [{"role": "user", "content": [{"text": _task(BRIEFS[name], tampered)}]}]
+        assert first["messages"] == [{"role": "user", "content": [{"text": _task(BRIEFS[name], tpp)}]}]
         assert first["modelId"] == "spec-model"
     assert {r["modelId"] for r in fake.requests["plan"] + fake.requests["memo"]} == {"sup-model"}
     # The reconcile step gets the kept lead, never the tool results behind it
@@ -232,7 +243,7 @@ def test_unsupported_leads_are_refused_and_stay_in_the_trace(tampered: CaseData)
     assert json.loads(reconcile)["leads"] == [] and "fraud" not in reconcile
 
 
-def test_leads_carry_both_statuses_to_the_supervisor(clean: CaseData) -> None:
+def test_unverified_leads_stay_on_the_record_but_never_reach_the_supervisor(clean: CaseData) -> None:
     # Without a code check every kept lead is unverified, whatever the agent concluded; INV-1001
     # is named from the case index although no cited result holds it
     same = {"cites": ["R01"], "expected": "one credit of the invoice total", "observed": "one credit of the invoice total"}
@@ -247,11 +258,7 @@ def test_leads_carry_both_statuses_to_the_supervisor(clean: CaseData) -> None:
 
     assert [(lead.outcome, lead.investigation_status, lead.evidence_status) for lead in team.leads] == [
         ("kept", "supported", "unverified"), ("kept", "refuted", "unverified")]
-    sent = json.loads(_first_text(fake.requests["memo"][0]))["leads"]
-    assert [(lead["investigation_status"], lead["evidence_status"]) for lead in sent] == [
-        ("supported", "unverified"), ("refuted", "unverified")]
-    assert sent[0]["tests"] == [{"cites": ["R01"], "expected": "one credit of the invoice total",
-                                 "observed": "several smaller credits"}]
+    assert json.loads(_first_text(fake.requests["memo"][0]))["leads"] == []
 
 
 def test_code_decides_the_evidence_status_of_a_kept_lead(tampered: CaseData) -> None:
@@ -301,7 +308,7 @@ def test_memo_points_citing_withheld_leads_are_dropped(tampered: CaseData) -> No
         "transaction": [[use("search_bank_transactions", text="INV")],
                         [_lead(["R01"])],
                         [_lead(["R01"], hypothesis="A recommended decline.")]],
-        "memo": _memo([{"text": "Kept lead.", "cites": ["L01", finding]},
+        "memo": _memo([{"text": "Kept lead.", "cites": [finding]},
                        {"text": "Withheld lead.", "cites": ["L02"]},
                        {"text": "Unknown lead.", "cites": ["L09"]},
                        {"text": "Malformed point.", "cites": "L01"},
@@ -331,9 +338,10 @@ def test_only_verified_questions_reach_the_supervisor(tampered: CaseData) -> Non
     team = _run(fake, tampered)
 
     reconcile = json.loads(_first_text(fake.requests["memo"][0]))
-    assert reconcile["questions"] == [
-        {"agent": "transaction", "text": "Who made the payments in 2026?", "cites": ["R01"]}]
+    # None rests on a verified lead; the second and third also break the wording rules
+    assert reconcile["questions"] == []
     assert team.notes == [
+        "transaction: question withheld (no verified lead rests on it)",
         "transaction: question withheld (uses verdict language: laundering)",
         "transaction: question withheld (uses a number not in its cited results: 98765432)",
         "supervisor: no memo submitted",
@@ -464,7 +472,8 @@ def test_trace_is_persisted_server_side_only(
     details = read_events("CASE-TRACE")[-1].details
     assert details["ai_team"] == {
         "status": "ran", "models": {"supervisor": "sup-model", "specialist": "spec-model"},
-        "tool_calls": 2, "leads_kept": 1, "leads_withheld": 0, "error": None, "strict_tools": [],
+        "tool_calls": 2, "leads_kept": 1, "leads_withheld": 0, "flags": 0,
+        "evidence": {"unverified": 1}, "error": None, "strict_tools": [],
     }
     assert details["ai_team_models"] == details["ai_team"]["models"]
     assert {f"ai_team_{k}" for k in PROMPT_VERSIONS} <= set(details["prompt_versions"])

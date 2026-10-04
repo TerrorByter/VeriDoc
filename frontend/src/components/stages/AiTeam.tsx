@@ -3,9 +3,9 @@ import { flushSync } from "react-dom";
 import { AGENT_TITLE, duration, SPECIALISTS, usd } from "../../catalogue";
 import type { AgentName, ReviewPoint } from "../../types";
 import type { StageProps } from "../workspace/StageDetail";
-import { aiLeads, clearChecks } from "../workspace/stageStatus";
+import { aiLeads, clearChecks, observations, ruleConfirmed } from "../workspace/stageStatus";
 import { ErrorNote } from "../ui";
-import { ClearChecks, KeptLeads, WithheldLeads } from "./ai-team/Leads";
+import { CollapsedLeads, KeptLeads, RuleConfirmations, WithheldLeads } from "./ai-team/Leads";
 import { Trace } from "./ai-team/Trace";
 import { OffNote, Section } from "./common";
 
@@ -43,6 +43,8 @@ export function AiTeam({ kase, onView }: StageProps) {
   const cost = kase.cost?.usd_by_stage.ai_team;
   const leads = aiLeads(kase);
   const clear = clearChecks(kase);
+  const unchecked = observations(kase);
+  const confirmed = ruleConfirmed(kase);
   const withheld = team.leads.filter((l) => l.outcome === "withheld");
   const memo = team.memo;
   /** The team's note when the Supervisor ended without calling submit_memo */
@@ -101,14 +103,21 @@ export function AiTeam({ kase, onView }: StageProps) {
             <Trace calls={team.tool_calls} agent={agent} focus={focus} onAgent={setAgent} onView={onView} />
           </Section>
 
-          <Section title="AI leads" aside="Each test cites the tool calls it rests on">
-            <KeptLeads leads={leads} withheld={withheld.length} clear={clear.length} evidence={kase.evidence}
-              onCite={cite} onView={onView} />
+          <Section title="AI leads" aside="Verified by code against the case data">
+            <KeptLeads leads={leads} withheld={withheld.length} unchecked={unchecked.length + clear.length}
+              evidence={kase.evidence} onCite={cite} onView={onView} />
+            {confirmed.length > 0 && <RuleConfirmations leads={confirmed} evidence={kase.evidence} />}
           </Section>
+
+          {unchecked.length > 0 && (
+            <Section title="AI observations, not checked" aside="No code check could establish these: never a flag or a question">
+              <CollapsedLeads noun="observation" leads={unchecked} evidence={kase.evidence} onCite={cite} onView={onView} />
+            </Section>
+          )}
 
           {clear.length > 0 && (
             <Section title="Checks that came back clear" aside="A record of what was checked, not a flag">
-              <ClearChecks leads={clear} evidence={kase.evidence} onCite={cite} onView={onView} />
+              <CollapsedLeads noun="clear check" leads={clear} evidence={kase.evidence} onCite={cite} onView={onView} />
             </Section>
           )}
 

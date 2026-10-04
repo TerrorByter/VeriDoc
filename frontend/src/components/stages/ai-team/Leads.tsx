@@ -71,6 +71,9 @@ function LeadCard({ lead, evidence, onCite, onView }: LeadProps & { lead: Lead }
           </li>
         ))}
       </ul>
+      {lead.check_reason && (
+        <p className="small"><span className="muted">Code check:</span> {lead.check_reason}</p>
+      )}
       {lead.missing_evidence.length > 0 && (
         <p className="small"><span className="muted">Missing evidence:</span> {lead.missing_evidence.join("; ")}</p>
       )}
@@ -83,17 +86,17 @@ function LeadCard({ lead, evidence, onCite, onView }: LeadProps & { lead: Lead }
   );
 }
 
-/** Kept leads that need the analyst (supported or unresolved). */
-export function KeptLeads({ leads, withheld, clear, ...props }: LeadProps & {
+/** Flags: kept leads code verified or corroborated. */
+export function KeptLeads({ leads, withheld, unchecked, ...props }: LeadProps & {
   leads: Lead[];
   /** How many leads the verifier withheld, to tell "none raised" from "none passed" */
   withheld: number;
-  /** How many kept checks came back clear */
-  clear: number;
+  /** How many kept leads code did not verify (observations and clear checks) */
+  unchecked: number;
 }) {
   if (leads.length === 0) {
-    const why = withheld ? "No lead passed the verifier."
-      : clear ? "Every check the AI team recorded came back clear." : "The AI team raised no leads.";
+    const why = unchecked ? "No lead was verified by code; what the AI team recorded is below."
+      : withheld ? "No lead passed the verifier." : "The AI team raised no leads.";
     return <Empty title="No AI leads">{why}</Empty>;
   }
   return (
@@ -103,15 +106,29 @@ export function KeptLeads({ leads, withheld, clear, ...props }: LeadProps & {
   );
 }
 
-/** Checks that came back clear: a record of what was looked at, collapsed, never a flag. */
-export function ClearChecks({ leads, ...props }: LeadProps & { leads: Lead[] }) {
+/** Leads that are not flags (observations code could not check, or checks that came back clear): collapsed,
+ * never hidden. */
+export function CollapsedLeads({ noun, leads, ...props }: LeadProps & { noun: string; leads: Lead[] }) {
   return (
     <details className="withheld-leads">
-      <summary>Show {leads.length === 1 ? "1 clear check" : `${leads.length} clear checks`}</summary>
+      <summary>Show {leads.length === 1 ? `1 ${noun}` : `${leads.length} ${noun}s`}</summary>
       <ul className="leads">
         {leads.map((lead) => <LeadCard key={lead.lead_id} lead={lead} {...props} />)}
       </ul>
     </details>
+  );
+}
+
+/** Rule findings an AI lead confirmed: the rule determined the risk, the AI only agreed, so no second flag. */
+export function RuleConfirmations({ leads, evidence }: { leads: Lead[]; evidence: Evidence[] }) {
+  return (
+    <ul className="reasons muted small">
+      {leads.map((lead) => {
+        const id = lead.check_facts.rule_finding;
+        const check = evidence.find((e) => e.evidence_id === id)?.check_id ?? "a rule finding";
+        return <li key={lead.lead_id}>{lead.lead_id}: AI confirmed existing rule finding {check} ({id})</li>;
+      })}
+    </ul>
   );
 }
 

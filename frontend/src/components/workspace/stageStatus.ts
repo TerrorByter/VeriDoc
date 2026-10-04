@@ -1,4 +1,4 @@
-import type { AuditEvent, CaseView, Evidence, RailStageId, StageReport } from "../../types";
+import type { AuditEvent, CaseView, Evidence, Lead, RailStageId, StageReport } from "../../types";
 
 export type RailState = "ran" | "flag" | "off";
 
@@ -15,11 +15,24 @@ const byCheck = (kase: CaseView, ...checks: string[]) =>
 
 const keptLeads = (kase: CaseView) => kase.ai_team?.leads.filter((l) => l.outcome === "kept") ?? [];
 
-/** The AI team's leads that passed the verifier and need the analyst: supported or unresolved */
-export const aiLeads = (kase: CaseView) => keptLeads(kase).filter((l) => l.investigation_status !== "refuted");
+const verifiedByCode = (l: Lead) => l.evidence_status === "verified" || l.evidence_status === "corroborated";
 
-/** Checks that passed the verifier and came back clear: a record, never a flag */
-export const clearChecks = (kase: CaseView) => keptLeads(kase).filter((l) => l.investigation_status === "refuted");
+/** Flags: leads code verified or corroborated against the case data, other than ones that only confirm a rule finding */
+export const aiLeads = (kase: CaseView) =>
+  keptLeads(kase).filter((l) => verifiedByCode(l) && !l.check_facts.rule_finding);
+
+/** Leads code verified that only confirm an existing rule finding: the rule's flag, not a second one */
+export const ruleConfirmed = (kase: CaseView) =>
+  keptLeads(kase).filter((l) => verifiedByCode(l) && l.check_facts.rule_finding);
+
+/** What the AI suspects but code could not establish: for the analyst to see, never a flag or a question */
+export const observations = (kase: CaseView) =>
+  keptLeads(kase).filter((l) => l.evidence_status === "unverified" && l.investigation_status !== "refuted");
+
+/** Checks that came back clear, by the agent's own tests or by code: a record, never a flag */
+export const clearChecks = (kase: CaseView) =>
+  keptLeads(kase).filter((l) => l.evidence_status === "contradicted"
+    || (l.evidence_status === "unverified" && l.investigation_status === "refuted"));
 
 /** The rail's view of one stage, from the stage record and the case's own outputs. */
 export function stageStatus(kase: CaseView, audit: AuditEvent[], id: RailStageId): StageStatus {

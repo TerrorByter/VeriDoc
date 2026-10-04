@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Annotated, Any, Literal, get_args
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, BeforeValidator, Field, field_validator
 
@@ -665,6 +665,10 @@ class AgentTeam(BaseModel):
     trace: dict[str, str] = Field(default_factory=dict, exclude=True)
 
 
+#: Stages that no longer exist; results stored with their reports still load
+_RETIRED_STAGES = frozenset({"semantic_review"})
+
+
 class CaseResult(BaseModel):
     case_id: str
     pack: ExtractedPack
@@ -686,11 +690,11 @@ class CaseResult(BaseModel):
     @classmethod
     def _drop_retired_stages(cls, stages: Any) -> Any:
         """Results stored before a stage was retired (e.g. "semantic_review")
-        still load: reports of stages that no longer exist are dropped."""
+        still load: reports of the retired stages are dropped. Any other
+        unknown stage_id still fails validation."""
         if not isinstance(stages, list):
             return stages
-        known = get_args(StageId)
-        return [s for s in stages if not isinstance(s, dict) or s.get("stage_id") in known]
+        return [s for s in stages if not isinstance(s, dict) or s.get("stage_id") not in _RETIRED_STAGES]
 
 
 # ---------------------------------------------------------------------------

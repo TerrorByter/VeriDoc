@@ -308,9 +308,13 @@ def _persist(result: CaseResult) -> None:
         lines = {doc: [[line.model_dump() for line in page] for page in pages]
                  for doc, pages in result.pack.ocr_lines.items()}
         (out_dir / OCR_LINES_FILE).write_text(json.dumps(lines), encoding="utf-8")
-    # Full tool results may quote page text: kept server-side the same way
+    # Full tool results may quote page text: kept server-side the same way. An
+    # earlier run's trace goes, so this result's R ids never resolve to it.
+    trace_file = out_dir / AGENT_TRACE_FILE
     if result.ai_team and result.ai_team.trace:
-        (out_dir / AGENT_TRACE_FILE).write_text(json.dumps(result.ai_team.trace), encoding="utf-8")
+        trace_file.write_text(json.dumps(result.ai_team.trace), encoding="utf-8")
+    else:
+        trace_file.unlink(missing_ok=True)
 
 
 def run(

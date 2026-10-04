@@ -355,3 +355,18 @@ def test_trace_is_persisted_server_side_only(
     }
     assert details["ai_team_models"] == details["ai_team"]["models"]
     assert {f"ai_team_{k}" for k in PROMPT_VERSIONS} <= set(details["prompt_versions"])
+
+
+def test_a_rerun_without_a_trace_removes_the_earlier_runs_trace(
+    tampered: CaseData, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R ids of the current result must never resolve to an older run's tool results."""
+    monkeypatch.setattr(pipeline, "CASES_DIR", str(tmp_path / "cases"))
+    result = assess("tampered", *_files("tampered"), team=None)
+    trace_file = tmp_path / "cases" / "tampered" / pipeline.AGENT_TRACE_FILE
+    pipeline._persist(result.model_copy(update={"ai_team": AgentTeam(status="ran", trace={"R01": "OLD"})}))
+    assert trace_file.is_file()
+    pipeline._persist(result.model_copy(update={"ai_team": AgentTeam(status="failed", error="x")}))
+    assert not trace_file.exists()
+    pipeline._persist(result)  # team off: nothing to remove, nothing raised
+    assert not trace_file.exists()

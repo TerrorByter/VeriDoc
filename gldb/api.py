@@ -44,7 +44,8 @@ from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field, model_validator
 
-from gldb import jobs, lifecycle, usage
+from gldb import agent_eval, jobs, lifecycle, usage
+from gldb.agent_eval import AgentEvalRow
 from gldb.audit import log_event, read_all_events, read_events
 from gldb.checks import PACK_DOC
 from gldb.config import (
@@ -186,6 +187,8 @@ class Controls(BaseModel):
     cost: CostSummary
     #: None until `python -m gldb.evaluate --save` has run
     evaluation: Report | None
+    #: Saved AI team evaluations, one per model setup; empty until one has run
+    agent_eval: list[AgentEvalRow]
     feedback: list[CheckFeedback]
 
 
@@ -304,7 +307,8 @@ def _execute(case_id: str, files: list[Path], manifest: Path | None, new_case: b
     """Run the pipeline in the background, reporting each stage to gldb.jobs."""
     try:
         run(case_id, files, manifest_path=manifest, actor=SYSTEM, new_case=new_case,
-            on_stage=lambda stage, state: jobs.stage(case_id, stage, state))
+            on_stage=lambda stage, state: jobs.stage(case_id, stage, state),
+            on_activity=lambda text: jobs.detail(case_id, text))
     except (IntakeError, ExtractionError) as exc:
         jobs.fail(case_id, str(exc))
     except (BotoCoreError, ClientError) as exc:
@@ -595,5 +599,6 @@ def get_controls() -> Controls:
         signals=list(SIGNALS),
         cost=_cost_summary(),
         evaluation=load_saved(),
+        agent_eval=agent_eval.load_saved(),
         feedback=report(read_all_events()),
     )

@@ -7,6 +7,7 @@ uploads and the audit log are redirected to a temp directory.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ from botocore.exceptions import NoCredentialsError
 from fastapi.testclient import TestClient
 
 from gldb import api, pipeline
+from gldb.schemas import AgentTeam, Lead
 
 PACKS = Path(__file__).parent.parent / "data" / "packs"
 
@@ -31,6 +33,7 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
     monkeypatch.setattr(api, "UPLOADS_DIR", str(tmp_path / "uploads"))
     monkeypatch.setenv("AUDIT_LOG_PATH", str(tmp_path / "audit.jsonl"))
     monkeypatch.setenv("EVAL_REPORT_PATH", str(tmp_path / "evaluation.json"))
+    monkeypatch.setenv("AGENT_EVAL_PATH", str(tmp_path / "agent_eval.json"))
     return TestClient(api.app)
 
 
@@ -321,3 +324,59 @@ def test_controls_show_versions_capabilities_and_signals(client: TestClient) -> 
     assert {c["name"]: c["enabled"] for c in controls["capabilities"]}["ocr"] is False
     assert len(controls["signals"]) == len(api.SIGNALS)
     assert controls["evaluation"] is None  # no saved report in the temp folder
+
+
+def test_controls_list_ai_team_capability(client: TestClient) -> None:
+    controls = client.get("/api/controls").json()
+    team = {c["name"]: c for c in controls["capabilities"]}["ai_team"]
+    assert team["enabled"] is False  # the offline suite forces AGENTS_ENABLED=false
+    assert team["detail"] == f"{api.AGENT_SUPERVISOR_MODEL} + {api.AGENT_SPECIALIST_MODEL}"
+    assert controls["agent_eval"] == []  # no saved agent evaluation in the temp folder
+
+
+def test_controls_show_the_saved_agent_evaluation(client: TestClient, tmp_path: Path) -> None:
+    row = {
+        "evaluated_at": "2026-10-04T00:00:00+00:00", "supervisor": "sup", "specialist": "spec",
+        "packs": [], "pattern_recall": 1.0, "triage_accuracy": 0.5, "noise": 1,
+        "withheld_rate": 0.25, "usd_per_case": "0.42", "seconds_per_case": 12.5,
+    }
+    (tmp_path / "agent_eval.json").write_text(json.dumps([row]), encoding="utf-8")
+    rows = client.get("/api/controls").json()["agent_eval"]
+    assert [(r["supervisor"], r["specialist"], r["pattern_recall"]) for r in rows] == [("sup", "spec", 1.0)]
+
+
+def test_case_view_has_ai_team_and_no_trace(client: TestClient) -> None:
+    cid = _case(client)["case_id"]
+    lead = Lead(agent="transaction", kind="triage", title="Odd payment", detail="Paid by a third party",
+                cites=["R01"])
+    team = AgentTeam(status="ran", leads=[lead], trace={"R01": "PAGE TEXT"})
+    pipeline._persist(api._load(cid).model_copy(update={"ai_team": team}))
+    response = client.get(f"/api/cases/{cid}")
+    assert response.status_code == 200
+    assert [lead["title"] for lead in response.json()["ai_team"]["leads"]] == ["Odd payment"]
+    assert "PAGE TEXT" not in response.text and "trace" not in response.json()["ai_team"]
+
+
+def test_progress_reports_activity_detail(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    def team_run(case_id: str, *_: Any, on_stage: Any, on_activity: Any, **__: Any) -> None:
+        on_stage("ai_team", "running")
+        on_activity("Transaction specialist: get_chain")
+    monkeypatch.setattr(api, "run", team_run)
+    cid = client.post("/api/cases/from-pack/clean").json()["case_id"]
+    progress = client.get(f"/api/cases/{cid}/progress").json()
+    assert progress["detail"] == "Transaction specialist: get_chain"
+
+
+def test_old_result_with_review_still_loads(client: TestClient) -> None:
+    """A result stored before the AI team replaced semantic review: its
+    "review" and "semantic_review" stage report are ignored."""
+    cid = _case(client, "clean")["case_id"]
+    path = Path(api.CASES_DIR) / cid / "result.json"
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored["review"] = {"observations": [], "questions": [], "source": "template", "rejected": 0}
+    stored["stages"].append({"stage_id": "semantic_review", "status": "ran", "duration_ms": 1, "version": ""})
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    response = client.get(f"/api/cases/{cid}")
+    assert response.status_code == 200
+    assert response.json()["ai_team"] is None
+    assert "semantic_review" not in [s["stage_id"] for s in response.json()["stages"]]

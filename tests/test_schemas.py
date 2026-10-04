@@ -341,6 +341,15 @@ def test_old_result_with_review_and_semantic_review_stage_still_loads():
     assert [s.stage_id for s in loaded.stages] == ["score"]
 
 
+def test_an_unknown_stage_is_not_dropped_as_retired():
+    """Only the named retired stages are dropped; any other unknown stage_id
+    still fails validation rather than vanishing from the record."""
+    stored = _make_case_result().model_dump(mode="json")
+    stored["stages"] = [{"stage_id": "no_such_stage", "status": "ran", "duration_ms": 1, "version": ""}]
+    with pytest.raises(ValidationError):
+        CaseResult.model_validate_json(json.dumps(stored))
+
+
 def test_line_item_roundtrip():
     original = _make_line_item()
     restored = _roundtrip(original)

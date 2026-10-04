@@ -57,10 +57,10 @@ component works when it is only planned.
  14 FEEDBACK .................. Built (agent_eval) / Planned (outcome calibration)
 ```
 
-Build note: the pipeline step `score` currently runs after `ai_team`. Its
-independence already holds (it is a pure function of findings, and a test
-proves score and route are identical with the team on and off); moving the
-step ahead of `ai_team` is Planned.
+Build note: the pipeline steps `score`, `readiness` and `route` run before
+`ai_team`, so the rule score is fixed before any AI runs (Built, tested). It
+is also a pure function of findings, and a test proves score and route are
+identical with the team on and off.
 
 ## 2. Invariants
 

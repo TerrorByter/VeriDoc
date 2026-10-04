@@ -49,7 +49,7 @@ export const STAGES: StageInfo[] = [
     input: "Extracted fields and raw files", output: "Findings",
   },
   {
-    id: "score", n: 6, group: "Decide", name: "Score",
+    id: "score", n: 6, group: "Decide", name: "Score", steps: ["score", "shadow_score"],
     what: "Only fraud findings score. Each maps to a named signal with fixed points, so every line of the score names the rule behind it.",
     input: "Fraud findings", output: "Score out of 100 and risk band",
   },
@@ -77,8 +77,8 @@ export const STAGES: StageInfo[] = [
 
 export const STAGE_BY_ID = Object.fromEntries(STAGES.map((s) => [s.id, s])) as Record<RailStageId, StageInfo>;
 
-/** The rail stage a server stage belongs to: the AI team runs in stage 5 */
-export const stageOf = (id: StageId): StageInfo => STAGE_BY_ID[id === "ai_team" ? "agents" : id];
+/** The rail stage a server stage belongs to: the AI team runs in stage 5, the shadow score in stage 6 */
+export const stageOf = (id: StageId): StageInfo => STAGE_BY_ID[id === "ai_team" ? "agents" : id === "shadow_score" ? "score" : id];
 
 /** The AI team in its order: the Supervisor plans, then the specialists investigate */
 export const SPECIALISTS: SpecialistName[] = ["forensics", "transaction", "kyc", "timeline"];

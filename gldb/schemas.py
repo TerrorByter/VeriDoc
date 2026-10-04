@@ -447,7 +447,7 @@ class AgentReport(BaseModel):
 
 #: Pipeline stages in run order; "record" (persist + audit) runs outside assess()
 StageId = Literal[
-    "ocr", "intake", "prompt_screen", "extract", "agents", "ai_team", "score", "readiness", "route",
+    "ocr", "intake", "prompt_screen", "extract", "agents", "ai_team", "shadow_score", "score", "readiness", "route",
     "projections", "record",
 ]
 #: "running" is only ever reported live; a finished stage is "ran", "failed", or "off"

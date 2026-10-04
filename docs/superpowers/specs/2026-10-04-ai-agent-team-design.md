@@ -49,9 +49,10 @@ Stage 5 "Agents" runs two pipeline steps:
 | `ai_team` | AI agent team over the sweep's results → leads + memo | when `AGENTS_ENABLED` |
 
 Stage 10 Semantic review is removed; the Supervisor's memo replaces it. The UI
-shows 10 stages. `ASSESS_STAGES` becomes:
-`ocr, intake, prompt_screen, extract, agents, ai_team, score, readiness, route, projections`
-(+ `record` in `run()`). The UI groups `agents` and `ai_team` under stage 5.
+shows 10 stages. `ASSESS_STAGES` is:
+`ocr, intake, prompt_screen, extract, agents, score, readiness, route, ai_team, shadow_score, projections`
+(+ `record` in `run()`). The UI groups `agents` and `ai_team` under stage 5 and
+`score` and `shadow_score` under stage 6.
 
 `ai_team` status: `ran` · `off` (disabled) · `failed` (error; stages 6-10
 still complete). `StageReport.status` gains `failed`. The team runs on every
@@ -59,10 +60,11 @@ case when enabled, including cases with no findings: gap hunting looks for
 what the rules did not flag, so a case the rules call clean is exactly where
 it matters.
 
-Score and route are computed after `ai_team`, so the Supervisor's `get_score`
-tool calls the same pure `score()` and `route()` functions the later stages
-call (the score as a deterministic tool, section 2). The test in section 6
-proves the two agree.
+Score, readiness and route are computed before `ai_team` and are fixed before
+any AI runs; the Supervisor's `get_score` tool calls the same pure `score()`
+and `route()` functions (the score as a deterministic tool, section 2). Tests
+prove the two agree, and that a failed team leaves the score, readiness and
+route equal to a team-off run.
 
 ## 4. Orchestration: plan → fan out → verify leads → reconcile → verify memo
 

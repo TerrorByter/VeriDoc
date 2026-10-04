@@ -108,9 +108,11 @@ def pack_from_folder(folder: str | Path) -> ExtractedPack:
 
 
 #: The stages assess() runs, in order; run() adds "record"
+#: The rule score, readiness and route come before the AI team: they are
+#: fixed before any AI runs, and nothing it produces can reach them
 ASSESS_STAGES: tuple[StageId, ...] = (
-    "ocr", "intake", "prompt_screen", "extract", "agents", "ai_team", "score", "readiness", "route",
-    "projections",
+    "ocr", "intake", "prompt_screen", "extract", "agents", "score", "readiness", "route", "ai_team",
+    "shadow_score", "projections",
 )
 
 #: Told each stage as it starts ("running") and ends ("ran", "failed" or "off")
@@ -218,8 +220,9 @@ def assess(
     on_activity: Activity = lambda _: None,
 ) -> CaseResult:
     """Run the stages in ASSESS_STAGES: ocr -> intake -> prompt_screen ->
-    extract -> agents -> ai_team -> score -> readiness -> route -> projections
-    (chains, timeline, investigation queue). A stage switched off in config
+    extract -> agents -> score -> readiness -> route -> ai_team ->
+    shadow_score -> projections (chains, timeline, investigation queue). The
+    rule score, readiness and route are fixed before any AI runs. A stage switched off in config
     is recorded as "off"; the AI team runs on *team* (None: off) and tells
     *on_activity* what it is doing. No audit log, no files written: run()
     adds those, and the evaluation harness calls this directly."""
@@ -253,7 +256,11 @@ def assess(
 
     evidence, agent_reports = stages.run("agents", lambda: run_agents(pack),
                                          version=f"{sum(len(a.checks) for a in AGENTS)} checks")
-    # The team's leads are a separate record: nothing below reads them
+    risk = stages.run("score", lambda: score(evidence), version=RULE_VERSION)
+    ready = stages.run("readiness", lambda: readiness(evidence, pack))
+    routing = stages.run("route", lambda: route(case_id, evidence, risk, ready, pack),
+                         version=POLICY_VERSION)
+    # The team's leads are a separate record: the score, readiness and route above never read them
     ai_team = None
     if team:
         ai_team = stages.run(
@@ -262,10 +269,7 @@ def assess(
         )
     else:
         stages.off("ai_team")
-    risk = stages.run("score", lambda: score(evidence), version=RULE_VERSION)
-    ready = stages.run("readiness", lambda: readiness(evidence, pack))
-    routing = stages.run("route", lambda: route(case_id, evidence, risk, ready, pack),
-                         version=POLICY_VERSION)
+    stages.off("shadow_score")
     chains, timeline, investigation = stages.run("projections", lambda: (
         build_chains(pack, evidence),
         build_timeline(pack, evidence),

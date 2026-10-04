@@ -268,14 +268,15 @@ export type StageId =
   | "extract"
   | "agents"
   | "ai_team"
+  | "shadow_score"
   | "score"
   | "readiness"
   | "route"
   | "projections"
   | "record";
 
-/** The stages the rail shows: the AI team runs inside stage 5 */
-export type RailStageId = Exclude<StageId, "ai_team">;
+/** The stages the rail shows: the AI team runs inside stage 5 and the shadow score inside stage 6 */
+export type RailStageId = Exclude<StageId, "ai_team" | "shadow_score">;
 
 export type StageState = "running" | "ran" | "off" | "failed";
 

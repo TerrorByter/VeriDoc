@@ -332,7 +332,10 @@ def test_tools_are_closed_over_the_case_and_strict_only_for_allowlisted_models(
     run_agent("transaction", "model-1", "system", "task", case, Ledger(), client=fake)
 
     strict, plain = (_specs(r) for r in fake.requests["transaction"])
-    assert all(spec["strict"] is True for spec in strict)
+    # record_lead is the one tool left out of strict mode: Bedrock compiles every strict schema of a request into
+    # one grammar capped at 300MB, and the live run on third_party_payment went over it. Code checks its arguments.
+    assert all(spec.get("strict") is True for spec in strict if spec["name"] != "record_lead")
+    assert "strict" not in next(spec for spec in strict if spec["name"] == "record_lead")
     assert not any("strict" in spec for spec in plain)
     chain = next(spec for spec in plain if spec["name"] == "get_chain")
     assert chain["inputSchema"]["json"]["properties"]["invoice_number"]["enum"] == \

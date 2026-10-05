@@ -641,12 +641,20 @@ def schemas_for(agent: AgentName, case: CaseData | None = None) -> dict[str, dic
     return {n: s for n, s in closed.items() if s is not None}
 
 
+#: Tools never offered in strict mode. Bedrock compiles all of a request's
+#: strict schemas into one grammar capped at 300MB; record_lead's arrays of
+#: enums are the bulk of it, and a live run on third_party_payment went over.
+#: Its arguments are checked in code at record time all the same.
+UNSTRICT_TOOLS = frozenset({"record_lead"})
+
+
 def specs_for(agent: AgentName, finish: str | None = None, case: CaseData | None = None,
               strict: bool = False) -> list[dict[str, Any]]:
     """The Converse tool definitions *agent* is given (closed over *case* when
     given), plus the *finish* tool if any; *strict* asks the model to keep
-    every call to its schema."""
-    specs = [tool_spec(n, TOOLS[n].description, s, strict) for n, s in schemas_for(agent, case).items()]
+    every call to its schema, except for the UNSTRICT_TOOLS."""
+    specs = [tool_spec(n, TOOLS[n].description, s, strict and n not in UNSTRICT_TOOLS)
+             for n, s in schemas_for(agent, case).items()]
     if finish is not None:
         specs.append(tool_spec(finish, FINISH_TOOLS[finish]["description"], FINISH_TOOLS[finish], strict))
     return specs

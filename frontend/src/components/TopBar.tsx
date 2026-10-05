@@ -3,7 +3,7 @@ import { href, type Route } from "../route";
 import { Icon } from "./ui";
 
 type Theme = "light" | "dark";
-const THEME_KEY = "veridoc-theme";
+const THEME_KEY = "veridoc-theme-v2";
 
 function storedTheme(): Theme | null {
   try {
@@ -14,12 +14,9 @@ function storedTheme(): Theme | null {
   }
 }
 
-const systemTheme = (): Theme =>
-  window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-
-/** Light or dark: follows the system until the person picks one. */
+/** Light unless the person picks dark; the system setting is not followed, so the default is the soft light one. */
 function useTheme(): [Theme, () => void] {
-  const [theme, setTheme] = useState<Theme>(() => storedTheme() ?? systemTheme());
+  const [theme, setTheme] = useState<Theme>(() => storedTheme() ?? "light");
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);

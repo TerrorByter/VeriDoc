@@ -106,6 +106,24 @@ export const EVIDENCE_LABEL: Record<EvidenceStatus, { label: string; title: stri
   contradicted: { label: "Contradicted by code", title: "A code check of the case data shows it does not hold" },
 };
 
+/** The facts a code check read, as the ledger labels them; any other key is shown humanised. */
+export const FACT_LABEL: Record<string, string> = {
+  invoice: "Invoice",
+  buyer: "Buyer",
+  payer: "Payer",
+  transaction: "Bank row",
+  amount: "Amount",
+  date: "Date",
+  counterparty: "Counterparty",
+  register_uen: "Register UEN",
+  purchase_order: "Purchase order",
+  shipped: "Shipped",
+  payment: "Paid",
+  incorporated: "Incorporated",
+  rule_finding: "Rule finding",
+  corroborated_by: "Corroborated by",
+};
+
 export const PATTERN_LABEL: Record<Pattern, string> = {
   third_party_payment: "Third-party payment",
   round_trip: "Round trip",

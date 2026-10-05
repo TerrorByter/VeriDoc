@@ -274,7 +274,15 @@ export interface AgentTeam {
   models: Partial<Record<"supervisor" | "specialist", string>>;
   prompt_versions: Record<string, string>;
   notes: string[];
+  /** Rule findings code explained (finding id -> why): not raised in the memo, still on the record */
+  resolved: Record<string, string>;
   error: string | null;
+}
+
+/** A page of a case document */
+export interface DocRef {
+  doc_id: string;
+  page: number;
 }
 
 export type CaseStatus =
@@ -356,6 +364,8 @@ export interface CaseView {
   cost: CaseCost | null;
   /** check_id -> its signal, for every check with a finding */
   signals: Record<string, Signal>;
+  /** Bank rows (T01...), invoice numbers and counterparties (P01...) -> the document page they are on */
+  subjects: Record<string, DocRef>;
 }
 
 export interface RunStarted {

@@ -51,7 +51,7 @@ export function DocumentPane({
   }
 
   return (
-    <aside className="doc-pane" aria-label="Document viewer">
+    <aside className="doc-pane" aria-label="Document viewer" tabIndex={-1}>
       <div className="doc-bar">
         <label className="sr-only" htmlFor="doc-pick">Document</label>
         <select

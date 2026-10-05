@@ -25,7 +25,7 @@ export function CaseHeader({ kase, onDecide }: { kase: CaseView; onDecide: () =>
           <dt>Fraud risk</dt>
           <dd>
             <Pill tone={BAND_TONE[kase.risk.band]}>{kase.risk.band}</Pill>
-            <span className="score mono">{kase.risk.score}<span className="muted">/100</span></span>
+            <span className="score">{kase.risk.score}<span className="muted">/100</span></span>
           </dd>
         </div>
         {kase.readiness && (

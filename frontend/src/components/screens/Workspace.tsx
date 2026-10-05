@@ -54,6 +54,18 @@ export function Workspace({ caseId, stage }: { caseId: string; stage: RailStageI
     void reload();
   }, [reload]);
 
+  /** Open a page in the document pane; where the pane sits below the stage, bring it into view and focus it. */
+  const view = (target: ViewTarget) => {
+    setViewing(target);
+    if (window.matchMedia("(max-width: 1180px)").matches) {
+      requestAnimationFrame(() => {
+        const pane = document.querySelector<HTMLElement>(".doc-pane");
+        pane?.scrollIntoView({ block: "start" });
+        pane?.focus({ preventScroll: true });
+      });
+    }
+  };
+
   const write = (work: () => Promise<unknown>) =>
     work().then(reload, (e: Error) => setError(e.message));
 
@@ -87,7 +99,7 @@ export function Workspace({ caseId, stage }: { caseId: string; stage: RailStageI
           stage={stage}
           kase={kase}
           audit={audit}
-          onView={setViewing}
+          onView={view}
           onDecideFlag={onDecideFlag}
         />
         {target && (

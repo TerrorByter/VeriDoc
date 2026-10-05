@@ -1,22 +1,86 @@
 import { Fragment } from "react";
-import { AGENT_TITLE, EVIDENCE_LABEL, LEAD_STATUS_LABEL, PATTERN_LABEL } from "../../../catalogue";
-import type { Evidence, Lead, ViewTarget } from "../../../types";
-import { Empty, LEAD_STATUS_TONE, Pill } from "../../ui";
+import { AGENT_TITLE, EVIDENCE_LABEL, FACT_LABEL, LEAD_STATUS_LABEL, PATTERN_LABEL } from "../../../catalogue";
+import type { DocRef, Evidence, EvidenceStatus, Lead, ViewTarget } from "../../../types";
+import { Icon, LEAD_STATUS_TONE, Pill, type IconName } from "../../ui";
 import { findingTarget } from "../Findings";
 
-/** The tags that mark a lead as AI output: kind, specialist, the agent's status, pattern and what code established. */
+/** The tags that mark a lead as AI output: kind, specialist, the agent's own status and the pattern. What code
+ * established is not here: it has its own column on the card. */
 export function LeadTags({ lead }: { lead: Lead }) {
-  const evidence = lead.evidence_status && EVIDENCE_LABEL[lead.evidence_status];
   return (
     <>
-      <Pill tone="brand">AI lead</Pill>
-      <span className="muted small">{lead.kind === "triage" ? "Triage" : "Pattern"}, {AGENT_TITLE[lead.agent]}</span>
-      <Pill tone={LEAD_STATUS_TONE[lead.investigation_status]}>
-        {LEAD_STATUS_LABEL[lead.kind][lead.investigation_status]}
+      <Pill tone="neutral">AI lead</Pill>
+      <span className="muted small">{lead.kind === "triage" ? "Triage" : "Pattern"}</span>
+      <Pill tone={LEAD_STATUS_TONE[lead.investigation_status]} title="What the agent concluded: not checked by this tag">
+        Agent: {LEAD_STATUS_LABEL[lead.kind][lead.investigation_status].toLowerCase()}
       </Pill>
       {lead.pattern && <Pill tone="neutral">{PATTERN_LABEL[lead.pattern]}</Pill>}
-      {evidence && <span className="muted small" title={evidence.title}>{evidence.label}</span>}
     </>
+  );
+}
+
+const MARK_ICON: Record<EvidenceStatus, IconName> = {
+  verified: "done", corroborated: "done", unverified: "off", contradicted: "close",
+};
+
+/** What code established about a lead: an icon and words, never colour alone. Where the agent itself concluded
+ * the pattern does not hold and code agrees, that is agreement, not an alarm. */
+export function StateMark({ status, agent }: { status: EvidenceStatus; agent: Lead["investigation_status"] }) {
+  const agrees = status === "contradicted" && agent === "refuted";
+  const { label, title } = agrees
+    ? { label: "Code agrees: it does not hold", title: "The agent found no such pattern, and a code check of the case data confirms it" }
+    : EVIDENCE_LABEL[status];
+  return (
+    <span className={`state-mark ${agrees ? "agrees" : status}`} title={title}>
+      <Icon name={agrees ? "done" : MARK_ICON[status]} size={16} />
+      {label}
+    </span>
+  );
+}
+
+const factLabel = (key: string) => FACT_LABEL[key] ?? key.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+
+/** Facts that are ids, amounts and dates are set in mono; names stay in the reading face. */
+const MONO_FACTS = new Set(["invoice", "transaction", "amount", "date", "register_uen", "purchase_order", "shipped",
+  "payment", "incorporated", "rule_finding", "corroborated_by"]);
+
+const factValue = (key: string, value: string) =>
+  key === "amount" && value.trim() !== "" && !Number.isNaN(Number(value))
+    ? `SGD ${Number(value).toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : value;
+
+/** The facts a code check read, as a ruled ledger. */
+function Ledger({ facts }: { facts: Record<string, string> }) {
+  return (
+    <dl className="ledger">
+      {Object.entries(facts).map(([key, value]) => (
+        <Fragment key={key}>
+          <dt>{factLabel(key)}</dt>
+          <dd className={MONO_FACTS.has(key) ? "mono" : undefined}>{factValue(key, value)}</dd>
+        </Fragment>
+      ))}
+    </dl>
+  );
+}
+
+/** The document pages a lead's subject is on, one button each. */
+function SubjectLinks({ lead, subjects, onView }: {
+  lead: Lead;
+  subjects: Record<string, DocRef>;
+  onView: (target: ViewTarget) => void;
+}) {
+  const ids = [lead.invoice_number, ...lead.transaction_ids, lead.counterparty]
+    .filter((id): id is string => id != null && id in subjects);
+  if (ids.length === 0) return null;
+  return (
+    <div className="subject-links">
+      {[...new Set(ids)].map((id) => (
+        <button key={id} type="button" className="btn small"
+          onClick={() => onView({ docId: subjects[id].doc_id, page: subjects[id].page })}>
+          <Icon name="doc" size={14} /> Show {id} in document
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -40,53 +104,63 @@ function Refs({ label, ids, open }: { label: string; ids: string[]; open: (id: s
 
 interface LeadProps {
   evidence: Evidence[];
+  /** Bank rows, invoices and counterparties -> the page they are on */
+  subjects: Record<string, DocRef>;
   /** Show a cited call in the trace */
   onCite: (callId: string) => void;
   onView: (target: ViewTarget) => void;
 }
 
-/** One verified lead: its hypothesis, each test with what was expected and observed and the calls it rests on,
- * what is missing, and the findings it judges. */
-function LeadCard({ lead, evidence, onCite, onView }: LeadProps & { lead: Lead }) {
+/** One lead in two columns: what the agent proposed (its hypothesis and tests, in its own words) beside what code
+ * established (the check, its facts and where they are in the documents). */
+function LeadCard({ lead, evidence, subjects, onCite, onView }: LeadProps & { lead: Lead }) {
   const openFinding = (id: string) => {
     const ev = evidence.find((e) => e.evidence_id === id);
     const target = ev && findingTarget(ev);
     return target ? () => onView(target) : null;
   };
   return (
-    <li className="lead">
+    <li className="lead" id={`lead-${lead.lead_id}`}>
       <div className="finding-top">
         <span className="mono muted">{lead.lead_id}</span>
         <LeadTags lead={lead} />
       </div>
-      <strong>{lead.hypothesis}</strong>
-      <ul className="lead-tests">
-        {lead.tests.map((t, i) => (
-          <li key={i}>
-            {t.expected && <><span className="muted small">Expected</span><span>{t.expected}</span></>}
-            <span className="muted small">Observed</span><span>{t.observed}</span>
-            <span className="lead-test-refs muted small">
-              <Refs label="Rests on" ids={t.cites} open={(id) => () => onCite(id)} />
-            </span>
-          </li>
-        ))}
-      </ul>
-      {lead.check_reason && (
-        <p className="small"><span className="muted">Code check:</span> {lead.check_reason}</p>
-      )}
-      {lead.missing_evidence.length > 0 && (
-        <p className="small"><span className="muted">Missing evidence:</span> {lead.missing_evidence.join("; ")}</p>
-      )}
-      {lead.finding_ids.length > 0 && (
-        <p className="muted small">
-          <Refs label={lead.finding_ids.length === 1 ? "Finding" : "Findings"} ids={lead.finding_ids} open={openFinding} />
-        </p>
-      )}
+      <div className="lead-cols">
+        <div className="lead-claim">
+          <strong>{lead.hypothesis}</strong>
+          <span className="muted small">Proposal of the {AGENT_TITLE[lead.agent]}</span>
+          <ul className="lead-tests">
+            {lead.tests.map((t, i) => (
+              <li key={i}>
+                {t.expected && <><span className="muted small">Expected</span><span>{t.expected}</span></>}
+                <span className="muted small">Observed</span><span>{t.observed}</span>
+                <span className="lead-test-refs muted small">
+                  <Refs label="Rests on" ids={t.cites} open={(id) => () => onCite(id)} />
+                </span>
+              </li>
+            ))}
+          </ul>
+          {lead.missing_evidence.length > 0 && (
+            <p className="small"><span className="muted">Missing evidence:</span> {lead.missing_evidence.join("; ")}</p>
+          )}
+          {lead.finding_ids.length > 0 && (
+            <p className="muted small">
+              <Refs label={lead.finding_ids.length === 1 ? "Finding" : "Findings"} ids={lead.finding_ids} open={openFinding} />
+            </p>
+          )}
+        </div>
+        <aside className="lead-ledger" aria-label={`Established by code for ${lead.lead_id}`}>
+          {lead.evidence_status && <StateMark status={lead.evidence_status} agent={lead.investigation_status} />}
+          {lead.check_reason && <p className="small">{lead.check_reason}</p>}
+          {Object.keys(lead.check_facts).length > 0 && <Ledger facts={lead.check_facts} />}
+          <SubjectLinks lead={lead} subjects={subjects} onView={onView} />
+        </aside>
+      </div>
     </li>
   );
 }
 
-/** Flags: kept leads code verified or corroborated. */
+/** Flags: kept leads code verified or corroborated. With none, a calm line saying so. */
 export function KeptLeads({ leads, withheld, unchecked, confirmed, ...props }: LeadProps & {
   leads: Lead[];
   /** How many verified leads only confirm an existing rule finding */
@@ -98,9 +172,14 @@ export function KeptLeads({ leads, withheld, unchecked, confirmed, ...props }: L
 }) {
   if (leads.length === 0) {
     const why = confirmed ? "The only leads code verified confirm rule findings that already stand (below)."
-      : unchecked ? "No lead was verified by code; what the AI team recorded is below."
+      : unchecked ? "Code could not verify any lead; what the AI team recorded is further down."
       : withheld ? "No lead passed the verifier." : "The AI team raised no leads.";
-    return <Empty title="No AI leads">{why}</Empty>;
+    return (
+      <p className="calm">
+        <Icon name="done" size={16} />
+        <span><strong>No AI lead needs your attention.</strong> {why}</span>
+      </p>
+    );
   }
   return (
     <ul className="leads">
@@ -113,7 +192,7 @@ export function KeptLeads({ leads, withheld, unchecked, confirmed, ...props }: L
  * never hidden. */
 export function CollapsedLeads({ noun, leads, ...props }: LeadProps & { noun: string; leads: Lead[] }) {
   return (
-    <details className="withheld-leads">
+    <details className="disclosure">
       <summary>Show {leads.length === 1 ? `1 ${noun}` : `${leads.length} ${noun}s`}</summary>
       <ul className="leads">
         {leads.map((lead) => <LeadCard key={lead.lead_id} lead={lead} {...props} />)}
@@ -138,7 +217,7 @@ export function RuleConfirmations({ leads, evidence }: { leads: Lead[]; evidence
 /** Leads the verifier withheld, with its reason; collapsed, but never hidden. */
 export function WithheldLeads({ leads }: { leads: Lead[] }) {
   return (
-    <details className="withheld-leads">
+    <details className="disclosure">
       <summary>Show {leads.length === 1 ? "1 withheld lead" : `${leads.length} withheld leads`}</summary>
       <ul className="leads">
         {leads.map((lead) => (

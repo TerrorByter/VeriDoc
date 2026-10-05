@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { AGENT_TITLE, AGENTS } from "../../../catalogue";
 import type { AgentName, ToolCall, ViewTarget } from "../../../types";
-import { Empty, Pill } from "../../ui";
+import { Empty, Pill, tabKeys } from "../../ui";
 
 const argText = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value));
 
@@ -12,8 +13,9 @@ function pageTarget(call: ToolCall): ViewTarget | null {
     : null;
 }
 
-/** Every tool call the team made, one tab per agent. Each row is addressable
- * as call-R01, so a lead's citations can jump to it. */
+/** Every tool call the team made, one tab per agent. Each row is addressable as call-R01, so a lead's citations
+ * can jump to it. A call the checker refused (the agent's own mistake, which it was told about and could correct)
+ * is marked Refused, not as a failure. */
 export function Trace({ calls, agent, focus, onAgent, onView }: {
   calls: ToolCall[];
   agent: AgentName;
@@ -22,10 +24,13 @@ export function Trace({ calls, agent, focus, onAgent, onView }: {
   onAgent: (agent: AgentName) => void;
   onView: (target: ViewTarget) => void;
 }) {
-  const shown = calls.filter((c) => c.agent === agent);
+  const [hideRefused, setHideRefused] = useState(false);
+  const mine = calls.filter((c) => c.agent === agent);
+  const refused = mine.filter((c) => c.error).length;
+  const shown = hideRefused ? mine.filter((c) => !c.error) : mine;
   return (
     <>
-      <div className="segmented trace-tabs" role="tablist" aria-label="Agent">
+      <div className="segmented trace-tabs" role="tablist" aria-label="Agent" onKeyDown={tabKeys(AGENTS, agent, onAgent)}>
         {AGENTS.map((a) => (
           <button
             key={a}
@@ -34,6 +39,7 @@ export function Trace({ calls, agent, focus, onAgent, onView }: {
             role="tab"
             aria-selected={a === agent}
             aria-controls="trace-panel"
+            tabIndex={a === agent ? 0 : -1}
             onClick={() => onAgent(a)}
           >
             {AGENT_TITLE[a]} <span className="count">{calls.filter((c) => c.agent === a).length}</span>
@@ -41,11 +47,19 @@ export function Trace({ calls, agent, focus, onAgent, onView }: {
         ))}
       </div>
       <div id="trace-panel" role="tabpanel" aria-labelledby={`trace-tab-${agent}`}>
+        {refused > 0 && (
+          <label className="check-row small">
+            <input type="checkbox" checked={hideRefused} onChange={(e) => setHideRefused(e.target.checked)} />
+            Hide {refused} refused {refused === 1 ? "call" : "calls"}
+            <span className="muted">(the checker told the agent why and it could correct them)</span>
+          </label>
+        )}
         {shown.length === 0 ? (
           <Empty title="No tool calls">{AGENT_TITLE[agent]} called no tools on this case.</Empty>
         ) : (
           <div className="table-wrap">
             <table className="data">
+              <caption className="sr-only">Tool calls made by the {AGENT_TITLE[agent]}</caption>
               <thead>
                 <tr>
                   <th scope="col">Call</th>
@@ -72,7 +86,10 @@ export function Trace({ calls, agent, focus, onAgent, onView }: {
                         )}
                       </td>
                       <td>
-                        {c.error && <Pill tone="crit">Error</Pill>} {c.summary || <span className="muted">—</span>}
+                        {c.error && (
+                          <Pill tone="neutral" title="The checker refused this call and told the agent why">Refused</Pill>
+                        )}{" "}
+                        {c.summary ? c.summary.replace(/^error:\s*/, "") : <span className="muted">—</span>}
                       </td>
                     </tr>
                   );

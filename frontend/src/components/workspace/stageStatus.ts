@@ -34,6 +34,15 @@ export const clearChecks = (kase: CaseView) =>
   keptLeads(kase).filter((l) => l.evidence_status === "contradicted"
     || (l.evidence_status === "unverified" && l.investigation_status === "refuted"));
 
+/** Rule findings (not info) code explained: no action for the analyst, still on the record */
+export const explainedFindings = (kase: CaseView): Record<string, string> => kase.ai_team?.resolved ?? {};
+
+/** Rule findings still open: not info, and not explained by code */
+export const openFindings = (kase: CaseView) => {
+  const explained = explainedFindings(kase);
+  return kase.evidence.filter((e) => risky(e) && !(e.evidence_id in explained));
+};
+
 /** The rail's view of one stage, from the stage record and the case's own outputs. */
 export function stageStatus(kase: CaseView, audit: AuditEvent[], id: RailStageId): StageStatus {
   if (id === "record") {
@@ -52,7 +61,7 @@ export function stageStatus(kase: CaseView, audit: AuditEvent[], id: RailStageId
     case "prompt_screen":
       return flagged(byCheck(kase, "PROMPT_INJECTION").length);
     case "agents":
-      return flagged(kase.evidence.filter(risky).length + aiLeads(kase).length);
+      return flagged(openFindings(kase).length + aiLeads(kase).length);
     case "score":
       return { state: kase.risk.band === "Low" ? "ran" : "flag", report };
     case "readiness":

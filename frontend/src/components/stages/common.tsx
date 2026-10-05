@@ -21,15 +21,41 @@ export function OffNote({ stage, children }: { stage: StageId; children?: ReactN
   );
 }
 
-export function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
+/** A section of a stage. The primary ones carry what the analyst came for and lead with a larger heading. */
+export function Section({ title, aside, primary = false, children }: {
+  title: string;
+  aside?: ReactNode;
+  primary?: boolean;
+  children: ReactNode;
+}) {
   return (
-    <section className="sub">
+    <section className={`sub${primary ? " primary" : ""}`}>
       <div className="sub-head">
         <h3>{title}</h3>
         {aside && <span className="muted small">{aside}</span>}
       </div>
       {children}
     </section>
+  );
+}
+
+/** A section folded away until asked for: audit material, never hidden. The summary is the heading. */
+export function Fold({ title, aside, open, onToggle, children }: {
+  title: string;
+  aside?: ReactNode;
+  /** Controlled open state, for a fold something else (a citation) has to open */
+  open?: boolean;
+  onToggle?: (open: boolean) => void;
+  children: ReactNode;
+}) {
+  return (
+    <details className="fold" open={open} onToggle={onToggle && ((e) => onToggle(e.currentTarget.open))}>
+      <summary>
+        <h3>{title}</h3>
+        {aside && <span className="muted small">{aside}</span>}
+      </summary>
+      <div className="fold-body">{children}</div>
+    </details>
   );
 }
 

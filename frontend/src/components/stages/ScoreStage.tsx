@@ -63,7 +63,7 @@ export function ScoreStage({ kase, onView }: StageProps) {
     <>
       <div className="gauge-card">
         <div className="gauge-top">
-          <span className="gauge-score mono">{risk.score}</span>
+          <span className="gauge-score">{risk.score}</span>
           <span className="muted">/ 100</span>
           <Pill tone={BAND_TONE[risk.band]}>{risk.band} risk</Pill>
         </div>

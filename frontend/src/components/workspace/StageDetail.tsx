@@ -13,7 +13,7 @@ import { ReadinessStage } from "../stages/ReadinessStage";
 import { RouteStage } from "../stages/RouteStage";
 import { ScoreStage } from "../stages/ScoreStage";
 import { Icon, Pill, ServiceTag } from "../ui";
-import { aiLeads, stageStatus } from "./stageStatus";
+import { aiLeads, openFindings, stageStatus } from "./stageStatus";
 
 export interface StageProps {
   kase: CaseView;
@@ -41,7 +41,9 @@ function result(kase: CaseView, id: RailStageId): string {
     case "extract":
       return kase.extraction_mode === "llm" ? "Fields extracted by the model" : "Fields extracted by the rule-based parser";
     case "agents": {
-      const rules = `${plural(risky.length, "finding")} from ${kase.agent_reports.reduce((n, a) => n + a.checks_run, 0)} checks`;
+      const explained = risky.length - openFindings(kase).length;
+      const rules = `${plural(risky.length - explained, "open finding")} from ${kase.agent_reports.reduce((n, a) => n + a.checks_run, 0)} checks`
+        + (explained ? `, ${explained} explained by code` : "");
       const team = !kase.ai_team ? "AI team off"
         : kase.ai_team.status === "failed" ? "AI team failed" : plural(aiLeads(kase).length, "AI lead");
       return `${rules} · ${team}`;
@@ -91,18 +93,17 @@ export function StageDetail(props: StageProps & { stage: RailStageId }) {
   return (
     <section className="detail" aria-labelledby="stage-title">
       <header className="stage-head">
-        <div className="stage-meta">
-          <span className="muted">Stage {info.n} of {STAGES.length}, {info.group.toLowerCase()}</span>
+        <div className="stage-title">
+          <h2 id="stage-title">{info.name}</h2>
           {off ? <Pill tone="neutral">Switched off</Pill> : status.state === "flag" ? <Pill tone="high">Needs attention</Pill> : <Pill tone="low">Ran</Pill>}
           {team?.status === "failed" && <Pill tone="med">AI team failed</Pill>}
           {info.service && <ServiceTag service={info.service} off={serviceOff} />}
         </div>
-        <h2 id="stage-title">{info.name}</h2>
         <p className="stage-what">{info.what}</p>
         <dl className="io">
           <div><dt>Input</dt><dd>{info.input}</dd></div>
           <div><dt>Result</dt><dd>{off ? "Not run" : result(kase, stage)}</dd></div>
-          <div><dt>Version</dt><dd className="mono">{status.report?.version || "—"}</dd></div>
+          <div><dt>Version</dt><dd>{status.report?.version || "—"}</dd></div>
           <div>
             <dt>Time and cost</dt>
             <dd className="mono">

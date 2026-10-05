@@ -1,11 +1,25 @@
-import type { ReactNode } from "react";
+import { Fragment, type KeyboardEvent, type ReactNode } from "react";
 import { PATH_LABEL, STATUS_LABEL, type Service } from "../catalogue";
-import type { Band, CaseSummary, InvestigationStatus, ReviewPath, Severity } from "../types";
+import type { Band, CaseSummary, DocRef, InvestigationStatus, ReviewPath, Severity, ViewTarget } from "../types";
 
 export type Tone = "low" | "med" | "high" | "crit" | "neutral" | "brand";
 
 export function Pill({ tone, children, title }: { tone: Tone; children: ReactNode; title?: string }) {
   return <span className={`pill ${tone}`} title={title}>{children}</span>;
+}
+
+/** Arrow keys move between the tabs of a tablist (and stay out of the stage-stepping arrows). The tabs use a
+ * roving tabindex: only the selected one is in the tab order. */
+export function tabKeys<T extends string>(keys: readonly T[], current: T, select: (key: T) => void) {
+  return (e: KeyboardEvent<HTMLElement>) => {
+    const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+    if (!step) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const at = (keys.indexOf(current) + step + keys.length) % keys.length;
+    select(keys[at]);
+    e.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]')[at]?.focus();
+  };
 }
 
 export const BAND_TONE: Record<Band, Tone> = { Low: "low", Medium: "med", High: "high" };
@@ -15,7 +29,7 @@ export const SEVERITY_TONE: Record<Severity, Tone> = {
 };
 
 export const LEAD_STATUS_TONE: Record<InvestigationStatus, Tone> = {
-  supported: "high", refuted: "low", unresolved: "neutral",
+  supported: "med", refuted: "low", unresolved: "neutral",
 };
 
 export const PATH_TONE: Record<ReviewPath, Tone> = {
@@ -77,6 +91,30 @@ export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
         strokeLinejoin="round"
       />
     </svg>
+  );
+}
+
+/** Text with each subject id it names (a bank row, an invoice, a counterparty) made a link to its page. */
+export function LinkedText({ text, subjects, onView }: {
+  text: string;
+  subjects: Record<string, DocRef>;
+  onView: (target: ViewTarget) => void;
+}) {
+  const pattern = /\b(T\d{2,}|P\d{2,}|INV-[\w-]+)\b/g;
+  const parts = text.split(pattern);
+  return (
+    <>
+      {parts.map((part, i) =>
+        part in subjects ? (
+          <button key={i} type="button" className="link mono"
+            onClick={() => onView({ docId: subjects[part].doc_id, page: subjects[part].page })}>
+            {part}
+          </button>
+        ) : (
+          <Fragment key={i}>{part}</Fragment>
+        ),
+      )}
+    </>
   );
 }
 

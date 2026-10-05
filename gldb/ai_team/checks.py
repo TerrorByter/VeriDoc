@@ -14,6 +14,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
+from typing import Literal
 
 from gldb.checks import incorporation, matching_po
 from gldb.config import (
@@ -141,19 +142,69 @@ def _payer(description: str, reader: re.Pattern[str]) -> tuple[str | None, str]:
     return payer, ""
 
 
+@dataclass(frozen=True)
+class Payment:
+    """A credit that names an invoice, with who paid it. *relation* says
+    whether the payer is the invoice's buyer, from the one similarity
+    threshold pair; "unreadable" when the payer cannot be relied on (*why*)."""
+
+    row_id: str
+    transaction: Transaction
+    payer: str | None
+    relation: Literal["buyer", "other", "unclear", "unreadable"]
+    why: str = ""
+
+
+def payments(invoice: Invoice, pack: ExtractedPack) -> list[Payment]:
+    """Every credit naming *invoice*, in bank order, with its payer read from
+    the description and compared with the invoice's buyer."""
+    named, reader = names(invoice.invoice_number), _payer_reader(invoice.invoice_number)
+    found = []
+    for row_id, _, txn in bank_rows(pack):
+        if txn.credit is None or txn.credit <= 0 or not named.search(txn.description):
+            continue
+        payer, why = _payer(txn.description, reader)
+        if payer is None:
+            found.append(Payment(row_id, txn, None, "unreadable", why))
+            continue
+        score = similarity(payer, invoice.buyer_name)
+        relation = ("buyer" if score >= PAYER_SAME_THRESHOLD
+                    else "unclear" if score > PAYER_DIFFERENT_THRESHOLD else "other")
+        found.append(Payment(row_id, txn, payer, relation))
+    return found
+
+
+_RELATION_TEXT = {"buyer": "the buyer", "other": "not the buyer", "unclear": "may or may not be the buyer"}
+
+
+def payment_context(pack: ExtractedPack) -> str:
+    """What code read of who paid each invoice, as lines for an agent's task:
+    case data to investigate the meaning of, never a lead and never evidence
+    an agent can cite (a result must be searched for to be cited)."""
+    lines = []
+    for invoice in pack.invoices:
+        head = f"- {invoice.invoice_number}, buyer {invoice.buyer_name or 'not named'}: "
+        credits = [f"{p.row_id} {p.transaction.date} credit {p.transaction.credit} "
+                   + (f"from {p.payer} ({_RELATION_TEXT[p.relation]})" if p.payer
+                      else f"(payer not relied on: {p.why})")
+                   for p in payments(invoice, pack)]
+        lines.append(head + ("; ".join(credits) or "no credit names it"))
+    return "\n".join(lines) or "none"
+
+
 def _third_party_payment(lead: Lead, pack: ExtractedPack, evidence: list[Evidence]) -> Outcome:
     """An invoice paid by someone other than its buyer. Every row of the lead
-    is a credit naming the invoice with its payer read reliably, and so are the
-    other credits that name it: the case data decides, not the agent's choice
-    of rows. Verified if any such credit is paid by someone else; contradicted
-    only if every one is paid by the buyer; unverified otherwise."""
+    is a credit naming the invoice, and every credit naming it has its payer
+    read reliably: the case data decides, not the agent's choice of rows.
+    Verified if any such credit is paid by someone else; contradicted only if
+    every one is paid by the buyer; unverified otherwise."""
     invoice = _invoice(lead, pack)
     if invoice is None:
         return _unverified(f"invoice {lead.invoice_number} is not in the pack")
     if not invoice.buyer_name.strip():
         return _unverified(f"{invoice.invoice_number} names no buyer")
     rows = {row_id: txn for row_id, _, txn in bank_rows(pack)}
-    named, reader = names(invoice.invoice_number), _payer_reader(invoice.invoice_number)
+    named = names(invoice.invoice_number)
     facts = {"invoice": invoice.invoice_number, "buyer": invoice.buyer_name}
     for row_id in lead.transaction_ids:
         txn = rows.get(row_id)
@@ -163,33 +214,26 @@ def _third_party_payment(lead: Lead, pack: ExtractedPack, evidence: list[Evidenc
             return _unverified(f"{row_id} is not a credit", **facts)
         if not named.search(txn.description):
             return _unverified(f"{row_id} does not name {invoice.invoice_number}", **facts)
-    # The lead's rows, then every other credit that names the invoice
-    credits = [(row_id, txn) for row_id, txn in rows.items()
-               if row_id in lead.transaction_ids
-               or (txn.credit is not None and txn.credit > 0 and named.search(txn.description))]
-    different: tuple[str, str, Transaction] | None = None
-    same: tuple[str, str, Transaction] | None = None
-    for row_id, txn in credits:
-        payer, why = _payer(txn.description, reader)
-        if payer is None:
-            return _unverified(f"{row_id}: {why}", **facts)
-        score = similarity(payer, invoice.buyer_name)
-        if PAYER_DIFFERENT_THRESHOLD < score < PAYER_SAME_THRESHOLD:
-            return _unverified(f"{row_id}: cannot tell whether payer {payer} is the buyer", **facts, payer=payer)
-        if score >= PAYER_SAME_THRESHOLD:
-            same = same or (row_id, payer, txn)
-        else:
-            different = different or (row_id, payer, txn)
-    if different is None:
-        if same is None:
+    found = payments(invoice, pack)
+    for payment in found:
+        if payment.payer is None:
+            return _unverified(f"{payment.row_id}: {payment.why}", **facts)
+        if payment.relation == "unclear":
+            return _unverified(f"{payment.row_id}: cannot tell whether payer {payment.payer} is the buyer",
+                               **facts, payer=payment.payer)
+    other = next((p for p in found if p.relation == "other"), None)
+    if other is None:
+        if not found:
             return _unverified("no credit names the invoice", **facts)
-        row_id, payer, txn = same
-        return Outcome("contradicted", f"paid by the buyer {invoice.buyer_name}",
-                       {**facts, "payer": payer, "transaction": row_id, "amount": str(txn.credit), "date": str(txn.date)})
-    row_id, payer, txn = different
-    return Outcome("verified", f"{row_id}: payer {payer} is not the buyer {invoice.buyer_name}",
-                   {**facts, "payer": payer, "transaction": row_id, "amount": str(txn.credit),
-                    "date": str(txn.date)})
+        return Outcome("contradicted", f"paid by the buyer {invoice.buyer_name}", _paid(facts, found[0]))
+    return Outcome("verified", f"{other.row_id}: payer {other.payer} is not the buyer {invoice.buyer_name}",
+                   _paid(facts, other))
+
+
+def _paid(facts: dict[str, str], payment: Payment) -> dict[str, str]:
+    """*facts* with the payment a check rests on: its payer, row, amount and date."""
+    return {**facts, "payer": str(payment.payer), "transaction": payment.row_id,
+            "amount": str(payment.transaction.credit), "date": str(payment.transaction.date)}
 
 
 def _sequence_anomaly(lead: Lead, pack: ExtractedPack, evidence: list[Evidence]) -> Outcome:

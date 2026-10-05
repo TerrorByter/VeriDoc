@@ -61,10 +61,13 @@ _DOMAINS: dict[SpecialistName, str] = {
 
 #: How a specialist goes about its patterns, where it needs more than the definitions
 _METHODS: dict[SpecialistName, str] = {
-    "transaction": "For each invoice, find its payment with search_bank_transactions (by amount, from the "
-                   "invoice date) and compare who paid with the invoice's buyer. Look for several credits that "
-                   "add up to an invoice's total, none matching it alone (split_payment), and for money paid "
-                   "out that comes back from the same counterparty (round_trip).",
+    "transaction": "The case index lists, for each invoice, the credits code read from the bank statements and "
+                   "who paid: take them as given and spend your steps on why, not on finding them. Where the "
+                   "payer is not the buyer, search the statements by the invoice number (search_bank_transactions "
+                   "text) to cite the result, then look at what the documents say about the payer and whether "
+                   "the payment makes commercial sense. Look for several credits that add up to an invoice's "
+                   "total, none matching it alone (split_payment), and for money paid out that comes back from "
+                   "the same counterparty (round_trip).",
     "kyc": "Compare the officers of each counterparty in the register with the applicant's directors, "
            "guarantors and signatories (get_parties).",
     "timeline": "Nothing should be dated before its purchase order; an invoice may come before or after "

@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from gldb.ai_team.checks import Outcome, bank_rows, check_pattern, corroborate, counterparties
+from gldb.ai_team.checks import Outcome, bank_rows, check_pattern, corroborate, counterparties, payment_context
 from gldb.checks import check_temp_trade_sequence as check_trade_rules
 from gldb.intake import load_manifest
 from gldb.pipeline import assess
@@ -317,3 +317,44 @@ def test_a_rule_confirmed_sequence_is_not_corroborated() -> None:
     outcome = check_pattern(lead, pack, list(evidence))
     assert corroborate(lead, outcome, pack, list(evidence) + [_finding(finding.document, "META_X")]).status == \
         "verified"
+
+
+# ---------------------------------------------------------------------------
+# The payment context handed to the agents: facts code read, not leads
+# ---------------------------------------------------------------------------
+
+
+def _context_line(context: str, invoice: str) -> str:
+    return next(line for line in context.splitlines() if line.startswith(f"- {invoice},"))
+
+
+def test_payment_context_states_who_paid_each_invoice_and_whether_that_is_the_buyer() -> None:
+    pack, _ = _case("third_party_payment")
+    context = payment_context(pack)
+    (harbourline,) = _rows(pack, "HARBOURLINE LOGISTICS INV-1002")
+    (orchid,) = _rows(pack, "ORCHID LANE RETAIL INV-1001")
+    assert f"{harbourline} 2026-07-12 credit 18530.00 from HARBOURLINE LOGISTICS (not the buyer)" in \
+        _context_line(context, "INV-1002")
+    assert "buyer Bayview Marine Supplies Pte. Ltd." in _context_line(context, "INV-1002")
+    assert f"{orchid} 2026-06-18 credit 32699.50 from ORCHID LANE RETAIL (the buyer)" in \
+        _context_line(context, "INV-1001")
+
+
+def test_payment_context_says_so_when_no_credit_names_an_invoice() -> None:
+    pack, _ = _case("third_party_payment")
+    statements = [s.model_copy(update={"transactions": [t for t in s.transactions if "INV-1002" not in t.description]})
+                  for s in pack.bank_statements]
+    context = payment_context(pack.model_copy(update={"bank_statements": statements}))
+    assert _context_line(context, "INV-1002").endswith("no credit names it")
+
+
+@pytest.mark.parametrize(("description", "said"), [
+    ("CASH DEPOSIT ATM INV-1002", "the payer cannot be read"),
+    ("GIRO CR BAYVIEW MARINE SUPPLIES PTE LTD INV-1002", "(the buyer)"),
+    ("GIRO CR BAYVIEW MARINE INV-1002", "(may or may not be the buyer)"),
+])
+def test_payment_context_does_not_claim_more_than_the_check_can_read(description: str, said: str) -> None:
+    pack, _ = _case("third_party_payment")
+    row = _rows(pack, "HARBOURLINE LOGISTICS INV-1002")[0]
+    edited, _ = _edited("third_party_payment", row, description=description)
+    assert said in _context_line(payment_context(edited), "INV-1002")

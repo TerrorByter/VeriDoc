@@ -174,8 +174,9 @@ def test_every_specialist_records_clear_checks_as_refuted() -> None:
 
 def test_each_specialist_is_told_how_to_look() -> None:
     transaction, kyc, timeline = SPECIALIST["transaction"], SPECIALIST["kyc"], SPECIALIST["timeline"]
-    assert "find its payment with search_bank_transactions (by amount, from the invoice date)" in transaction
-    assert "compare who paid with the invoice's buyer" in transaction
+    assert "the credits code read from the bank statements and who paid: take them as given" in transaction
+    assert "spend your steps on why, not on finding them" in transaction
+    assert "search the statements by the invoice number (search_bank_transactions text) to cite the result" in transaction
     assert "several credits that add up to an invoice's total, none matching it alone (split_payment)" in transaction
     assert "money paid out that comes back from the same counterparty (round_trip)" in transaction
     assert ("Compare the officers of each counterparty in the register with the applicant's directors, "

@@ -6,8 +6,9 @@ the four specialists out in parallel (each given only its brief and the case
 index), the verifier gates their leads, code checks each kept lead's pattern
 against the case data, and the Supervisor reconciles the flags (leads code
 verified) into a memo that is gated in turn. Our code is the switchboard: no agent
-talks to another, so every handoff is a logged record. Exceptions propagate;
-the pipeline turns them into a failed team.
+talks to another, so every handoff is a logged record. One specialist's AWS
+error costs only its own work (a note); any other exception, or an AWS error in
+every specialist, propagates and the pipeline turns it into a failed team.
 """
 
 from __future__ import annotations
@@ -17,6 +18,8 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, get_args
+
+from botocore.exceptions import BotoCoreError, ClientError
 
 from gldb.ai_team.checks import check_pattern, corroborate, resolved_findings
 from gldb.ai_team.loop import Activity, run_agent
@@ -148,9 +151,19 @@ def run_team(case: CaseData, models: TeamModels, *, on_activity: Activity = lamb
 
     # Hub and spoke: each specialist's task is its brief plus the case index, which is case data
     index = case_index(case)
+    def run_specialist(agent: SpecialistName) -> Exception | None:
+        """Run one specialist; its AWS error is noted, not raised, and what it recorded before it stays."""
+        try:
+            run(agent, models.specialist, SPECIALIST[agent], f"{briefs[agent]}\n\n{index}")
+        except (BotoCoreError, ClientError) as exc:
+            ledger.note(f"{agent}: stopped by an AWS error ({exc})")
+            return exc
+        return None
+
     with ThreadPoolExecutor(max_workers=len(_SPECIALISTS)) as pool:
-        list(pool.map(lambda s: run(s, models.specialist, SPECIALIST[s], f"{briefs[s]}\n\n{index}"),
-                      _SPECIALISTS))
+        stopped = [exc for exc in pool.map(run_specialist, _SPECIALISTS) if exc is not None]
+    if len(stopped) == len(_SPECIALISTS):
+        raise stopped[0]
 
     findings = {e.evidence_id: e for e in case.risky}
     leads = [_verified(lead, ledger, case, index) for lead in ledger.leads]

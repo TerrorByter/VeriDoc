@@ -426,6 +426,35 @@ def test_score_and_route_are_identical_with_team_on_and_off(
     assert (stage.status, stage.version) == ("ran", "sup-model + spec-model")
 
 
+def _throttled() -> ClientError:
+    return ClientError({"Error": {"Code": "ThrottlingException", "Message": "slow"}}, "Converse")
+
+
+def test_one_specialists_aws_error_costs_only_its_own_work(tpp: CaseData) -> None:
+    fake = ScriptedBedrock({
+        "plan": _plan(),
+        "transaction": [[use("search_bank_transactions", text="INV-1002")],
+                        [_lead(["R01"], pattern="third_party_payment", invoice_number="INV-1002",
+                               transaction_ids=[_harbourline(tpp)])]],
+        "memo": _memo([], []),
+    }, errors={"forensics": _throttled()})
+
+    team = _run(fake, tpp)
+
+    assert team.status == "ran"
+    assert [(lead.lead_id, lead.evidence_status) for lead in team.leads] == [("L01", "verified")]
+    assert any(n.startswith("forensics: stopped by an AWS error") and "ThrottlingException" in n for n in team.notes)
+    assert "memo" in fake.requests
+
+
+def test_the_team_fails_when_every_specialist_hits_an_aws_error(tpp: CaseData) -> None:
+    fake = ScriptedBedrock({"plan": _plan()}, errors={s: _throttled() for s in ("forensics", "transaction", "kyc",
+                                                                                 "timeline")})
+    with pytest.raises(ClientError):
+        _run(fake, tpp)
+    assert "memo" not in fake.requests
+
+
 def test_bedrock_error_marks_team_failed_and_case_completes(monkeypatch: pytest.MonkeyPatch) -> None:
     throttled = ClientError({"Error": {"Code": "ThrottlingException", "Message": "slow"}}, "Converse")
     fake = ScriptedBedrock({}, error=throttled)

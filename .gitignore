@@ -37,3 +37,7 @@ frontend/dist/
 
 # Sponsor brief (local reference only)
 docs/PROJECT_BRIEF.md
+
+# Impeccable install (per-machine) and its review screenshots
+.claude/
+.impeccable/review/

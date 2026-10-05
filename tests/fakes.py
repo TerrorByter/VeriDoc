@@ -29,17 +29,22 @@ class ScriptedBedrock:
 
     *scripts* maps each key to its responses in order, each the content blocks
     of one assistant message. *requests* keeps every request received, per key,
-    as a snapshot. If *error* is set, converse raises it."""
+    as a snapshot. If *error* is set, converse raises it; *errors* maps a key to
+    the error only that agent's calls raise."""
 
-    def __init__(self, scripts: dict[str, list[list[dict[str, Any]]]], error: Exception | None = None) -> None:
+    def __init__(self, scripts: dict[str, list[list[dict[str, Any]]]], error: Exception | None = None,
+                 errors: dict[str, Exception] | None = None) -> None:
         self._scripts = {key: list(responses) for key, responses in scripts.items()}
         self._error = error
+        self._errors = errors or {}
         self.requests: dict[str, list[dict[str, Any]]] = {}
 
     def converse(self, **request: Any) -> dict[str, Any]:
         if self._error is not None:
             raise self._error
         key = self._key(request)
+        if key in self._errors:
+            raise self._errors[key]
         # The caller keeps appending to its messages list: record what was sent, as sent
         self.requests.setdefault(key, []).append(copy.deepcopy(request))
         script = self._scripts.get(key)

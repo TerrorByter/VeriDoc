@@ -45,6 +45,7 @@ from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Response, Upl
 from pydantic import BaseModel, Field, model_validator
 
 from gldb import agent_eval, jobs, lifecycle, usage
+from gldb.ai_team.checks import subject_locations
 from gldb.agent_eval import AgentEvalRow
 from gldb.audit import log_event, read_all_events, read_events
 from gldb.checks import PACK_DOC
@@ -83,6 +84,7 @@ from gldb.schemas import (
     CaseResult,
     CaseStatus,
     DocMeta,
+    DocRef,
     Evidence,
     GateDecision,
     InvestigationTask,
@@ -145,6 +147,8 @@ class CaseView(BaseModel):
     cost: CaseCost | None
     #: check_id -> signal (name and ID) for every check with a finding
     signals: dict[str, Signal]
+    #: Bank rows (T01...), invoice numbers and counterparties (P01...) -> the document page they are on
+    subjects: dict[str, DocRef]
 
 
 class RunStarted(BaseModel):
@@ -268,6 +272,7 @@ def _view(result: CaseResult) -> CaseView:
         prompt_screen=result.pack.prompt_screen,
         cost=usage.case_cost(result.case_id),
         signals={e.check_id: signal_for(e.check_id) for e in result.evidence},
+        subjects={k: DocRef(doc_id=doc, page=page) for k, (doc, page) in subject_locations(result.pack).items()},
     )
 
 

@@ -69,6 +69,18 @@ def counterparty_id(pack: ExtractedPack, name: str) -> str | None:
     return counterparties(pack).get(screening_key(name))
 
 
+def subject_locations(pack: ExtractedPack) -> dict[str, tuple[str, int]]:
+    """Where each subject a lead can name is, as (document, page): bank rows
+    T01... on their statement, invoice numbers on their invoice, counterparties
+    P01... on the first document that names them."""
+    where = {row_id: (statement.doc_id, statement.page) for row_id, statement, _ in bank_rows(pack)}
+    where.update({i.invoice_number: (i.doc_id, i.page) for i in pack.invoices})
+    for doc_id, name in _party_documents(pack):
+        if (party := counterparty_id(pack, name)) is not None:
+            where.setdefault(party, (doc_id, 1))
+    return where
+
+
 def counterparty_name(pack: ExtractedPack, party_id: str) -> str | None:
     """The name counterparty *party_id* first appears under, or None."""
     return next((n for _, n in _party_documents(pack) if counterparty_id(pack, n) == party_id), None)

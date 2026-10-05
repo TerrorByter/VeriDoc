@@ -182,7 +182,7 @@ def run_team(case: CaseData, models: TeamModels, *, on_activity: Activity = lamb
         memo = _memo(raw, known_ids, grounding_of)
 
     return AgentTeam(
-        status="ran", plan=dict(briefs), tool_calls=ledger.tool_calls, leads=leads, memo=memo,
+        status="ran", plan=dict(briefs), tool_calls=ledger.tool_calls, leads=leads, memo=memo, resolved=resolved,
         models={"supervisor": models.supervisor, "specialist": models.specialist},
         prompt_versions=PROMPT_VERSIONS, notes=ledger.notes, trace=ledger.results,
     )

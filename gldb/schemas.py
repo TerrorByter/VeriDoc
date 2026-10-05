@@ -715,6 +715,13 @@ class Memo(BaseModel):
     withheld: int = 0
 
 
+class DocRef(BaseModel):
+    """A page of a case document: where the analyst is taken to see a subject."""
+
+    doc_id: str
+    page: int = 1
+
+
 class AgentTeam(BaseModel):
     status: Literal["ran", "failed"]
     #: Specialist -> its brief
@@ -729,6 +736,8 @@ class AgentTeam(BaseModel):
     prompt_versions: dict[str, str] = {}
     #: E.g. "transaction: step limit reached", "kyc: budget reached"
     notes: list[str] = []
+    #: Rule findings code explained (finding id -> why): not raised in the memo, still on the record
+    resolved: dict[str, str] = {}
     #: Why the team failed, when status is "failed"
     error: str | None = None
     #: call_id -> full tool result text; server-only (agent_trace.json), never serialised

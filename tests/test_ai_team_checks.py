@@ -27,6 +27,7 @@ from gldb.ai_team.checks import (
     counterparties,
     payment_context,
     resolved_findings,
+    subject_locations,
 )
 from gldb.checks import check_temp_trade_sequence as check_trade_rules
 from gldb.intake import load_manifest
@@ -429,3 +430,19 @@ def test_one_credit_is_not_a_split() -> None:
     _, evidence = _case("innocent_split")
     pack = _split(part_2={"description": "INTEREST"})
     assert resolved_findings(pack, list(evidence)) == {}
+
+
+# ---------------------------------------------------------------------------
+# Where a lead's subject is: the document and page the analyst is taken to
+# ---------------------------------------------------------------------------
+
+
+def test_subject_locations_name_the_document_and_page_of_each_subject() -> None:
+    pack, _ = _case("third_party_payment")
+    (harbourline,) = _rows(pack, "HARBOURLINE LOGISTICS INV-1002")
+    where = subject_locations(pack)
+    assert where[harbourline] == ("bank_statement_2026-07", 1)
+    assert where["INV-1002"] == ("invoice_INV-1002", 1)
+    # Every counterparty is placed on a document it appears on
+    assert set(counterparties(pack).values()) <= set(where)
+    assert all(doc in {d.doc_id for d in pack.docs} for doc, _ in where.values())

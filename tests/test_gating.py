@@ -203,6 +203,7 @@ def test_a_finding_code_resolved_is_not_asked_about_and_the_supervisor_is_told()
 
     assert team.memo is not None
     assert team.memo.observations == [] and team.memo.questions == [] and team.memo.withheld == 2
+    assert list(team.resolved) == [finding] and "paid in parts by its buyer" in team.resolved[finding]
     assert _sent(fake)["resolved"] == {finding: next(iter(_sent(fake)["resolved"].values()))}
     assert "paid in parts by its buyer" in _sent(fake)["resolved"][finding]
     assert f"{finding} resolved by code: INV-1002 was paid in parts by its buyer" in " ".join(team.notes)
@@ -218,6 +219,7 @@ def test_a_finding_code_cannot_resolve_is_still_asked_about() -> None:
     assert team.memo is not None
     assert [p.evidence_ids for p in team.memo.questions] == [[finding]]
     assert _sent(fake)["resolved"] == {}
+    assert team.resolved == {}
 
 
 def test_an_agents_refutation_alone_never_suppresses_a_rule_finding() -> None:

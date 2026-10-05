@@ -13,17 +13,20 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
+from decimal import Decimal
 from typing import Literal
 
 from gldb.checks import incorporation, matching_po
 from gldb.config import (
     GENERIC_PAYERS,
+    MATCH_WINDOW_DAYS,
     PAYER_DIFFERENT_THRESHOLD,
     PAYER_MIN_LETTERS,
     PAYER_SAME_THRESHOLD,
     PAYMENT_CHANNELS,
     SCREENING_MATCH_THRESHOLD,
+    TOLERANCE_SGD,
 )
 from gldb.ai_team.verify import PATTERN_SUBJECTS
 from gldb.ordering import TradeDates, undetermined, violations
@@ -190,6 +193,34 @@ def payment_context(pack: ExtractedPack) -> str:
                    for p in payments(invoice, pack)]
         lines.append(head + ("; ".join(credits) or "no credit names it"))
     return "\n".join(lines) or "none"
+
+
+def resolved_findings(pack: ExtractedPack, evidence: list[Evidence]) -> dict[str, str]:
+    """Rule findings code can explain, by finding id and the reason: an
+    invoice no single credit matched (XDOC_INVOICE_BANK) whose credits, all
+    naming it, are all read as paid by its buyer within the rule's window and
+    together make its total, within the rule's tolerance. Anything else (a
+    payer who is not the buyer or cannot be read, a part outside the window,
+    a sum short or over, a single credit) resolves nothing. The finding and
+    the score stand; only what is asked about it changes. An agent's view
+    never resolves one."""
+    resolved = {}
+    for finding in evidence:
+        if finding.check_id != "XDOC_INVOICE_BANK" or finding.severity == "info":
+            continue
+        invoice = next((i for i in pack.invoices if i.doc_id == finding.document), None)
+        if invoice is None:
+            continue
+        found = payments(invoice, pack)
+        window_end = invoice.invoice_date + timedelta(days=MATCH_WINDOW_DAYS)
+        paid = sum((p.transaction.credit or Decimal(0) for p in found), Decimal(0))
+        if (len(found) >= 2 and all(p.relation == "buyer" for p in found)
+                and all(invoice.invoice_date <= p.transaction.date <= window_end for p in found)
+                and abs(paid - invoice.total) <= TOLERANCE_SGD):
+            resolved[finding.evidence_id] = (
+                f"{invoice.invoice_number} was paid in parts by its buyer {invoice.buyer_name}: "
+                f"{', '.join(p.row_id for p in found)}, together {paid} of {invoice.total}")
+    return resolved
 
 
 def _third_party_payment(lead: Lead, pack: ExtractedPack, evidence: list[Evidence]) -> Outcome:

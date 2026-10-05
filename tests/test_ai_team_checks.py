@@ -11,13 +11,23 @@ cannot establish gives unverified, never a guess. Offline; no AWS.
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date
+from decimal import Decimal
 from functools import cache
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from gldb.ai_team.checks import Outcome, bank_rows, check_pattern, corroborate, counterparties, payment_context
+from gldb.ai_team.checks import (
+    Outcome,
+    bank_rows,
+    check_pattern,
+    corroborate,
+    counterparties,
+    payment_context,
+    resolved_findings,
+)
 from gldb.checks import check_temp_trade_sequence as check_trade_rules
 from gldb.intake import load_manifest
 from gldb.pipeline import assess
@@ -358,3 +368,64 @@ def test_payment_context_does_not_claim_more_than_the_check_can_read(description
     row = _rows(pack, "HARBOURLINE LOGISTICS INV-1002")[0]
     edited, _ = _edited("third_party_payment", row, description=description)
     assert said in _context_line(payment_context(edited), "INV-1002")
+
+
+# ---------------------------------------------------------------------------
+# Split-payment reconciliation: a rule finding code can explain
+# ---------------------------------------------------------------------------
+
+
+def _split(**changes: dict[str, Any]) -> ExtractedPack:
+    """innocent_split with its two INV-1002 part-payments (PART 1, PART 2) changed as given."""
+    pack, _ = _case("innocent_split")
+    parts = dict(zip(("PART 1", "PART 2"), (_rows(pack, f"INV-1002 {n}")[0] for n in ("PART 1", "PART 2")),
+                     strict=True))
+    by_row = {parts[name.replace("_", " ").upper()]: fields for name, fields in changes.items()}
+    statements = []
+    for statement in pack.bank_statements:
+        txns = [t.model_copy(update=by_row.get(rid, {})) for rid, s, t in bank_rows(pack) if s is statement]
+        statements.append(statement.model_copy(update={"transactions": txns}))
+    return pack.model_copy(update={"bank_statements": statements})
+
+
+def _unmatched(evidence: tuple[Evidence, ...]) -> str:
+    return next(e.evidence_id for e in evidence if e.check_id == "XDOC_INVOICE_BANK" and e.severity != "info")
+
+
+def test_two_buyer_credits_that_sum_to_the_invoice_resolve_its_unmatched_finding() -> None:
+    pack, evidence = _case("innocent_split")
+    resolved = resolved_findings(pack, list(evidence))
+    assert list(resolved) == [_unmatched(evidence)]
+    (row1, row2) = _rows(pack, "INV-1002 PART")
+    assert resolved[_unmatched(evidence)] == (
+        f"INV-1002 was paid in parts by its buyer Bayview Marine Supplies Pte. Ltd.: {row1}, {row2}, "
+        "together 18530.00 of 18530.00")
+
+
+def test_a_sum_within_the_rule_tolerance_resolves() -> None:
+    pack = _split(part_2={"credit": Decimal("8529.50")})
+    _, evidence = _case("innocent_split")
+    assert _unmatched(evidence) in resolved_findings(pack, list(evidence))
+
+
+@pytest.mark.parametrize(("changes", "why"), [
+    # Not the buyer's money at all: a third-party payment is not explained by splitting it
+    ({"part_1": {"description": "GIRO CR HARBOURLINE LOGISTICS INV-1002 PART 1"},
+      "part_2": {"description": "GIRO CR HARBOURLINE LOGISTICS INV-1002 PART 2"}}, "third party"),
+    ({"part_2": {"description": "GIRO CR HARBOURLINE LOGISTICS INV-1002 PART 2"}}, "mixed payers"),
+    ({"part_2": {"credit": Decimal("8000.00")}}, "underpaid"),
+    ({"part_2": {"credit": Decimal("9000.00")}}, "overpaid"),
+    ({"part_2": {"date": date(2026, 9, 1)}}, "a part outside the match window"),
+    ({"part_2": {"description": "CASH DEPOSIT INV-1002 PART 2"}}, "a payer that cannot be read"),
+    ({"part_2": {"description": "GIRO CR BAYVIEW MARINE INV-1002 PART 2"}}, "a payer that may not be the buyer"),
+])
+def test_anything_but_the_buyer_paying_the_whole_total_in_time_resolves_nothing(
+        changes: dict[str, dict[str, Any]], why: str) -> None:
+    _, evidence = _case("innocent_split")
+    assert resolved_findings(_split(**changes), list(evidence)) == {}, why
+
+
+def test_one_credit_is_not_a_split() -> None:
+    _, evidence = _case("innocent_split")
+    pack = _split(part_2={"description": "INTEREST"})
+    assert resolved_findings(pack, list(evidence)) == {}

@@ -178,6 +178,70 @@ def test_rule_confirmed_sequence_lead_is_not_a_flag() -> None:
     assert json.loads(fake.requests["memo"][0]["messages"][0]["content"][0]["text"])["leads"] == []
 
 
+def _unmatched(case: CaseData) -> str:
+    return next(e.evidence_id for e in case.evidence if e.check_id == "XDOC_INVOICE_BANK" and e.severity != "info")
+
+
+def _split_case(second_payer: str | None = None) -> CaseData:
+    """innocent_split; with *second_payer*, its INV-1002 second part paid by that name instead of the buyer."""
+    case = _data("innocent_split")
+    if second_payer is None:
+        return case
+    part = next(r for r, _, t in bank_rows(case.pack) if t.description.endswith("INV-1002 PART 2"))
+    statements = [s.model_copy(update={"transactions": [
+        t.model_copy(update={"description": f"GIRO CR {second_payer} INV-1002 PART 2"}) if rid == part else t
+        for rid, st, t in bank_rows(case.pack) if st is s]}) for s in case.pack.bank_statements]
+    return CaseData(case.case_id, case.pack.model_copy(update={"bank_statements": statements}), case.evidence)
+
+
+def test_a_finding_code_resolved_is_not_asked_about_and_the_supervisor_is_told() -> None:
+    case = _split_case()
+    finding = _unmatched(case)
+    fake = ScriptedBedrock({"plan": [[use("submit_plan", briefs=BRIEFS)]], "memo": _memo([finding])})
+
+    team = run_team(case, MODELS, client=fake)
+
+    assert team.memo is not None
+    assert team.memo.observations == [] and team.memo.questions == [] and team.memo.withheld == 2
+    assert _sent(fake)["resolved"] == {finding: next(iter(_sent(fake)["resolved"].values()))}
+    assert "paid in parts by its buyer" in _sent(fake)["resolved"][finding]
+    assert f"{finding} resolved by code: INV-1002 was paid in parts by its buyer" in " ".join(team.notes)
+
+
+def test_a_finding_code_cannot_resolve_is_still_asked_about() -> None:
+    case = _split_case("HARBOURLINE LOGISTICS")
+    finding = _unmatched(case)
+    fake = ScriptedBedrock({"plan": [[use("submit_plan", briefs=BRIEFS)]], "memo": _memo([finding])})
+
+    team = run_team(case, MODELS, client=fake)
+
+    assert team.memo is not None
+    assert [p.evidence_ids for p in team.memo.questions] == [[finding]]
+    assert _sent(fake)["resolved"] == {}
+
+
+def test_an_agents_refutation_alone_never_suppresses_a_rule_finding() -> None:
+    # Transaction refutes the triage of the finding, as it did live; code cannot explain the finding
+    case = _split_case("HARBOURLINE LOGISTICS")
+    finding = _unmatched(case)
+    triage = use("record_lead", kind="triage", finding_ids=[finding], hypothesis="the finding stands",
+                 tests=[{"cites": ["R01"], "expected": "one credit", "observed": "two credits"}],
+                 investigation_status="refuted")
+    fake = ScriptedBedrock({
+        "plan": [[use("submit_plan", briefs=BRIEFS)]],
+        "transaction": [[use("search_bank_transactions", text="INV-1002")], [triage]],
+        "memo": _memo([finding]),
+    })
+
+    team = run_team(case, MODELS, client=fake)
+
+    (lead,) = team.leads
+    assert lead.investigation_status == "refuted" and lead.outcome == "kept"
+    assert team.memo is not None
+    assert [p.evidence_ids for p in team.memo.questions] == [[finding]]
+    assert [p.evidence_ids for p in team.memo.observations] == [[finding]]
+
+
 # ---------------------------------------------------------------------------
 # The false-positive safety invariant
 # ---------------------------------------------------------------------------

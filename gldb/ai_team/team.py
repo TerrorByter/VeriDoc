@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, get_args
 
-from gldb.ai_team.checks import check_pattern, corroborate
+from gldb.ai_team.checks import check_pattern, corroborate, resolved_findings
 from gldb.ai_team.loop import Activity, run_agent
 from gldb.ai_team.prompts import DEFAULT_BRIEF, PROMPT_VERSIONS, SPECIALIST, SUPERVISOR_MEMO, SUPERVISOR_PLAN
 from gldb.ai_team.tools import CaseData, Ledger, case_index
@@ -156,16 +156,21 @@ def run_team(case: CaseData, models: TeamModels, *, on_activity: Activity = lamb
     leads = [_verified(lead, ledger, case, index) for lead in ledger.leads]
     flags = [lead for lead in leads if flagged(lead)]
 
+    # Rule findings code can explain are not raised: the Supervisor is told, and a point citing one is dropped
+    resolved = resolved_findings(case.pack, case.evidence)
+    for finding_id, reason in resolved.items():
+        ledger.note(f"{finding_id} resolved by code: {reason}")
+
     # The Supervisor sees the flags and the questions resting on them, never a tool result or an unverified lead
     task = json.dumps({"leads": [lead.model_dump(mode="json", include=_LEAD_FIELDS) for lead in flags],
-                       "questions": _verified_questions(ledger, flags)}, ensure_ascii=False)
+                       "questions": _verified_questions(ledger, flags), "resolved": resolved}, ensure_ascii=False)
     raw = run("supervisor", models.supervisor, SUPERVISOR_MEMO, task, "submit_memo")
     if raw is None:
         ledger.note("supervisor: no memo submitted")
         memo = Memo()
     else:
         by_id = {lead.lead_id: lead for lead in flags}
-        known_ids = set(findings) | set(by_id)
+        known_ids = (set(findings) - set(resolved)) | set(by_id)
 
         def grounding_of(cites: list[str]) -> Known:
             """What a point citing *cites* may state: what those findings and flags establish."""

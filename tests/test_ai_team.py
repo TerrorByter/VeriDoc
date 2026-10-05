@@ -193,6 +193,7 @@ def test_each_specialist_is_told_how_to_look() -> None:
 
 def test_the_supervisor_prompts_cover_the_empty_memo_and_the_case_index() -> None:
     assert "Always call submit_memo; if there are no leads, call it with empty lists." in prompts.SUPERVISOR_MEMO
+    assert "Findings listed under resolved have been explained by code" in prompts.SUPERVISOR_MEMO
     assert "appends a case index to every brief automatically" in prompts.SUPERVISOR_PLAN
     assert "need not list files" in prompts.SUPERVISOR_PLAN
 

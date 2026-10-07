@@ -37,6 +37,7 @@ from gldb.schemas import (
     FinancialStatementSummary,
     Invoice,
     LineItem,
+    NoticeOfAssessment,
     PurchaseOrder,
     ShippedGoods,
     Signatory,
@@ -324,6 +325,24 @@ def _parse_fs_summary(doc_id: str, pages: list[str]) -> FinancialStatementSummar
 
 
 # ---------------------------------------------------------------------------
+# Notice of Assessment parser
+# ---------------------------------------------------------------------------
+
+def _parse_notice_of_assessment(doc_id: str, pages: list[str]) -> NoticeOfAssessment:
+    lines = [line for line in (pages[0] if pages else "").splitlines() if line.strip()]
+
+    def _get(label: str) -> str:
+        return next((line.split(":", 1)[1].strip() for line in lines if line.startswith(f"{label}:")), "")
+
+    return NoticeOfAssessment(
+        doc_id=doc_id,
+        name=_get("Name"),
+        id_number=_get("Tax Reference No."),
+        year_of_assessment=int(_get("Year of Assessment")),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Entity self-cert AcroForm parser
 # ---------------------------------------------------------------------------
 
@@ -584,6 +603,7 @@ def parse_pack(
     purchase_orders = []
     bills_of_lading = []
     entity_self_certs = []
+    notices_of_assessment = []
 
     for doc in docs:
         p = path_map.get(doc.doc_id)
@@ -603,6 +623,8 @@ def parse_pack(
             bills_of_lading.append(_parse_bill_of_lading(doc.doc_id, pages))
         elif doc.doc_type == "fatca_crs_entity":
             entity_self_certs.append(parse_entity_self_cert(doc.doc_id, p))
+        elif doc.doc_type == "notice_of_assessment":
+            notices_of_assessment.append(_parse_notice_of_assessment(doc.doc_id, pages))
 
     return ExtractedPack(
         case_id=case_id,
@@ -613,6 +635,7 @@ def parse_pack(
         purchase_orders=purchase_orders,
         bills_of_lading=bills_of_lading,
         entity_self_certs=entity_self_certs,
+        notices_of_assessment=notices_of_assessment,
         manifest=manifest,
         extraction_mode="stub",
         paths=path_map,

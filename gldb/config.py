@@ -86,7 +86,7 @@ CHECKLIST: list[dict] = [
     {
         "id": "NOA_GUARANTORS",
         "label": "Latest Notice of Assessment by all guarantors",
-        "implemented": False,
+        "implemented": True,
     },
     {
         "id": "POA_FOREIGNERS",

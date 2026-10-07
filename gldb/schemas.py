@@ -138,6 +138,17 @@ class FinancialStatementSummary(BaseModel):
     source_quotes: dict[str, str] = {}
 
 
+class NoticeOfAssessment(BaseModel):
+    """A guarantor's IRAS Notice of Assessment: who it is for and which year."""
+
+    doc_id: str
+    name: str
+    id_number: str          # NRIC or FIN; masked with gldb.privacy.mask_id before display
+    year_of_assessment: int
+    page: int = 1
+    source_quotes: dict[str, str] = {}
+
+
 # ---------------------------------------------------------------------------
 # Address (shared by application manifest and self-cert forms)
 # ---------------------------------------------------------------------------
@@ -260,6 +271,7 @@ DocType = Literal[
     "bill_of_lading",
     "fatca_crs_entity",
     "fatca_crs_individual",
+    "notice_of_assessment",
     "unknown",
 ]
 
@@ -313,6 +325,7 @@ class ExtractedPack(BaseModel):
     purchase_orders: list[PurchaseOrder] = []
     bills_of_lading: list[BillOfLading] = []
     entity_self_certs: list[EntitySelfCert] = []
+    notices_of_assessment: list[NoticeOfAssessment] = []
     manifest: ApplicationManifest | None = None
     extraction_mode: Literal["llm", "stub", "mixed"]
     #: doc_id -> file on disk, for checks that inspect the raw file (forensics).

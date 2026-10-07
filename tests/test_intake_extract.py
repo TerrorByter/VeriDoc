@@ -197,6 +197,10 @@ def test_classify_clean_pack(packs):
     doc_type = classify(read_text(clean / "fatca_crs_entity.pdf"))
     assert doc_type == "fatca_crs_entity"
 
+    # A Notice of Assessment for each guarantor
+    for fname in ("notice_of_assessment_1.pdf", "notice_of_assessment_2.pdf"):
+        assert classify(read_text(clean / fname)) == "notice_of_assessment", fname
+
 
 # ---------------------------------------------------------------------------
 # Part 1 — sha256 (pack-dependent)

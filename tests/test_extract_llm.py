@@ -48,7 +48,7 @@ def test_llm_pack_matches_stub_pack(
         m.doc_id: m
         for m in [*stub_pack.invoices, *stub_pack.bank_statements,
                   *stub_pack.financial_statements, *stub_pack.purchase_orders,
-                  *stub_pack.bills_of_lading]
+                  *stub_pack.bills_of_lading, *stub_pack.notices_of_assessment]
     }
     calls: list[dict[str, Any]] = []
     queue = [d for d in docs if d.doc_id in models]
@@ -69,6 +69,7 @@ def test_llm_pack_matches_stub_pack(
     assert pack.financial_statements == stub_pack.financial_statements
     assert pack.purchase_orders == stub_pack.purchase_orders != []
     assert pack.bills_of_lading == stub_pack.bills_of_lading != []
+    assert pack.notices_of_assessment == stub_pack.notices_of_assessment != []
     assert len(pack.entity_self_certs) == 1
     # Document text is wrapped as data; no form contents reach the LLM.
     assert all(c["user"].startswith("<document>") for c in calls)

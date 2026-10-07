@@ -1,0 +1,21 @@
+{
+  "pack": "missing_noa",
+  "expected_band": "Low",
+  "expected_path": "standard_review",
+  "expected_readiness": "Incomplete",
+  "expected_check_ids": [],
+  "expected_check_ids_ocr": [],
+  "expected_compliance_check_ids": [
+    "CHECKLIST_MISSING_DOC"
+  ],
+  "expected_leads": [],
+  "expected_triage": [],
+  "tampers": [],
+  "benign": [
+    {
+      "doc": "invoice_INV-1001",
+      "type": "rounding",
+      "detail": "paid 32,699.50 vs invoiced 32,700.00"
+    }
+  ]
+}

@@ -20,14 +20,14 @@ PACKS = Path(__file__).parent.parent / "data" / "packs"
 def test_stub_extractor_is_perfect_on_all_packs() -> None:
     report = evaluate.evaluate(PACKS)
     assert [r.pack for r in report.packs] == [
-        "clean", "incomplete", "innocent_split", "related_party", "retro_po",
+        "clean", "incomplete", "innocent_split", "missing_noa", "related_party", "retro_po",
         "round_trip", "sanctioned", "tampered", "third_party_payment",
     ]
     assert all(r.ok for r in report.packs)
     assert report.precision == report.recall == 1.0
     assert report.band_accuracy == report.readiness_accuracy == report.routing_accuracy == 1.0
     assert report.clean_pack_false_positives == 0
-    assert report.true_positives == 17  # 13 fraud + 4 compliance/completeness
+    assert report.true_positives == 18  # 13 fraud + 5 compliance/completeness
 
 
 def test_beyond_rules_packs_match_their_rule_expectations() -> None:
@@ -107,7 +107,7 @@ def test_crashing_pack_is_reported_and_counted_as_missed(
     monkeypatch.setattr(evaluate, "assess", flaky)
     report = evaluate.evaluate(PACKS)
     *others, tampered = sorted(report.packs, key=lambda r: r.pack == "tampered")
-    assert len(others) == 8 and all(r.ok for r in others)
+    assert len(others) == 9 and all(r.ok for r in others)
     assert not tampered.ok
     assert tampered.error == "RuntimeError: model returned junk"
     assert len(tampered.missed) == 10  # every expected tampered finding

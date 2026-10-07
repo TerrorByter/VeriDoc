@@ -66,6 +66,7 @@ from gldb.schemas import (
     Guarantor,
     Invoice,
     LineItem,
+    NoticeOfAssessment,
     Signatory,
     TaxResidencyRow,
     Transaction,
@@ -212,6 +213,7 @@ def _make_pack(
     bank_statements=None,
     financial_statements=None,
     entity_self_certs=None,
+    notices_of_assessment=None,
     manifest=None,
     docs=None,
 ) -> ExtractedPack:
@@ -222,6 +224,7 @@ def _make_pack(
         bank_statements=bank_statements or [],
         financial_statements=financial_statements or [],
         entity_self_certs=entity_self_certs or [],
+        notices_of_assessment=notices_of_assessment or [],
         manifest=manifest,
         extraction_mode="stub",
     )
@@ -894,6 +897,38 @@ class TestChecklistMissingDoc:
         pack = _make_pack(docs=[])
         for e in check_checklist_missing_doc(pack):
             assert e.category == "completeness"
+
+
+def _guarantor(name: str, id_number: str) -> Guarantor:
+    return Guarantor(name=name, id_number=id_number, nationality="Singapore", residential_address=_make_address())
+
+
+def _noa(name: str, id_number: str) -> NoticeOfAssessment:
+    return NoticeOfAssessment(doc_id=f"noa_{id_number}", name=name, id_number=id_number, year_of_assessment=2026)
+
+
+_TWO_GUARANTORS = [_guarantor("Tan Wei Ming", "S1234567D"), _guarantor("Daniel Brooks", "G7654321L")]
+_REQUIRED_DOCS = [_make_doc_meta("fatca_crs_entity", doc_type="fatca_crs_entity"),
+                  _make_doc_meta("bank_statement_2026-07", doc_type="bank_statement")]
+
+
+class TestNoticeOfAssessmentPerGuarantor:
+    def test_a_notice_for_every_guarantor_raises_nothing(self):
+        pack = _make_pack(docs=_REQUIRED_DOCS, manifest=_make_manifest(guarantors=_TWO_GUARANTORS),
+                          notices_of_assessment=[_noa("Daniel Brooks", "g7654321l"), _noa("Tan Wei Ming", "S1234567D")])
+        assert check_checklist_missing_doc(pack) == []
+
+    def test_each_guarantor_without_a_notice_is_one_finding_with_the_id_masked(self):
+        pack = _make_pack(docs=_REQUIRED_DOCS, manifest=_make_manifest(guarantors=_TWO_GUARANTORS),
+                          notices_of_assessment=[_noa("Tan Wei Ming", "S1234567D")])
+        [ev] = check_checklist_missing_doc(pack)
+        assert (ev.check_id, ev.category, ev.severity) == ("CHECKLIST_MISSING_DOC", "completeness", "high")
+        assert "Daniel Brooks (G****321L)" in ev.explanation and "G7654321L" not in ev.explanation
+
+    def test_a_notice_for_someone_else_does_not_count(self):
+        pack = _make_pack(docs=_REQUIRED_DOCS, manifest=_make_manifest(guarantors=_TWO_GUARANTORS[:1]),
+                          notices_of_assessment=[_noa("Tan Wei Ming", "S7654321A")])
+        assert ["Tan Wei Ming" in e.explanation for e in check_checklist_missing_doc(pack)] == [True]
 
 
 # ===========================================================================

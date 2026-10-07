@@ -2,7 +2,8 @@
 gldb/extract_llm.py
 -------------------
 LLM extraction (AWS Bedrock via gldb.llm_client) for invoices, bank
-statements and financial statement summaries.
+statements, financial statement summaries, purchase orders, bills of lading
+and Notices of Assessment.
 
 Rules:
 - Document text is untrusted data: hidden text (white, tiny, off-page) is
@@ -35,6 +36,7 @@ from gldb.schemas import (
     ExtractedPack,
     FinancialStatementSummary,
     Invoice,
+    NoticeOfAssessment,
     PurchaseOrder,
 )
 
@@ -58,6 +60,7 @@ _MODELS: dict[str, type[BaseModel]] = {
     "financial_statements": FinancialStatementSummary,
     "purchase_order": PurchaseOrder,
     "bill_of_lading": BillOfLading,
+    "notice_of_assessment": NoticeOfAssessment,
 }
 
 #: Fields set by the pipeline, not by the model.
@@ -155,6 +158,7 @@ def parse_pack(
         purchase_orders=extracted["purchase_order"],
         bills_of_lading=extracted["bill_of_lading"],
         entity_self_certs=entity_self_certs,
+        notices_of_assessment=extracted["notice_of_assessment"],
         manifest=manifest,
         extraction_mode="llm",
         paths=path_map,

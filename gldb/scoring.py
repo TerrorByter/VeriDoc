@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+from gldb.checks import guarantors_without_noa
 from gldb.config import (
     BAND_LOW_MAX,
     BAND_MEDIUM_MAX,
@@ -155,6 +156,9 @@ def readiness(evidence: list[Evidence], pack: ExtractedPack) -> ReadinessResult:
         document; else "Missing".
       - BANK_6M: "Missing" if no bank statements; "Incomplete" if a
         BANK_COVERAGE evidence fired; else "Provided".
+      - NOA_GUARANTORS: "Provided" when every guarantor in the application
+        data has a Notice of Assessment, "Incomplete" when some do, "Missing"
+        when none do.
       - Items with implemented=False: "Not checked in prototype".
 
     Args:
@@ -185,6 +189,7 @@ def readiness(evidence: list[Evidence], pack: ExtractedPack) -> ReadinessResult:
         d.doc_type in ("fatca_crs_entity",) for d in pack.docs
     )
     has_bank_statements = bool(pack.bank_statements)
+    guarantors = pack.manifest.guarantors if pack.manifest else []
     bank_coverage_fired = any(
         ev.check_id == "BANK_COVERAGE" for ev in evidence
     )
@@ -199,6 +204,14 @@ def readiness(evidence: list[Evidence], pack: ExtractedPack) -> ReadinessResult:
             item_status = "Not checked in prototype"
         elif item_id == "FATCA_CRS_ENTITY":
             item_status = "Provided" if has_entity_cert else "Missing"
+        elif item_id == "NOA_GUARANTORS":
+            missing = len(guarantors_without_noa(pack))
+            if not guarantors:
+                item_status = "No guarantors in the application data"
+            elif missing == 0:
+                item_status = "Provided"
+            else:
+                item_status = "Missing" if missing == len(guarantors) else "Incomplete"
         elif item_id == "BANK_6M":
             if not has_bank_statements:
                 item_status = "Missing"

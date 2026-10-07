@@ -3,8 +3,9 @@ import { Icon } from "../ui";
 import { Section } from "./common";
 import { Findings } from "./Findings";
 
+/** Only a document that is missing or short is a flag; an item that could not be checked is pending. */
 const state = (status: string) =>
-  status === "Provided" ? "done" : status === "Not checked in prototype" ? "pending" : "flag";
+  status === "Provided" ? "done" : status === "Missing" || status === "Incomplete" ? "flag" : "pending";
 
 export function ReadinessStage(props: StageProps) {
   const { kase } = props;

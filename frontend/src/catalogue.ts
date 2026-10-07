@@ -159,6 +159,7 @@ export const DOC_TYPE_LABEL: Record<string, string> = {
   bill_of_lading: "Bill of lading",
   fatca_crs_entity: "FATCA/CRS form (entity)",
   fatca_crs_individual: "FATCA/CRS form (individual)",
+  notice_of_assessment: "Notice of Assessment",
   unknown: "Unrecognised",
 };
 

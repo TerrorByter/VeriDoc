@@ -182,6 +182,8 @@ BASE_FILES = {
     "purchase_order_PO-2002.pdf",
     "bill_of_lading_BL-3001.pdf",
     "bill_of_lading_BL-3002.pdf",
+    "notice_of_assessment_1.pdf",
+    "notice_of_assessment_2.pdf",
     "application.json",
     "ground_truth.json",
 }
@@ -335,6 +337,15 @@ def test_tampered_ground_truth(packs):
     # New tamper references bank_statement_2026-06, not bank_statement
     docs = {t["doc"] for t in gt["tampers"] if t["type"] == "closing_balance_altered"}
     assert docs == {"bank_statement_2026-06"}
+
+@needs_templates
+def test_missing_noa_pack_leaves_out_one_guarantors_notice(packs):
+    names = {p.name for p in (packs / "missing_noa").iterdir()}
+    assert names == (BASE_FILES - {"notice_of_assessment_2.pdf"}) | _bank_files()
+    gt = json.loads((packs / "missing_noa" / "ground_truth.json").read_text())
+    assert (gt["expected_band"], gt["expected_path"], gt["expected_readiness"]) == (
+        "Low", "standard_review", "Incomplete")
+    assert gt["expected_check_ids"] == [] and gt["expected_compliance_check_ids"] == ["CHECKLIST_MISSING_DOC"]
 
 @needs_templates
 def test_incomplete_ground_truth(packs):

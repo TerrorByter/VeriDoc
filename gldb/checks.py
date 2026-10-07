@@ -60,6 +60,7 @@ from gldb.schemas import (
     Evidence,
     EvidenceCategory,
     ExtractedPack,
+    Guarantor,
     Invoice,
     PurchaseOrder,
     Severity,
@@ -697,7 +698,31 @@ def check_checklist_missing_doc(pack: ExtractedPack) -> list[Evidence]:
                     observed="not found",
                 ))
 
+        elif item_id == "NOA_GUARANTORS":
+            for g in guarantors_without_noa(pack):
+                masked = mask_id(g.id_number)
+                results.append(_ev(
+                    "CHECKLIST_MISSING_DOC", "completeness", "high",
+                    PACK_DOC, 1, 1.0,
+                    f"Required document '{label}' is missing for guarantor {g.name} ({masked}).",
+                    expected=f"a Notice of Assessment for {masked}",
+                    observed="not found",
+                ))
+
     return results
+
+
+def _id_key(id_number: str) -> str:
+    return "".join(id_number.split()).upper()
+
+
+def guarantors_without_noa(pack: ExtractedPack) -> list[Guarantor]:
+    """The application's guarantors with no Notice of Assessment in the pack,
+    matched on NRIC/FIN (case and spaces ignored). None without application data."""
+    if pack.manifest is None:
+        return []
+    covered = {_id_key(n.id_number) for n in pack.notices_of_assessment}
+    return [g for g in pack.manifest.guarantors if _id_key(g.id_number) not in covered]
 
 
 # ---------------------------------------------------------------------------

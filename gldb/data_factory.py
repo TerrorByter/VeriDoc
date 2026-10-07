@@ -560,6 +560,30 @@ ENTITY_FORM_MOD_DATE = "D:20260801100000+08'00'"
 # Shared helpers
 # ---------------------------------------------------------------------------
 
+def _render_notice_of_assessment(
+    path: Path,
+    *,
+    name: str,
+    id_number: str,
+    year_of_assessment: int,
+    assessable_income: Decimal,
+    tax_payable: Decimal,
+    notice_date: date,
+) -> None:
+    doc = _Doc(path)
+    doc.line("NOTICE OF ASSESSMENT (INDIVIDUAL)")
+    doc.line("Synthetic specimen for testing")
+    doc.blank()
+    doc.line(f"Year of Assessment: {year_of_assessment}")
+    doc.line(f"Date of Notice: {notice_date.isoformat()}")
+    doc.line(f"Name: {name}")
+    doc.line(f"Tax Reference No.: {id_number}")
+    doc.blank()
+    doc.line(f"Assessable Income: {_fmt_money_sgd(assessable_income)}")
+    doc.line(f"Tax Payable: {_fmt_money_sgd(tax_payable)}")
+    doc.save()
+
+
 def _last_day_of_month(year: int, month: int) -> int:
     """Return the last calendar day of the given month."""
     if month == 12:
@@ -771,6 +795,30 @@ def _write_application_json(out_dir: Path) -> None:
     )
 
 
+#: Each guarantor's latest Notice of Assessment: (assessable income, tax payable)
+NOA_YEAR = 2026
+NOA_DATE = date(2026, 5, 20)
+NOA_FIGURES = {
+    "S1234567D": (Decimal("186400.00"), Decimal("18322.00")),
+    "G7654321L": (Decimal("142800.00"), Decimal("11182.00")),
+}
+
+
+def _write_notices(out_dir: Path, skip: tuple[str, ...] = ()) -> None:
+    """One Notice of Assessment per guarantor in the manifest, except the ID numbers in *skip*.
+    Files are numbered in manifest order: an NRIC in a file name would reach logs unmasked."""
+    for number, g in enumerate(APPLICATION_MANIFEST["guarantors"], start=1):
+        if g["id_number"] in skip:
+            continue
+        path = out_dir / f"notice_of_assessment_{number}.pdf"
+        income, tax = NOA_FIGURES[g["id_number"]]
+        _render_notice_of_assessment(
+            path, name=g["name"], id_number=g["id_number"], year_of_assessment=NOA_YEAR,
+            assessable_income=income, tax_payable=tax, notice_date=NOA_DATE,
+        )
+        _set_metadata(path, PRODUCER_REPORTLAB, _sgt(NOA_DATE), _sgt(NOA_DATE))
+
+
 def _write_entity_form(out_dir: Path, values: dict[str, str]) -> None:
     _check_templates()
     fill_form(
@@ -792,6 +840,7 @@ def _generate_clean(out_dir: Path) -> None:
     _write_bills_of_lading(out_dir)
     _write_bank_statements(out_dir, BS_MONTHS)
     _write_application_json(out_dir)
+    _write_notices(out_dir)
     _write_entity_form(out_dir, ENTITY_FORM_VALUES_CLEAN)
     truth = {
         "pack": "clean",
@@ -822,6 +871,7 @@ def _generate_tampered(out_dir: Path) -> None:
     _write_bills_of_lading(out_dir)
     _write_bank_statements(out_dir, BS_MONTHS, tampered_jun_closing=True)
     _write_application_json(out_dir)
+    _write_notices(out_dir)
     _write_entity_form(out_dir, ENTITY_FORM_VALUES_CLEAN)  # entity form identical to clean
     truth = {
         "pack": "tampered",
@@ -872,6 +922,7 @@ def _generate_incomplete(out_dir: Path) -> None:
     _write_bills_of_lading(out_dir)
     _write_bank_statements(out_dir, BS_MONTHS, skip_month=4)  # omit April
     _write_application_json(out_dir)
+    _write_notices(out_dir)
     _write_entity_form(out_dir, ENTITY_FORM_VALUES_INCOMPLETE)
     truth = {
         "pack": "incomplete",
@@ -900,6 +951,38 @@ def _generate_incomplete(out_dir: Path) -> None:
     (out_dir / "ground_truth.json").write_text(json.dumps(truth, indent=2))
 
 
+#: Missing NOA pack: the clean pack without the second guarantor's Notice of
+#: Assessment. Nothing is wrong with the documents; the application is incomplete.
+MISSING_NOA_GUARANTOR = "G7654321L"
+
+
+def _generate_missing_noa(out_dir: Path) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    _write_invoices_and_fs(out_dir, tampered_inv1002=False)
+    _write_purchase_orders(out_dir)
+    _write_bills_of_lading(out_dir)
+    _write_bank_statements(out_dir, BS_MONTHS)
+    _write_application_json(out_dir)
+    _write_notices(out_dir, skip=(MISSING_NOA_GUARANTOR,))
+    _write_entity_form(out_dir, ENTITY_FORM_VALUES_CLEAN)
+    truth = {
+        "pack": "missing_noa",
+        "expected_band": "Low",
+        "expected_path": "standard_review",
+        "expected_readiness": "Incomplete",
+        "expected_check_ids": [],
+        "expected_check_ids_ocr": [],
+        "expected_compliance_check_ids": ["CHECKLIST_MISSING_DOC"],
+        "expected_leads": [],
+        "expected_triage": [],
+        "tampers": [],
+        "benign": [
+            {"doc": "invoice_INV-1001", "type": "rounding", "detail": "paid 32,699.50 vs invoiced 32,700.00"},
+        ],
+    }
+    (out_dir / "ground_truth.json").write_text(json.dumps(truth, indent=2))
+
+
 #: Sanctioned pack: INV-1002's buyer is a company on the (synthetic) sanctions
 #: list. Every document is otherwise clean, so the score is only Medium; the
 #: sanctions hit is a hard flag that still forces enhanced review.
@@ -914,6 +997,7 @@ def _generate_sanctioned(out_dir: Path) -> None:
     _write_bills_of_lading(out_dir, buyer_1002=SANCTIONED_BUYER)
     _write_bank_statements(out_dir, BS_MONTHS, payer_rename=SANCTIONED_PAYER_RENAME)
     _write_application_json(out_dir)
+    _write_notices(out_dir)
     _write_entity_form(out_dir, ENTITY_FORM_VALUES_CLEAN)
     truth = {
         "pack": "sanctioned",
@@ -949,6 +1033,7 @@ def _generate_retro_po(out_dir: Path) -> None:
     _write_bills_of_lading(out_dir)
     _write_bank_statements(out_dir, BS_MONTHS)
     _write_application_json(out_dir)
+    _write_notices(out_dir)
     _write_entity_form(out_dir, ENTITY_FORM_VALUES_CLEAN)
     truth = {
         "pack": "retro_po",
@@ -1021,6 +1106,7 @@ def _generate_beyond_rules(
     _write_bills_of_lading(out_dir, buyer_1002=buyer_1002)
     _write_bank_statements(out_dir, months, payer_rename=payer_rename)
     _write_application_json(out_dir)
+    _write_notices(out_dir)
     _write_entity_form(out_dir, ENTITY_FORM_VALUES_CLEAN)
     truth = {
         "pack": pack,
@@ -1117,6 +1203,7 @@ def _generate_injected(out_dir: Path) -> None:
     _write_bills_of_lading(out_dir)
     _write_bank_statements(out_dir, BS_MONTHS)
     _write_application_json(out_dir)
+    _write_notices(out_dir)
     _write_entity_form(out_dir, ENTITY_FORM_VALUES_CLEAN)
     truth = {
         "pack": "injected",
@@ -1203,6 +1290,7 @@ def generate_packs(base_dir: str | Path = "data/packs") -> None:
     _generate_clean(base / "clean")
     _generate_tampered(base / "tampered")
     _generate_incomplete(base / "incomplete")
+    _generate_missing_noa(base / "missing_noa")
     _generate_scanned(base / "clean", base / "scanned")
     _generate_sanctioned(base / "sanctioned")
     _generate_retro_po(base / "retro_po")
@@ -1214,6 +1302,7 @@ def generate_packs(base_dir: str | Path = "data/packs") -> None:
     _verify_pack(base / "clean",    tampered_inv1002=False)
     _verify_pack(base / "tampered", tampered_inv1002=True)
     _verify_pack(base / "incomplete", tampered_inv1002=False)
+    _verify_pack(base / "missing_noa", tampered_inv1002=False)
     _verify_pack(base / "scanned", tampered_inv1002=False)
     _verify_pack(base / "sanctioned", tampered_inv1002=False)
     _verify_pack(base / "retro_po", tampered_inv1002=False)
@@ -1226,6 +1315,7 @@ def generate_packs(base_dir: str | Path = "data/packs") -> None:
     print(f"  clean/      -> {base / 'clean'}")
     print(f"  tampered/   -> {base / 'tampered'}")
     print(f"  incomplete/ -> {base / 'incomplete'}")
+    print(f"  missing_noa/ -> {base / 'missing_noa'}")
     print(f"  scanned/    -> {base / 'scanned'}")
     print(f"  sanctioned/ -> {base / 'sanctioned'}")
     print(f"  retro_po/   -> {base / 'retro_po'}")

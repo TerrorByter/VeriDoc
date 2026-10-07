@@ -255,12 +255,12 @@ class TestIncompletePack:
         )
         assert bank["status"] == "Incomplete"
 
-    def test_checklist_noa_not_checked(self, result: CaseResult) -> None:
+    def test_checklist_noa_provided(self, result: CaseResult) -> None:
         assert result.readiness is not None
         noa = next(
             i for i in result.readiness.checklist if i["id"] == "NOA_GUARANTORS"
         )
-        assert noa["status"] == "Not checked in prototype"
+        assert noa["status"] == "Provided"
 
     def test_checklist_poa_not_checked(self, result: CaseResult) -> None:
         assert result.readiness is not None

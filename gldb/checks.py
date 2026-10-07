@@ -55,6 +55,7 @@ from gldb.screening import screen, screening_key, similarity
 from gldb.schemas import (
     AgentReport,
     ApplicationManifest,
+    DocMeta,
     EntitySelfCert,
     Evidence,
     EvidenceCategory,
@@ -564,30 +565,31 @@ def check_meta_mod_after_create(pack: ExtractedPack) -> list[Evidence]:
 # 8. META_PRODUCER_MISMATCH ----------------------------------------------
 
 def check_meta_producer_mismatch(pack: ExtractedPack) -> list[Evidence]:
-    """Any doc with a different producer from the majority triggers a flag."""
-    results: list[Evidence] = []
-    eligible = [d for d in pack.docs if d.doc_type not in FORM_DOC_TYPES]
-    if not eligible:
-        return results
-
-    # Find most common producer
+    """Within one document type, any doc whose producer differs from that
+    type's majority triggers a flag. Different types come from different
+    issuers (the bank, IRAS, the applicant's accounts software), so their
+    producers are never compared with each other."""
     from collections import Counter
-    counts = Counter(d.producer for d in eligible if d.producer)
-    if not counts:
-        return results
-    majority_producer, _ = counts.most_common(1)[0]
 
-    for doc in eligible:
-        if doc.producer and doc.producer != majority_producer:
-            results.append(_ev(
-                "META_PRODUCER_MISMATCH", "fraud_signal", "medium",
-                doc.doc_id, 1, 0.5,
-                f"PDF producer '{doc.producer}' differs from the pack majority "
-                f"'{majority_producer}'. This may indicate the file was edited "
-                f"or regenerated with different software.",
-                expected=majority_producer,
-                observed=doc.producer,
-            ))
+    results: list[Evidence] = []
+    by_type: dict[str, list[DocMeta]] = {}
+    for d in pack.docs:
+        if d.doc_type not in FORM_DOC_TYPES and d.producer:
+            by_type.setdefault(d.doc_type, []).append(d)
+
+    for docs in by_type.values():
+        majority_producer, _ = Counter(d.producer for d in docs).most_common(1)[0]
+        for doc in docs:
+            if doc.producer != majority_producer:
+                results.append(_ev(
+                    "META_PRODUCER_MISMATCH", "fraud_signal", "medium",
+                    doc.doc_id, 1, 0.5,
+                    f"PDF producer '{doc.producer}' differs from '{majority_producer}', "
+                    f"which made the other {doc.doc_type.replace('_', ' ')} documents in the pack. "
+                    f"This may indicate the file was edited or regenerated with different software.",
+                    expected=majority_producer,
+                    observed=doc.producer,
+                ))
 
     return results
 

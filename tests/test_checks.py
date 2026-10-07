@@ -757,6 +757,24 @@ class TestMetaProducerMismatch:
         evs = check_meta_producer_mismatch(pack)
         assert all(e.document != "fatca_crs_entity" for e in evs)
 
+    def test_documents_from_different_issuers_are_not_compared(self):
+        """A bank statement, a financial statement and an invoice come from different software in any real pack."""
+        docs = [
+            _make_doc_meta("invoice_INV-1"),
+            _make_doc_meta("invoice_INV-2"),
+            _make_doc_meta("bank_statement_2026-06", doc_type="bank_statement", producer="Bank Statement Engine"),
+            _make_doc_meta("fs_summary", doc_type="financial_statements", producer="Canva"),
+        ]
+        assert check_meta_producer_mismatch(_make_pack(docs=docs)) == []
+
+    def test_one_odd_statement_among_the_same_banks_statements_fires(self):
+        docs = [
+            _make_doc_meta(f"bank_statement_2026-0{m}", doc_type="bank_statement", producer="Bank Statement Engine")
+            for m in (3, 4, 5)
+        ] + [_make_doc_meta("bank_statement_2026-06", doc_type="bank_statement", producer="QuickPDF Editor 9.2")]
+        evs = check_meta_producer_mismatch(_make_pack(docs=docs))
+        assert [e.document for e in evs] == ["bank_statement_2026-06"]
+
     def test_evidence_fields(self):
         docs = [
             _make_doc_meta("inv_1"),

@@ -30,6 +30,7 @@ from gldb.data_factory import (
     APPLICATION_MANIFEST,
     ENTITY_FORM_VALUES_CLEAN,
     generate_packs,
+    _edit_month,
     _read_metadata,
     ENTITY_TEMPLATE, INDIVIDUAL_TEMPLATE,
 )
@@ -38,7 +39,9 @@ from gldb.form_maps import (
     INDIVIDUAL_FIELD_MAP,
     all_pdf_field_names,
 )
+from gldb.reference import registry
 from gldb.schemas import ApplicationManifest
+from gldb.signal_library import BY_CHECK
 
 _SGT = timezone(timedelta(hours=8))
 GST_RATE = Decimal("0.09")
@@ -123,6 +126,36 @@ def test_bank_running_balances_clean():
         )
         prev_closing = bs["closing"]
 
+def test_edit_month_rebalances():
+    """An edited month's rows are rebalanced, later months re-chain, and the
+    shared BS_MONTHS is left untouched."""
+    before = [dict(bs, rows=list(bs["rows"])) for bs in BS_MONTHS]
+    edited = _edit_month(BS_MONTHS, (2026, 7), [
+        (3, "GIRO CR EXTRA", None, Decimal("15200.00")),
+        (25, "PAYROLL JUL", Decimal("21400.00"), None),
+    ])
+    assert BS_MONTHS == before
+    assert edited is not BS_MONTHS and edited[0] is not BS_MONTHS[0]
+    prev_closing = edited[0]["opening"]
+    for bs in edited:
+        assert bs["opening"] == prev_closing
+        balance = bs["opening"]
+        for _day, _desc, debit, credit, stated in bs["rows"]:
+            balance += (credit or 0) - (debit or 0)
+            assert stated == balance
+        assert bs["closing"] == balance
+        prev_closing = bs["closing"]
+    jun, jul = edited[4], edited[5]
+    assert jul["opening"] == jun["closing"] == Decimal("129449.50")
+    assert jul["rows"][0] == (3, "GIRO CR EXTRA", None, Decimal("15200.00"), Decimal("144649.50"))
+    assert jul["closing"] == Decimal("144649.50") - Decimal("21400.00")
+
+def test_edit_month_keeps_earlier_months_and_rechains_later_ones():
+    edited = _edit_month(BS_MONTHS, (2026, 2), [(5, "OFFICE RENT FEB", Decimal("9000.00"), None)])
+    assert edited[0]["closing"] == Decimal("91000.00")
+    assert edited[1]["opening"] == Decimal("91000.00")
+    assert edited[5]["closing"] == BS_MONTHS[5]["closing"] - Decimal("91600.00") + Decimal("91000.00")
+
 def test_bank_jun_tampered_closing_differs():
     jun = next(b for b in BS_MONTHS if b["ym"] == (2026, 6))
     assert BS_JUN_CLOSING_TAMPERED != jun["closing"]
@@ -147,6 +180,10 @@ BASE_FILES = {
     "fatca_crs_entity.pdf",
     "purchase_order_PO-2001.pdf",
     "purchase_order_PO-2002.pdf",
+    "bill_of_lading_BL-3001.pdf",
+    "bill_of_lading_BL-3002.pdf",
+    "notice_of_assessment_1.pdf",
+    "notice_of_assessment_2.pdf",
     "application.json",
     "ground_truth.json",
 }
@@ -286,18 +323,29 @@ def test_tampered_ground_truth(packs):
     expected_ids = {
         "XDOC_INVOICE_BANK", "XDOC_IDENTITY", "META_MOD_AFTER_CREATE",
         "META_PRODUCER_MISMATCH", "BANK_RUNNING_BAL", "BANK_CONTINUITY",
-        "FORENSIC_HIDDEN_TEXT", "XDOC_PO_INVOICE",
+        "FORENSIC_HIDDEN_TEXT", "XDOC_PO_INVOICE", "XDOC_BL_INVOICE",
+        "REGISTRY_ENTITY_NOT_FOUND",
     }
     assert set(gt["expected_check_ids"]) == expected_ids
     assert gt["expected_compliance_check_ids"] == []
     tamper_types = {t["type"] for t in gt["tampers"]}
     assert tamper_types == {
         "amount_inflated", "uen_mismatch", "metadata_edited",
-        "closing_balance_altered", "prompt_injection",
+        "closing_balance_altered", "prompt_injection", "figure_pasted_as_image",
+        "over_invoiced_vs_shipment",
     }
     # New tamper references bank_statement_2026-06, not bank_statement
     docs = {t["doc"] for t in gt["tampers"] if t["type"] == "closing_balance_altered"}
     assert docs == {"bank_statement_2026-06"}
+
+@needs_templates
+def test_missing_noa_pack_leaves_out_one_guarantors_notice(packs):
+    names = {p.name for p in (packs / "missing_noa").iterdir()}
+    assert names == (BASE_FILES - {"notice_of_assessment_2.pdf"}) | _bank_files()
+    gt = json.loads((packs / "missing_noa" / "ground_truth.json").read_text())
+    assert (gt["expected_band"], gt["expected_path"], gt["expected_readiness"]) == (
+        "Low", "standard_review", "Incomplete")
+    assert gt["expected_check_ids"] == [] and gt["expected_compliance_check_ids"] == ["CHECKLIST_MISSING_DOC"]
 
 @needs_templates
 def test_incomplete_ground_truth(packs):
@@ -311,6 +359,104 @@ def test_incomplete_ground_truth(packs):
         "FORM_ENT_TIN_OR_REASON", "FORM_ENT_TYPE_SELECTION",
     }
     assert set(gt["expected_compliance_check_ids"]) == expected_compliance
+
+@needs_templates
+def test_every_tamper_names_known_signals_and_an_expected_check(packs):
+    for folder in packs.iterdir():
+        truth = json.loads((folder / "ground_truth.json").read_text())
+        expected = set(truth["expected_check_ids"]) | set(truth.get("expected_check_ids_ocr", []))
+        for tamper in truth["tampers"]:
+            assert tamper["check_ids"], (folder.name, tamper["type"])
+            assert set(tamper["check_ids"]) <= set(BY_CHECK)
+            assert set(tamper["check_ids"]) <= expected, (folder.name, tamper["type"])
+
+
+@needs_templates
+def test_retro_po_pack_dates_po_2002_after_its_invoice(packs):
+    folder = packs / "retro_po"
+    assert {p.name for p in folder.iterdir()} == BASE_FILES | _bank_files()
+    text = pdfplumber.open(folder / "purchase_order_PO-2002.pdf").pages[0].extract_text()
+    assert "PO Date: 2026-07-15" in text
+    gt = json.loads((folder / "ground_truth.json").read_text())
+    assert (gt["expected_band"], gt["expected_path"]) == ("Medium", "standard_review")
+    assert gt["expected_check_ids"] == ["TEMP_TRADE_SEQUENCE"]
+
+
+BEYOND_RULES_PACKS = ["third_party_payment", "related_party", "round_trip", "innocent_split"]
+EXPECTED_AI_TRUTH = {
+    "third_party_payment": (
+        [{"agent": "transaction", "pattern": "third_party_payment"}], []),
+    "related_party": (
+        [{"agent": "kyc", "pattern": "related_party"}], []),
+    "round_trip": (
+        [{"agent": "transaction", "pattern": "round_trip"}], []),
+    "innocent_split": (
+        [{"agent": "transaction", "pattern": "split_payment"}],
+        [{"check_id": "XDOC_INVOICE_BANK", "status": "refuted"}]),
+}
+
+
+@needs_templates
+@pytest.mark.parametrize("name", BEYOND_RULES_PACKS)
+def test_beyond_rules_pack_files_and_ground_truth(packs, name):
+    folder = packs / name
+    assert {p.name for p in folder.iterdir()} == BASE_FILES | _bank_files()
+    gt = json.loads((folder / "ground_truth.json").read_text())
+    assert gt["pack"] == name
+    assert "requires" not in gt
+    leads, triage = EXPECTED_AI_TRUTH[name]
+    assert gt["expected_leads"] == leads
+    assert gt["expected_triage"] == triage
+    assert gt["expected_readiness"] == "Complete"
+
+
+@needs_templates
+def test_only_the_innocent_split_pack_expects_a_rule_finding(packs):
+    for name in BEYOND_RULES_PACKS:
+        gt = json.loads((packs / name / "ground_truth.json").read_text())
+        silent = name != "innocent_split"
+        assert (gt["expected_check_ids"] == []) is silent
+        assert (gt["expected_band"], gt["expected_path"]) == (
+            ("Low", "fast_track") if silent else ("Medium", "standard_review")
+        )
+        assert gt["tampers"] == []
+
+
+@needs_templates
+def test_every_pack_declares_expected_leads_and_triage(packs):
+    for folder in packs.iterdir():
+        truth = json.loads((folder / "ground_truth.json").read_text())
+        assert "expected_leads" in truth and "expected_triage" in truth, folder.name
+        if folder.name not in BEYOND_RULES_PACKS:
+            assert truth["expected_leads"] == truth["expected_triage"] == [], folder.name
+
+
+@needs_templates
+def test_beyond_rules_pack_documents(packs):
+    def text(pack: str, fname: str) -> str:
+        with pdfplumber.open(packs / pack / fname) as pdf:
+            return "\n".join(page.extract_text() or "" for page in pdf.pages)
+
+    assert "GIRO CR HARBOURLINE LOGISTICS INV-1002" in text("third_party_payment", "bank_statement_2026-07.pdf")
+    for fname in ("invoice_INV-1002.pdf", "purchase_order_PO-2002.pdf", "bill_of_lading_BL-3002.pdf"):
+        assert "Seabright Provisions Pte. Ltd." in text("related_party", fname)
+    assert "SEABRIGHT PROVISIONS INV-1002" in text("related_party", "bank_statement_2026-07.pdf")
+    assert "SUPPLIER PAYMENT HARBOURLINE LOGISTICS" in text("round_trip", "bank_statement_2026-06.pdf")
+    assert "GIRO CR CUSTOMER RECEIPTS HARBOURLINE LOGISTICS" in text("round_trip", "bank_statement_2026-07.pdf")
+    july = text("innocent_split", "bank_statement_2026-07.pdf")
+    assert "INV-1002 PART 1" in july and "INV-1002 PART 2" in july
+
+
+def test_new_registry_entity_and_version():
+    reg = registry()
+    assert reg.version == "ACRA-SYN-2026.10.04"
+    assert reg.as_of == date(2026, 10, 4)
+    entity = reg.entities["202205551D"]
+    assert entity.name == "Seabright Provisions Pte. Ltd."
+    assert entity.status == "Live"
+    assert entity.incorporated == date(2022, 2, 14)
+    assert [(o.name, o.role) for o in entity.officers] == [("Daniel Brooks", "Director")]
+
 
 # ---------------------------------------------------------------------------
 # application.json validates as ApplicationManifest

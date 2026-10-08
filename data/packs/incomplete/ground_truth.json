@@ -1,14 +1,18 @@
 {
   "pack": "incomplete",
   "expected_band": "Low",
+  "expected_path": "standard_review",
   "expected_readiness": "Incomplete",
   "expected_check_ids": [],
+  "expected_check_ids_ocr": [],
   "expected_compliance_check_ids": [
     "BANK_COVERAGE",
     "FORM_ENT_US_STATUS",
     "FORM_ENT_TIN_OR_REASON",
     "FORM_ENT_TYPE_SELECTION"
   ],
+  "expected_leads": [],
+  "expected_triage": [],
   "tampers": [],
   "benign": [
     {

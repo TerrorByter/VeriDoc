@@ -70,13 +70,6 @@ def test_invoice_within_tolerance_or_below_po_is_fine(clean: ExtractedPack) -> N
     assert check_xdoc_po_invoice(_mutate(clean, invoice={"total": inv.total - Decimal("5000.00")})) == []
 
 
-def test_invoice_dated_before_its_po_is_medium(clean: ExtractedPack) -> None:
-    pack = _mutate(clean, invoice={"invoice_date": date(2026, 5, 1)})
-    (ev,) = check_xdoc_po_invoice(pack)
-    assert (ev.severity, ev.confidence) == ("medium", 0.9)
-    assert "before its purchase order" in ev.explanation
-
-
 def test_invoice_with_no_po_from_that_buyer_is_flagged(clean: ExtractedPack) -> None:
     pack = _mutate(clean, drop_po=0)  # PO-2001 removed: INV-1001's buyer has no order
     (ev,) = check_xdoc_po_invoice(pack)

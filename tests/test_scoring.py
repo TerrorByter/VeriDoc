@@ -17,13 +17,17 @@ from decimal import Decimal
 from datetime import date
 
 from gldb.schemas import (
+    Address,
+    ApplicationManifest,
     BankStatement,
     CaseResult,
     DocMeta,
     Evidence,
     ExtractedPack,
     FinancialStatementSummary,
+    Guarantor,
     Invoice,
+    NoticeOfAssessment,
     RiskResult,
     ReadinessResult,
 )
@@ -446,9 +450,28 @@ class TestReadinessChecklist:
     def test_not_implemented_items_are_not_checked(self) -> None:
         pack = _empty_pack()
         result = readiness([], pack)
-        for item in result.checklist:
-            if item["id"] in ("NOA_GUARANTORS", "POA_FOREIGNERS"):
-                assert item["status"] == "Not checked in prototype"
+        poa = next(i for i in result.checklist if i["id"] == "POA_FOREIGNERS")
+        assert poa["status"] == "Not checked in prototype"
+
+    @pytest.mark.parametrize(("ids", "status"), [
+        ([], "Missing"), (["S1234567D"], "Incomplete"), (["S1234567D", "G7654321L"], "Provided")])
+    def test_noa_status_follows_the_guarantors_covered(self, ids: list[str], status: str) -> None:
+        address = Address(country="Singapore")
+        guarantors = [Guarantor(name=n, id_number=i, nationality="Singapore", residential_address=address)
+                      for n, i in (("Tan Wei Ming", "S1234567D"), ("Daniel Brooks", "G7654321L"))]
+        manifest = ApplicationManifest(
+            application_id="A", application_date=date(2026, 8, 10), company_name="C", uen="202301234K",
+            country_of_incorporation="Singapore", date_of_incorporation=date(2023, 1, 16),
+            registered_address=address, authorised_signatories=[], guarantors=guarantors)
+        notices = [NoticeOfAssessment(doc_id=f"noa_{i}", name="x", id_number=i, year_of_assessment=2026)
+                   for i in ids]
+        pack = _empty_pack().model_copy(update={"manifest": manifest, "notices_of_assessment": notices})
+        noa = next(i for i in readiness([], pack).checklist if i["id"] == "NOA_GUARANTORS")
+        assert noa["status"] == status
+
+    def test_noa_not_checked_without_application_data(self) -> None:
+        noa = next(i for i in readiness([], _empty_pack()).checklist if i["id"] == "NOA_GUARANTORS")
+        assert noa["status"] == "No guarantors in the application data"
 
     def test_fatca_crs_missing_when_no_cert(self) -> None:
         pack = _empty_pack(entity_self_certs=[], docs=[])

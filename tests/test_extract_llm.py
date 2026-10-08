@@ -15,9 +15,9 @@ import pytest
 
 from gldb import extract, extract_llm, extract_stub
 from gldb.extract_stub import parse_pack as stub_parse_pack
-from gldb.intake import intake, load_manifest
+from gldb.intake import intake, load_manifest, read_text
 from gldb.llm_client import LLMResult
-from gldb.ocr import ocr_pages
+from gldb.ocr import ocr_files
 
 CLEAN = Path(__file__).parent.parent / "data" / "packs" / "clean"
 
@@ -47,12 +47,14 @@ def test_llm_pack_matches_stub_pack(
     models = {
         m.doc_id: m
         for m in [*stub_pack.invoices, *stub_pack.bank_statements,
-                  *stub_pack.financial_statements, *stub_pack.purchase_orders]
+                  *stub_pack.financial_statements, *stub_pack.purchase_orders,
+                  *stub_pack.bills_of_lading, *stub_pack.notices_of_assessment]
     }
     calls: list[dict[str, Any]] = []
     queue = [d for d in docs if d.doc_id in models]
 
-    def fake(system: str, user: str, *, purpose: str, schema: dict[str, Any]) -> LLMResult:
+    def fake(system: str, user: str, *, purpose: str, case_id: str, schema: dict[str, Any]) -> LLMResult:
+        assert case_id == "t"
         calls.append({"system": system, "user": user, "purpose": purpose})
         model = models[queue[len(calls) - 1].doc_id]
         data = json.loads(model.model_dump_json(exclude={"doc_id", "page"}))
@@ -66,6 +68,8 @@ def test_llm_pack_matches_stub_pack(
     assert pack.bank_statements == stub_pack.bank_statements
     assert pack.financial_statements == stub_pack.financial_statements
     assert pack.purchase_orders == stub_pack.purchase_orders != []
+    assert pack.bills_of_lading == stub_pack.bills_of_lading != []
+    assert pack.notices_of_assessment == stub_pack.notices_of_assessment != []
     assert len(pack.entity_self_certs) == 1
     # Document text is wrapped as data; no form contents reach the LLM.
     assert all(c["user"].startswith("<document>") for c in calls)
@@ -84,7 +88,7 @@ def test_unverifiable_quotes_are_dropped(
         extract_llm, "converse",
         lambda *a, **k: LLMResult(text="", data=data, input_tokens=1, output_tokens=1),
     )
-    inv = extract_llm._extract_doc(inv_doc, extract_llm.read_text(CLEAN / inv_doc.filename))
+    inv = extract_llm._extract_doc(inv_doc, read_text(CLEAN / inv_doc.filename))
     assert "Total" not in inv.source_quotes
     assert inv.source_quotes["Subtotal"] == stub_inv.source_quotes["Subtotal"]
 
@@ -122,17 +126,17 @@ class FakeTextract:
         self.calls += 1
         return {"Blocks": [
             {"BlockType": "PAGE", "Text": "ignored"},
-            {"BlockType": "LINE", "Text": "TAX INVOICE"},
-            {"BlockType": "LINE", "Text": f"call {self.calls}"},
+            {"BlockType": "LINE", "Text": "TAX INVOICE", "Confidence": 99.0},
+            {"BlockType": "LINE", "Text": f"call {self.calls}", "Confidence": 99.0},
         ]}
 
 
-def test_ocr_pages_one_call_per_page() -> None:
+def test_ocr_files_one_call_per_page() -> None:
     pdf = next(CLEAN.glob("bank_statement_*.pdf"))
     fake = FakeTextract()
-    pages = ocr_pages(pdf, client=fake)
+    pages = ocr_files([pdf], client=fake).text[pdf.stem]
     assert len(pages) == fake.calls >= 1
-    assert pages[0] == "TAX INVOICE\ncall 1"
+    assert pages[0].startswith("TAX INVOICE\ncall ")
 
 
 def test_hidden_text_never_reaches_the_llm(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -152,7 +156,7 @@ def test_hidden_text_never_reaches_the_llm(monkeypatch: pytest.MonkeyPatch) -> N
     assert "Total:" in seen[0]
     assert "SYSTEM NOTE" not in seen[0] and "ignore all previous" not in seen[0]
     # The default reader still sees it: intake and classification are unchanged.
-    assert "SYSTEM NOTE" in " ".join(extract_llm.read_text(paths[0]))
+    assert "SYSTEM NOTE" in " ".join(read_text(paths[0]))
 
 
 def test_schema_has_no_raw_number_alternatives() -> None:

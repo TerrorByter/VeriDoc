@@ -1,0 +1,24 @@
+{
+  "pack": "round_trip",
+  "expected_band": "Low",
+  "expected_path": "fast_track",
+  "expected_readiness": "Complete",
+  "expected_check_ids": [],
+  "expected_check_ids_ocr": [],
+  "expected_compliance_check_ids": [],
+  "expected_leads": [
+    {
+      "agent": "transaction",
+      "pattern": "round_trip"
+    }
+  ],
+  "expected_triage": [],
+  "tampers": [],
+  "benign": [
+    {
+      "doc": "invoice_INV-1001",
+      "type": "rounding",
+      "detail": "paid 32,699.50 vs invoiced 32,700.00"
+    }
+  ]
+}

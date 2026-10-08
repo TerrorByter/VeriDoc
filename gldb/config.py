@@ -86,7 +86,7 @@ CHECKLIST: list[dict] = [
     {
         "id": "NOA_GUARANTORS",
         "label": "Latest Notice of Assessment by all guarantors",
-        "implemented": False,
+        "implemented": True,
     },
     {
         "id": "POA_FOREIGNERS",
@@ -138,6 +138,53 @@ BAND_LOW_MAX: int = 19
 BAND_MEDIUM_MAX: int = 49
 
 # ---------------------------------------------------------------------------
+# Routing policy (gldb/routing.py). Every Routing records POLICY_VERSION, so a
+# past decision can be replayed against the policy that made it. Bump the
+# version whenever anything in this section changes.
+# ---------------------------------------------------------------------------
+
+POLICY_VERSION: str = "2026-10-04.2"
+
+#: Findings serious enough on their own to force enhanced review (EDD),
+#: whatever the score: sanctions hits, unregistered entities, and deliberate
+#: concealment (hidden text aimed at automated review).
+HARD_FLAG_CHECK_IDS: frozenset[str] = frozenset({
+    "SANCTIONS_MATCH",
+    "REGISTRY_ENTITY_NOT_FOUND",
+    "FORENSIC_HIDDEN_TEXT",
+    "PROMPT_INJECTION",
+})
+
+#: Share of fast-track cases also sent to an analyst for quality assurance
+QA_SAMPLE_PERCENT: int = 5
+
+#: Textract page confidence (0-100) below which a case goes to an analyst
+OCR_MIN_CONFIDENCE: float = 80.0
+
+# ---------------------------------------------------------------------------
+# Reference data and screening (gldb/reference.py, gldb/screening.py)
+# ---------------------------------------------------------------------------
+
+#: Versioned reference data: synthetic ACRA register and sanctions list
+REFERENCE_DIR: str = "data/reference"
+
+#: Name similarity (0-1) at or above which a screened name is a sanctions hit.
+#: Tuned for recall: a false hit costs an analyst a look, a miss is a breach.
+SCREENING_MATCH_THRESHOLD: float = 0.90
+
+#: AI lead checks (gldb.ai_team.checks). A payer at least this similar to an
+#: invoice's buyer is the buyer, at most this similar someone else; between,
+#: code cannot tell and the lead stays unverified.
+PAYER_SAME_THRESHOLD: float = 0.90
+PAYER_DIFFERENT_THRESHOLD: float = 0.60
+#: Bank description channels whose payer can be read: "<CHANNEL> CR <PAYER> <INVOICE NUMBER>"
+PAYMENT_CHANNELS: tuple[str, ...] = ("GIRO", "FAST", "TT", "IBG", "MEPS")
+#: Payers that name no one
+GENERIC_PAYERS: tuple[str, ...] = ("CUSTOMER RECEIPTS", "CASH DEPOSIT", "TRANSFER", "INTEREST", "REVERSAL")
+#: Fewest letters a payer's name has
+PAYER_MIN_LETTERS: int = 2
+
+# ---------------------------------------------------------------------------
 # Environment / runtime settings (with safe defaults)
 # ---------------------------------------------------------------------------
 
@@ -162,14 +209,90 @@ AWS_REGION: str = os.getenv("AWS_REGION", "ap-southeast-1")
 #: Bedrock model ID or cross-region inference profile ARN.
 BEDROCK_MODEL_ID: str = os.getenv("BEDROCK_MODEL_ID", "")
 
-#: Whether to OCR pages that have no text layer (scans) with AWS Textract.
+#: Whether to run the OCR stage: Textract reads every page, so scans can be
+#: parsed and the text layer can be compared with what a reader sees.
 OCR_ENABLED: bool = _bool_env("OCR_ENABLED", False)
 
-#: Whether to run the optional LLM plain-English explanation step.
-EXPLAIN_ENABLED: bool = _bool_env("EXPLAIN_ENABLED", False)
+#: Concurrent Textract calls. Match the account's DetectDocumentText quota
+#: (transactions per second; 1 on a new account).
+OCR_MAX_WORKERS: int = int(os.getenv("OCR_MAX_WORKERS", "1"))
+
+#: Resolution of document pages rendered for the evidence viewer (gldb.viewer)
+VIEWER_DPI: int = 110
+
+#: Whether to screen document text for prompt attacks with a Bedrock
+#: guardrail before any model reads it (gldb.prompt_screen; infra/guardrail.yaml).
+PROMPT_SCREEN_ENABLED: bool = _bool_env("PROMPT_SCREEN_ENABLED", False)
+#: The guardrail and its pinned, immutable version (stack outputs)
+GUARDRAIL_ID: str = os.getenv("GUARDRAIL_ID", "")
+GUARDRAIL_VERSION: str = os.getenv("GUARDRAIL_VERSION", "")
+
+#: Whether to run the AI agent team (gldb.ai_team): a Supervisor and specialists
+#: on Bedrock that investigate each case and write leads for the analyst.
+AGENTS_ENABLED: bool = _bool_env("AGENTS_ENABLED", False)
+#: Bedrock model IDs (cross-region inference profiles) for the Supervisor and
+#: for the specialists it dispatches
+AGENT_SUPERVISOR_MODEL: str = os.getenv("AGENT_SUPERVISOR_MODEL", "global.anthropic.claude-sonnet-4-6")
+AGENT_SPECIALIST_MODEL: str = os.getenv(
+    "AGENT_SPECIALIST_MODEL", "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+)
+#: Whether a model also proposes a route for each case, logged beside the rule
+#: route and never used by it (gldb.ai_team.shadow); needs the AI team. The model
+#: reads structured case data only, so a small one will do.
+SHADOW_SCORE_ENABLED: bool = _bool_env("SHADOW_SCORE_ENABLED", AGENTS_ENABLED)
+SHADOW_SCORER_MODEL: str = os.getenv("SHADOW_SCORER_MODEL", "global.anthropic.claude-haiku-4-5-20251001-v1:0")
+#: Models whose tool calls run in strict mode (comma-separated): the input
+#: always matches the tool's schema, so a closed argument cannot be invented.
+#: Support is per model and one without it rejects the request, so only listed
+#: models get it (Haiku 4.5 has it; Sonnet 4.6 and Amazon Nova do not).
+AGENT_STRICT_TOOL_MODELS: frozenset[str] = frozenset(
+    m.strip() for m in os.getenv(
+        "AGENT_STRICT_TOOL_MODELS", "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+    ).split(",") if m.strip()
+)
+#: Successful evidence tool calls one specialist may make before it is stopped.
+#: Failed calls have a cap of their own, the same size; recording a lead or
+#: drafting a question is never counted.
+AGENT_MAX_STEPS: int = int(os.getenv("AGENT_MAX_STEPS", "10"))
+#: Longest tool result (characters) handed back to a model
+AGENT_MAX_RESULT_CHARS: int = int(os.getenv("AGENT_MAX_RESULT_CHARS", "8000"))
+#: Input plus output tokens the whole team may spend on one case
+AGENT_TOKEN_BUDGET: int = int(os.getenv("AGENT_TOKEN_BUDGET", "400000"))
+#: Output cap per agent call
+AGENT_MAX_TOKENS: int = 2048
+#: Where the agent evaluation report is kept (the API's controls page shows it)
+AGENT_EVAL_PATH: str = os.getenv("AGENT_EVAL_PATH", "logs/agent_eval.json")
 
 #: Path to the append-only officer/pipeline audit log.
 AUDIT_LOG_PATH: str = os.getenv("AUDIT_LOG_PATH", "logs/audit_log.jsonl")
 
-#: Path to the LLM usage log.
-LLM_USAGE_LOG_PATH: str = os.getenv("LLM_USAGE_LOG_PATH", "logs/llm_usage.jsonl")
+#: Path to the usage log: Bedrock tokens and Textract pages per case, never
+#: document content (gldb.usage).
+USAGE_LOG_PATH: str = os.getenv("USAGE_LOG_PATH", "logs/usage.jsonl")
+
+#: Where `python -m gldb.evaluate --save` keeps the latest evaluation report,
+#: which the API's controls page shows (gldb.evaluate).
+EVAL_REPORT_PATH: str = os.getenv("EVAL_REPORT_PATH", "logs/evaluation.json")
+
+# ---------------------------------------------------------------------------
+# Unit prices for cost estimates (gldb.usage). From the AWS Price List API,
+# ap-southeast-1 on-demand list prices, as of PRICES_AS_OF. Estimates only:
+# the bill is the record of what was charged.
+# ---------------------------------------------------------------------------
+
+PRICES_AS_OF: str = "2026-10-04"
+
+#: Textract DetectDocumentText (SyncTextPagesProcessed), first 1M pages/month
+TEXTRACT_USD_PER_PAGE: Decimal = Decimal("0.0015")
+
+#: Bedrock model ID -> (USD per 1M input tokens, USD per 1M output tokens)
+MODEL_USD_PER_M_TOKENS: dict[str, tuple[Decimal, Decimal]] = {
+    "global.anthropic.claude-sonnet-4-6": (Decimal("3"), Decimal("15")),
+    "global.anthropic.claude-haiku-4-5-20251001-v1:0": (Decimal("1"), Decimal("5")),
+    "global.anthropic.claude-opus-4-6-v1": (Decimal("5"), Decimal("25")),
+    "apac.amazon.nova-pro-v1:0": (Decimal("1.08"), Decimal("4.32")),
+}
+
+#: Bedrock Guardrails content filters (incl. prompt attack), per text unit
+#: (up to 1,000 characters)
+GUARDRAIL_USD_PER_TEXT_UNIT: Decimal = Decimal("0.00015")

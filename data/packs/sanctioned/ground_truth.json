@@ -1,0 +1,30 @@
+{
+  "pack": "sanctioned",
+  "expected_band": "Medium",
+  "expected_path": "enhanced_review",
+  "expected_readiness": "Complete",
+  "expected_check_ids": [
+    "SANCTIONS_MATCH"
+  ],
+  "expected_check_ids_ocr": [],
+  "expected_compliance_check_ids": [],
+  "expected_leads": [],
+  "expected_triage": [],
+  "tampers": [
+    {
+      "doc": "invoice_INV-1002",
+      "type": "sanctioned_counterparty",
+      "check_ids": [
+        "SANCTIONS_MATCH"
+      ],
+      "detail": "buyer 'Kestrel Marine Supplies Pte. Ltd.' resembles a sanctions list entry"
+    }
+  ],
+  "benign": [
+    {
+      "doc": "invoice_INV-1001",
+      "type": "rounding",
+      "detail": "paid 32,699.50 vs invoiced 32,700.00"
+    }
+  ]
+}

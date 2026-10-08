@@ -19,7 +19,8 @@ def parse_pack(
     docs: list[DocMeta],
     pdf_paths: list[Path],
     manifest: ApplicationManifest | None,
+    ocr: dict[str, list[str]] | None = None,
 ) -> ExtractedPack:
     """Parse all documents in a pack with the configured extractor."""
     impl = extract_llm if EXTRACTION_MODE == "llm" else extract_stub
-    return impl.parse_pack(case_id, docs, pdf_paths, manifest)
+    return impl.parse_pack(case_id, docs, pdf_paths, manifest, ocr)

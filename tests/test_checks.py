@@ -66,6 +66,7 @@ from gldb.schemas import (
     Guarantor,
     Invoice,
     LineItem,
+    NoticeOfAssessment,
     Signatory,
     TaxResidencyRow,
     Transaction,
@@ -212,6 +213,7 @@ def _make_pack(
     bank_statements=None,
     financial_statements=None,
     entity_self_certs=None,
+    notices_of_assessment=None,
     manifest=None,
     docs=None,
 ) -> ExtractedPack:
@@ -222,6 +224,7 @@ def _make_pack(
         bank_statements=bank_statements or [],
         financial_statements=financial_statements or [],
         entity_self_certs=entity_self_certs or [],
+        notices_of_assessment=notices_of_assessment or [],
         manifest=manifest,
         extraction_mode="stub",
     )
@@ -757,6 +760,24 @@ class TestMetaProducerMismatch:
         evs = check_meta_producer_mismatch(pack)
         assert all(e.document != "fatca_crs_entity" for e in evs)
 
+    def test_documents_from_different_issuers_are_not_compared(self):
+        """A bank statement, a financial statement and an invoice come from different software in any real pack."""
+        docs = [
+            _make_doc_meta("invoice_INV-1"),
+            _make_doc_meta("invoice_INV-2"),
+            _make_doc_meta("bank_statement_2026-06", doc_type="bank_statement", producer="Bank Statement Engine"),
+            _make_doc_meta("fs_summary", doc_type="financial_statements", producer="Canva"),
+        ]
+        assert check_meta_producer_mismatch(_make_pack(docs=docs)) == []
+
+    def test_one_odd_statement_among_the_same_banks_statements_fires(self):
+        docs = [
+            _make_doc_meta(f"bank_statement_2026-0{m}", doc_type="bank_statement", producer="Bank Statement Engine")
+            for m in (3, 4, 5)
+        ] + [_make_doc_meta("bank_statement_2026-06", doc_type="bank_statement", producer="QuickPDF Editor 9.2")]
+        evs = check_meta_producer_mismatch(_make_pack(docs=docs))
+        assert [e.document for e in evs] == ["bank_statement_2026-06"]
+
     def test_evidence_fields(self):
         docs = [
             _make_doc_meta("inv_1"),
@@ -876,6 +897,38 @@ class TestChecklistMissingDoc:
         pack = _make_pack(docs=[])
         for e in check_checklist_missing_doc(pack):
             assert e.category == "completeness"
+
+
+def _guarantor(name: str, id_number: str) -> Guarantor:
+    return Guarantor(name=name, id_number=id_number, nationality="Singapore", residential_address=_make_address())
+
+
+def _noa(name: str, id_number: str) -> NoticeOfAssessment:
+    return NoticeOfAssessment(doc_id=f"noa_{id_number}", name=name, id_number=id_number, year_of_assessment=2026)
+
+
+_TWO_GUARANTORS = [_guarantor("Tan Wei Ming", "S1234567D"), _guarantor("Daniel Brooks", "G7654321L")]
+_REQUIRED_DOCS = [_make_doc_meta("fatca_crs_entity", doc_type="fatca_crs_entity"),
+                  _make_doc_meta("bank_statement_2026-07", doc_type="bank_statement")]
+
+
+class TestNoticeOfAssessmentPerGuarantor:
+    def test_a_notice_for_every_guarantor_raises_nothing(self):
+        pack = _make_pack(docs=_REQUIRED_DOCS, manifest=_make_manifest(guarantors=_TWO_GUARANTORS),
+                          notices_of_assessment=[_noa("Daniel Brooks", "g7654321l"), _noa("Tan Wei Ming", "S1234567D")])
+        assert check_checklist_missing_doc(pack) == []
+
+    def test_each_guarantor_without_a_notice_is_one_finding_with_the_id_masked(self):
+        pack = _make_pack(docs=_REQUIRED_DOCS, manifest=_make_manifest(guarantors=_TWO_GUARANTORS),
+                          notices_of_assessment=[_noa("Tan Wei Ming", "S1234567D")])
+        [ev] = check_checklist_missing_doc(pack)
+        assert (ev.check_id, ev.category, ev.severity) == ("CHECKLIST_MISSING_DOC", "completeness", "high")
+        assert "Daniel Brooks (G****321L)" in ev.explanation and "G7654321L" not in ev.explanation
+
+    def test_a_notice_for_someone_else_does_not_count(self):
+        pack = _make_pack(docs=_REQUIRED_DOCS, manifest=_make_manifest(guarantors=_TWO_GUARANTORS[:1]),
+                          notices_of_assessment=[_noa("Tan Wei Ming", "S7654321A")])
+        assert ["Tan Wei Ming" in e.explanation for e in check_checklist_missing_doc(pack)] == [True]
 
 
 # ===========================================================================
@@ -1548,7 +1601,7 @@ class TestNormaliseName:
 class TestAgents:
     def test_every_check_belongs_to_exactly_one_agent(self):
         checks = [c for agent in AGENTS for c in agent.checks]
-        assert len(checks) == len(set(checks)) == 28
+        assert len(checks) == len(set(checks)) == 36
 
     def test_evidence_is_tagged_with_its_agent_and_reports_match(self):
         pack = _make_pack(

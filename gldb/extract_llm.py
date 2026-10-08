@@ -2,7 +2,8 @@
 gldb/extract_llm.py
 -------------------
 LLM extraction (AWS Bedrock via gldb.llm_client) for invoices, bank
-statements and financial statement summaries.
+statements, financial statement summaries, purchase orders, bills of lading
+and Notices of Assessment.
 
 Rules:
 - Document text is untrusted data: hidden text (white, tiny, off-page) is
@@ -18,22 +19,24 @@ Rules:
 
 from __future__ import annotations
 
-import re
+import json
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
 from gldb.extract_stub import parse_entity_self_cert
-from gldb.intake import read_text
-from gldb.llm_client import converse
+from gldb.intake import contains_quote, model_view
+from gldb.llm_client import converse, prompt_version
 from gldb.schemas import (
     ApplicationManifest,
     BankStatement,
+    BillOfLading,
     DocMeta,
     ExtractedPack,
     FinancialStatementSummary,
     Invoice,
+    NoticeOfAssessment,
     PurchaseOrder,
 )
 
@@ -47,7 +50,8 @@ _SYSTEM = (
     "YYYY-MM-DD. In source_quotes, give short verbatim excerpts of the "
     "document that support the figures (Invoice: keys 'Subtotal', "
     "'GST (9%)', 'Total'; purchase order: key 'Total'; bank statement: key = transaction description, "
-    "value = the transaction line)."
+    "value = the transaction line; bill of lading: key = 'Quantity ' + goods description, "
+    "value = the goods line)."
 )
 
 _MODELS: dict[str, type[BaseModel]] = {
@@ -55,6 +59,8 @@ _MODELS: dict[str, type[BaseModel]] = {
     "bank_statement": BankStatement,
     "financial_statements": FinancialStatementSummary,
     "purchase_order": PurchaseOrder,
+    "bill_of_lading": BillOfLading,
+    "notice_of_assessment": NoticeOfAssessment,
 }
 
 #: Fields set by the pipeline, not by the model.
@@ -91,22 +97,25 @@ def _schema(model: type[BaseModel]) -> dict[str, Any]:
     return _decimals_as_strings(schema)
 
 
-def _norm(s: str) -> str:
-    return re.sub(r"\s+", " ", s).strip()
+#: Content hash of everything the model is told: the system prompt and each
+#: output schema. Any wording or schema change gives a new version.
+PROMPT_VERSION = prompt_version(
+    _SYSTEM, json.dumps({t: _schema(m) for t, m in _MODELS.items()}, sort_keys=True),
+)
 
 
 def _verified_quotes(quotes: dict[str, str], pages: list[str]) -> dict[str, str]:
-    haystack = _norm(" ".join(pages))
-    return {k: v for k, v in quotes.items() if _norm(v) in haystack}
+    return {k: v for k, v in quotes.items() if contains_quote(pages, v)}
 
 
-def _extract_doc(doc: DocMeta, pages: list[str]) -> BaseModel:
+def _extract_doc(doc: DocMeta, pages: list[str], case_id: str = "") -> BaseModel:
     model = _MODELS[doc.doc_type]
     body = "\n\n".join(f"[page {i}]\n{t}" for i, t in enumerate(pages, start=1))
     result = converse(
         _SYSTEM,
         f"<document>\n{body}\n</document>",
         purpose=f"extract_{doc.doc_type}",
+        case_id=case_id,
         schema=_schema(model),
     )
     data = dict(result.data or {})
@@ -122,15 +131,12 @@ def parse_pack(
     docs: list[DocMeta],
     pdf_paths: list[Path],
     manifest: ApplicationManifest | None,
+    ocr: dict[str, list[str]] | None = None,
 ) -> ExtractedPack:
     """LLM counterpart of extract_stub.parse_pack (same signature)."""
+    ocr = ocr or {}
     path_map = {p.stem: p for p in pdf_paths}
-    extracted: dict[str, list[Any]] = {
-        "invoice": [],
-        "bank_statement": [],
-        "financial_statements": [],
-        "purchase_order": [],
-    }
+    extracted: dict[str, list[Any]] = {doc_type: [] for doc_type in _MODELS}
     entity_self_certs = []
 
     for doc in docs:
@@ -138,7 +144,8 @@ def parse_pack(
         if path is None:
             continue
         if doc.doc_type in _MODELS:
-            extracted[doc.doc_type].append(_extract_doc(doc, read_text(path, visible_only=True)))
+            pages = model_view(path, ocr.get(doc.doc_id))
+            extracted[doc.doc_type].append(_extract_doc(doc, pages, case_id))
         elif doc.doc_type == "fatca_crs_entity":
             entity_self_certs.append(parse_entity_self_cert(doc.doc_id, path))
 
@@ -149,8 +156,11 @@ def parse_pack(
         bank_statements=extracted["bank_statement"],
         financial_statements=extracted["financial_statements"],
         purchase_orders=extracted["purchase_order"],
+        bills_of_lading=extracted["bill_of_lading"],
         entity_self_certs=entity_self_certs,
+        notices_of_assessment=extracted["notice_of_assessment"],
         manifest=manifest,
         extraction_mode="llm",
         paths=path_map,
+        ocr=ocr,
     )

@@ -8,6 +8,7 @@ Does NOT call AWS. Safe to run in CI without any env vars set.
 
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
@@ -18,6 +19,7 @@ from gldb.config import money
 from gldb.privacy import mask_id
 from gldb.schemas import (
     Address,
+    AgentTeam,
     ApplicationManifest,
     AuditEvent,
     BankStatement,
@@ -34,6 +36,7 @@ from gldb.schemas import (
     ReadinessResult,
     RiskResult,
     Signatory,
+    StageReport,
     TaxResidencyRow,
     Transaction,
 )
@@ -321,8 +324,30 @@ def _make_case_result() -> CaseResult:
         pack=_make_pack(),
         evidence=[_make_evidence()],
         risk=_make_risk(),
-        summary=None,
+        ai_team=None,
     )
+
+
+def test_old_result_with_review_and_semantic_review_stage_still_loads():
+    """Results stored before the AI team replaced semantic review still load:
+    the old top-level "review" is ignored and the retired stage is dropped."""
+    stored = _make_case_result().model_copy(update={
+        "stages": [StageReport(stage_id="score", status="ran", duration_ms=2)],
+    }).model_dump(mode="json")
+    stored["review"] = {"observations": [], "questions": [], "source": "template", "rejected": 0}
+    stored["stages"].append({"stage_id": "semantic_review", "status": "ran", "duration_ms": 1, "version": ""})
+    loaded = CaseResult.model_validate_json(json.dumps(stored))
+    assert loaded.ai_team is None and not hasattr(loaded, "review")
+    assert [s.stage_id for s in loaded.stages] == ["score"]
+
+
+def test_an_unknown_stage_is_not_dropped_as_retired():
+    """Only the named retired stages are dropped; any other unknown stage_id
+    still fails validation rather than vanishing from the record."""
+    stored = _make_case_result().model_dump(mode="json")
+    stored["stages"] = [{"stage_id": "no_such_stage", "status": "ran", "duration_ms": 1, "version": ""}]
+    with pytest.raises(ValidationError):
+        CaseResult.model_validate_json(json.dumps(stored))
 
 
 def test_line_item_roundtrip():
@@ -526,3 +551,19 @@ def test_entity_self_cert_in_pack_roundtrip():
     assert restored.entity_self_certs[0].legal_name == "Acme Pte Ltd"
     assert restored.manifest is not None
     assert restored.manifest.uen == "202312345A"
+
+
+# ---------------------------------------------------------------------------
+# AI Team records
+# ---------------------------------------------------------------------------
+
+
+def test_agent_team_trace_is_never_serialised():
+    team = AgentTeam(status="ran", trace={"R01": "PAGE TEXT"})
+    json_str = team.model_dump_json()
+    assert "PAGE TEXT" not in json_str
+
+
+def test_stage_report_accepts_failed():
+    report = StageReport(stage_id="agents", status="failed", duration_ms=100)
+    assert report.status == "failed"

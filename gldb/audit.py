@@ -56,17 +56,11 @@ def log_event(event: AuditEvent) -> None:
         fh.write(line)
 
 
-def read_events(case_id: str) -> list[AuditEvent]:
-    """Return all AuditEvents from the log that match *case_id*.
+def read_all_events() -> list[AuditEvent]:
+    """Return every AuditEvent in the log, in file order.
 
     Reads the file at the current AUDIT_LOG_PATH.  Lines that fail to parse
     are silently skipped so a corrupt line does not break the reader.
-
-    Args:
-        case_id: Filter — only events with this case_id are returned.
-
-    Returns:
-        List of AuditEvent objects in file order.
     """
     path = _log_path()
     if not path.exists():
@@ -79,11 +73,13 @@ def read_events(case_id: str) -> list[AuditEvent]:
             if not line:
                 continue
             try:
-                data = json.loads(line)
-                ev = AuditEvent.model_validate(data)
-                if ev.case_id == case_id:
-                    events.append(ev)
+                events.append(AuditEvent.model_validate(json.loads(line)))
             except Exception:  # noqa: BLE001
                 continue  # skip malformed lines without crashing
 
     return events
+
+
+def read_events(case_id: str) -> list[AuditEvent]:
+    """Return all AuditEvents from the log that match *case_id*, in file order."""
+    return [ev for ev in read_all_events() if ev.case_id == case_id]

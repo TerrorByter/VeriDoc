@@ -45,7 +45,7 @@ Edit `.env`. `.env` is gitignored and must never be committed. Each teammate nee
 1. Install the CLI (`brew install awscli`) and save an IAM user's keys as a profile: `aws configure --profile gldb` (region `ap-southeast-1`). The keys live in `~/.aws/credentials`, never in the project.
 2. The IAM user needs `bedrock:InvokeModel` and `textract:DetectDocumentText` (Resource `*`). Textract also has to be activated once for the account.
 3. In `.env`, set `AWS_PROFILE=gldb`, `AWS_REGION` and `BEDROCK_MODEL_ID` (a model ID, inference profile ID or inference profile ARN from the Bedrock console).
-4. Turn features on: `EXTRACTION_MODE=llm` (Bedrock extraction), `OCR_ENABLED=true` (Textract for scans), `EXPLAIN_ENABLED=true` (LLM summary). Restart the backend after editing `.env`.
+4. Turn features on: `EXTRACTION_MODE=llm` (Bedrock extraction), `OCR_ENABLED=true` (Textract for scans), `AGENTS_ENABLED=true` (AI agent team on Bedrock). Restart the backend after editing `.env`.
 
 Check the connection with `aws sts get-caller-identity --profile gldb`, then the live tests below.
 
@@ -55,7 +55,7 @@ Check the connection with `aws sts get-caller-identity --profile gldb`, then the
 pytest
 ```
 
-Tests do not call AWS by default. To run the live AWS smoke tests (one Bedrock call, one forced-schema call, one Textract call):
+Tests do not call AWS by default. To run the live AWS smoke tests (one Bedrock call, one forced-schema call, one Textract call, and one full AI team run on the `third_party_payment` pack, about US$0.10-0.30):
 
 ```bash
 RUN_LIVE=1 pytest tests/test_live_aws.py -v
@@ -66,6 +66,15 @@ To score the extractor against the ground truth of every pack in `data/packs/`:
 ```bash
 python -m gldb.evaluate                        # deterministic parser
 EXTRACTION_MODE=llm python -m gldb.evaluate    # Bedrock (about 30 small calls)
+python -m gldb.evaluate --save                 # also keep the report for the UI's controls page
+```
+
+To score the AI team (champion vs challenger) on the same packs:
+
+```bash
+python -m gldb.agent_eval [--supervisor M] [--specialist M] [--save]
+# One model setup per run (defaults: the configured models). Calls Bedrock whatever
+# AGENTS_ENABLED says; about US$1-3 per run. Run it again with other models for the challenger.
 ```
 
 ### 6. Run the app
@@ -74,6 +83,14 @@ EXTRACTION_MODE=llm python -m gldb.evaluate    # Bedrock (about 30 small calls)
 uvicorn gldb.api:app --reload          # backend on :8000
 cd frontend && npm install && npm run dev   # UI on :5173 (proxies /api)
 ```
+
+The UI has four screens: **Cases** (every case, newest first), **New case**
+(demo packs or an upload), a **live run** that shows each pipeline stage as it
+runs, and the **case workspace**, where each of the 11 stages has its own page
+(the arrow keys step through them) beside the document viewer. **Model &
+controls** shows the saved evaluation, capabilities, signal library and spend.
+Starting a case returns at once (202) and the pipeline runs in the background;
+the browser polls `GET /api/cases/{id}/progress`.
 
 ## Project structure
 
@@ -84,7 +101,7 @@ gldb/               Core package
   data_factory.py   Generates synthetic PDF document packs
   intake.py         File validation, hashing, metadata, text extraction, classification
   extract_stub.py   Deterministic parser for generated document layout
-  llm_client.py     The only AWS Bedrock wrapper (Converse API, temperature 0)
+  llm_client.py     The only AWS Bedrock wrapper (Converse API; extraction at temperature 0, agent turns send none)
   extract_llm.py    LLM-based field extraction
   extract.py        Dispatcher: routes to stub or LLM extractor
   checks.py         Deterministic checks grouped into agents; run_agents() merges Evidence
@@ -92,8 +109,15 @@ gldb/               Core package
   scoring.py        Rule-based risk score (LLMs never touch the score)
   audit.py          Append-only JSONL audit log
   pipeline.py       run(case_id, file_paths) -> CaseResult
-  explain.py        Optional LLM plain-English summary with citation check
+  ai_team/          AI agent team: a Supervisor and four specialists on Bedrock
+    tools.py        The tools the agents call, and the ledger of what they received
+    loop.py         One agent's tool-use loop (step and token limits)
+    verify.py       Deterministic gate: withholds leads and memo points that are ungrounded or give a verdict
+    prompts.py      Supervisor and specialist prompts, with their versions
+    team.py         run_team(): plan, fan out, verify leads, reconcile into a memo
+  agent_eval.py     Champion vs challenger evaluation of the AI team on the packs
   api.py            FastAPI app used by the frontend
+  jobs.py           Progress of background pipeline runs, for the live run screen
   ocr.py            Textract OCR for scanned PDFs
 frontend/           React + TypeScript (Vite) UI
 data/
@@ -103,7 +127,7 @@ data/
   cases/            Processed case outputs (gitignored)
 logs/
   audit_log.jsonl   Append-only officer action + pipeline log (gitignored)
-  llm_usage.jsonl   LLM call log (gitignored)
+  usage.jsonl       Bedrock tokens and Textract pages per case (gitignored)
 tests/              pytest suite
 ```
 

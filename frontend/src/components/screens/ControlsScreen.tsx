@@ -1,0 +1,294 @@
+import { useEffect, useState } from "react";
+import { getControls } from "../../api";
+import { duration, PATH_LABEL, usd, when } from "../../catalogue";
+import type { AgentEvalRow, Capability, Controls, EvaluationReport, ReviewPath, SignalFamily } from "../../types";
+import { Metric, Section } from "../stages/common";
+import { Empty, ErrorNote, Pill } from "../ui";
+
+const CAPABILITY_LABEL: Record<Capability["name"], string> = {
+  ocr: "OCR",
+  prompt_screen: "Prompt attack screen",
+  llm_extraction: "Model extraction",
+  ai_team: "AI agent team",
+  shadow_score: "Shadow case scorer",
+};
+
+const FAMILY_LABEL: Record<SignalFamily, string> = {
+  DOC: "Document integrity and forensics",
+  FIN: "Financial arithmetic",
+  TXN: "Transaction consistency",
+  REG: "Registry and identity",
+  ENT: "Entity relationships",
+  TEMP: "Dates and sequence",
+  COMP: "Compliance and completeness",
+  SYS: "System health",
+};
+
+const ACRONYMS = /\b(uen|po|ocr|bl)\b/gi;
+const sentence = (s: string) =>
+  s.replace(/_/g, " ").replace(ACRONYMS, (m) => m.toUpperCase()).replace(/^./, (c) => c.toUpperCase());
+const pct = (x: number | null) => (x === null ? "-" : x.toFixed(2));
+const pathLabel = (p: string) => PATH_LABEL[p as ReviewPath] ?? p;
+
+function Evaluation({ report }: { report: EvaluationReport }) {
+  const run = report.attacks.filter((a) => a.detected !== null);
+  const caught = run.filter((a) => a.detected).length;
+  return (
+    <>
+      <div className="metrics wide">
+        <Metric label="Precision" value={pct(report.precision)} note="Findings that were real" />
+        <Metric label="Recall" value={pct(report.recall)} note="Planted risks that were found" />
+        <Metric label="Attacks caught" value={`${caught} of ${run.length}`} note={`${report.attacks.length - run.length} not run`} />
+        <Metric label="Evidence coverage" value={pct(report.evidence_coverage)} note="Findings traceable to a page" />
+        <Metric label="Routing accuracy" value={pct(report.routing_accuracy)} note={`${report.packs.length} packs`} />
+      </div>
+      <p className="muted small">
+        Last run {when(report.evaluated_at)}, extraction {report.extraction_mode || "unknown"}, with{" "}
+        {Object.entries(report.capabilities).filter(([, on]) => on).map(([c]) => CAPABILITY_LABEL[c as Capability["name"]] ?? c).join(" and ") || "no optional capabilities"}.
+      </p>
+
+      <Section title="Attack coverage" aside="Each planted tampering and the signal that caught it">
+        <div className="table-wrap">
+          <table className="data">
+            <thead>
+              <tr><th scope="col">Attack</th><th scope="col">Pack</th><th scope="col">Caught by</th><th scope="col">Result</th></tr>
+            </thead>
+            <tbody>
+              {report.attacks.map((a) => (
+                <tr key={`${a.pack}-${a.attack}`}>
+                  <td>{sentence(a.attack)}<span className="muted small block">{a.detail}</span></td>
+                  <td className="mono">{a.pack}</td>
+                  <td className="mono">{a.signals.join(", ") || "—"}</td>
+                  <td>
+                    {a.detected === null ? <Pill tone="neutral">Not run</Pill> : a.detected ? <Pill tone="low">Caught</Pill> : <Pill tone="crit">Missed</Pill>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Section>
+
+      <Section title="Test packs" aside="Expected outcome against what the pipeline did">
+        <div className="table-wrap">
+          <table className="data">
+            <thead>
+              <tr><th scope="col">Pack</th><th scope="col">Risk band</th><th scope="col">Route</th><th scope="col">Readiness</th><th scope="col">Result</th></tr>
+            </thead>
+            <tbody>
+              {report.packs.map((p) => {
+                const pass = !p.error && p.band === p.expected_band && p.path === p.expected_path
+                  && p.readiness === p.expected_readiness && !p.missed.length && !p.unexpected.length;
+                return (
+                  <tr key={p.pack}>
+                    <td className="mono">{p.pack}</td>
+                    <td>{p.band}{p.band !== p.expected_band && <span className="muted"> (expected {p.expected_band})</span>}</td>
+                    <td>{pathLabel(p.path)}{p.path !== p.expected_path && <span className="muted"> (expected {pathLabel(p.expected_path)})</span>}</td>
+                    <td>{p.readiness}</td>
+                    <td>{pass ? <Pill tone="low">As expected</Pill> : <Pill tone="crit">{p.error ? "Error" : "Differs"}</Pill>}</td>
+                  </tr>
+                );
+              })}
+              {report.skipped.map((name) => (
+                <tr key={name}>
+                  <td className="mono">{name}</td>
+                  <td colSpan={3} className="muted">Skipped: needs a capability that was off</td>
+                  <td><Pill tone="neutral">Skipped</Pill></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Section>
+    </>
+  );
+}
+
+/** One row per model setup, so a challenger is read against the champion */
+function AgentEvaluation({ rows }: { rows: AgentEvalRow[] }) {
+  return (
+    <div className="table-wrap">
+      <table className="data">
+        <thead>
+          <tr>
+            <th scope="col">Setup</th>
+            <th scope="col" className="num" title="Planted patterns the agents reported as supported">Supported recall</th>
+            <th scope="col" className="num" title="Planted patterns code verified">Verified recall</th>
+            <th scope="col" className="num">Triage accuracy</th>
+            <th scope="col" className="num" title="Supported leads matching nothing planted, before code checks">Noise</th>
+            <th scope="col" className="num" title="Leads code verified that match nothing planted: the false flags an analyst would get">Flag noise</th>
+            <th scope="col" className="num">Withheld rate</th>
+            <th scope="col" className="num" title="Planted frauds the shadow scorer or the log-only gate would send to fast track">Miss rate</th>
+            <th scope="col" className="num" title="Packs the log-only gate would send to fast track">Auto-clear rate</th>
+            <th scope="col" className="num" title="Planted frauds the shadow scorer alone would send to fast track">Scorer miss rate</th>
+            <th scope="col" className="num" title="How often the shadow scorer's route is the rule route">Scorer agrees with rules</th>
+            <th scope="col" className="num" title="How often the shadow scorer's route is the pack's expected route">Scorer matches expected</th>
+            <th scope="col" className="num">Cost per case</th>
+            <th scope="col" className="num">Time per case</th>
+            <th scope="col">Evaluated</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={`${r.supervisor}-${r.specialist}`}>
+              <td>
+                <span className="mono">{r.supervisor}</span>
+                <span className="muted small block">+ <span className="mono">{r.specialist}</span></span>
+                {r.shadow && <span className="muted small block">scorer <span className="mono">{r.shadow}</span></span>}
+              </td>
+              <td className="num mono">{pct(r.supported_recall)}</td>
+              <td className="num mono">{pct(r.verified_recall)}</td>
+              <td className="num mono">{pct(r.triage_accuracy)}</td>
+              <td className="num mono">{r.noise}</td>
+              <td className="num mono">{r.flag_noise ?? "-"}</td>
+              <td className="num mono">{pct(r.withheld_rate)}</td>
+              <td className="num mono">{pct(r.miss_rate)}</td>
+              <td className="num mono">{pct(r.auto_clear_rate)}</td>
+              <td className="num mono">{pct(r.shadow_miss_rate)}</td>
+              <td className="num mono">{pct(r.shadow_champion_agreement)}</td>
+              <td className="num mono">{pct(r.shadow_truth_agreement)}</td>
+              <td className="num mono">{usd(r.usd_per_case)}</td>
+              <td className="num mono">{duration(Math.round(r.seconds_per_case * 1000))}</td>
+              <td className="nowrap muted">{when(r.evaluated_at)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function ControlsScreen() {
+  const [controls, setControls] = useState<Controls | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getControls().then(setControls).catch((e: Error) => setError(e.message));
+  }, []);
+
+  if (!controls) {
+    return (
+      <main className="page">
+        {error ? <ErrorNote>Could not load controls: {error}</ErrorNote> : <div className="skeleton block-skeleton" aria-busy="true" />}
+      </main>
+    );
+  }
+
+  const families = Object.entries(
+    controls.signals.reduce<Record<string, typeof controls.signals>>(
+      (acc, s) => ({ ...acc, [s.family]: [...(acc[s.family] ?? []), s] }), {},
+    ),
+  );
+  const biggest = Math.max(...families.map(([, list]) => list.length));
+
+  return (
+    <main className="page">
+      <div className="page-head">
+        <div>
+          <h1>Model and controls</h1>
+          <p className="muted">How we know the pipeline works, what it runs with, and what it costs.</p>
+        </div>
+        <div className="chips">
+          <Pill tone="neutral">Policy <span className="mono">{controls.policy_version}</span></Pill>
+          <Pill tone="neutral">Rules <span className="mono">{controls.rule_version}</span></Pill>
+        </div>
+      </div>
+
+      <Section title="Evaluation">
+        {controls.evaluation ? (
+          <Evaluation report={controls.evaluation} />
+        ) : (
+          <Empty title="No saved evaluation yet">
+            Run the evaluation on the server with <code>--save</code> to score the pipeline against every test pack.
+          </Empty>
+        )}
+      </Section>
+
+      <Section title="Agent evaluation" aside="The AI team on every test pack, one row per model setup">
+        {controls.agent_eval.length ? (
+          <AgentEvaluation rows={controls.agent_eval} />
+        ) : (
+          <Empty title="No agent evaluation yet">
+            Run <code>python -m gldb.agent_eval --save</code> on the server to score the AI team against every test pack.
+          </Empty>
+        )}
+      </Section>
+
+      <div className="two-col">
+        <Section title="Capabilities on this server">
+          <ul className="capabilities">
+            {controls.capabilities.map((c) => (
+              <li key={c.name}>
+                <span>
+                  <strong>{CAPABILITY_LABEL[c.name]}</strong>
+                  <span className="muted small block mono">{c.detail}</span>
+                </span>
+                <Pill tone={c.enabled ? "low" : "neutral"}>{c.enabled ? "On" : "Off"}</Pill>
+              </li>
+            ))}
+          </ul>
+        </Section>
+
+        <Section title="AWS spend" aside="Estimate from list prices; the bill is the record">
+          <div className="metrics">
+            <Metric label="Per case" value={usd(controls.cost.usd_per_case)} />
+            <Metric label="Cases metered" value={controls.cost.cases} />
+            <Metric label="Total" value={usd(controls.cost.usd_total, 2)} />
+          </div>
+          <dl className="facts">
+            {Object.entries(controls.reference_data).map(([k, v]) => (
+              <div key={k}><dt>{sentence(k)} data</dt><dd className="mono">{v}</dd></div>
+            ))}
+          </dl>
+        </Section>
+      </div>
+
+      <Section title="Signal library" aside={`${controls.signals.length} signals, each mapped to one check`}>
+        <div className="families">
+          {families.map(([family, list]) => (
+            <details key={family} className="family">
+              <summary>
+                <span className="mono family-code">{family}</span>
+                <span>{FAMILY_LABEL[family as SignalFamily]}</span>
+                <span className="meter" aria-hidden="true"><i className="brand" style={{ width: `${(list.length / biggest) * 100}%` }} /></span>
+                <span className="mono">{list.length}</span>
+              </summary>
+              <table className="data">
+                <tbody>
+                  {list.map((s) => (
+                    <tr key={s.signal_id}>
+                      <td className="mono nowrap">{s.signal_id}</td>
+                      <td>{s.name}<span className="muted small block">{s.remedy}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+          ))}
+        </div>
+      </Section>
+
+      {controls.feedback.length > 0 && (
+        <Section title="Analyst overrides" aside="How often each check's flags are dismissed">
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr><th scope="col">Check</th><th scope="col" className="num">Confirmed</th><th scope="col" className="num">Dismissed</th><th scope="col" className="num">Dismiss rate</th></tr>
+              </thead>
+              <tbody>
+                {controls.feedback.map((f) => (
+                  <tr key={f.check_id}>
+                    <td className="mono">{f.check_id}</td>
+                    <td className="num">{f.confirmed}</td>
+                    <td className="num">{f.dismissed}</td>
+                    <td className="num mono">{Math.round(f.dismiss_rate * 100)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Section>
+      )}
+    </main>
+  );
+}

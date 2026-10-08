@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 
 from gldb import llm_client
+from gldb.config import AGENT_MAX_TOKENS
 
 
 class FakeBedrock:
@@ -22,8 +23,10 @@ class FakeBedrock:
 
     def converse(self, **request: Any) -> dict[str, Any]:
         self.requests.append(request)
+        tool_use = any("toolUse" in block for block in self.content)
         return {
             "output": {"message": {"content": self.content}},
+            "stopReason": "tool_use" if tool_use else "end_turn",
             "usage": {"inputTokens": 11, "outputTokens": 7},
         }
 
@@ -31,7 +34,7 @@ class FakeBedrock:
 @pytest.fixture(autouse=True)
 def _model_and_log(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
     monkeypatch.setattr(llm_client, "BEDROCK_MODEL_ID", "test-model")
-    monkeypatch.setenv("LLM_USAGE_LOG_PATH", str(tmp_path / "usage.jsonl"))
+    monkeypatch.setenv("USAGE_LOG_PATH", str(tmp_path / "usage.jsonl"))
 
 
 def test_text_call_uses_temperature_zero_and_logs_tokens_only(tmp_path: Any) -> None:
@@ -62,3 +65,57 @@ def test_missing_model_id_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(llm_client, "BEDROCK_MODEL_ID", "")
     with pytest.raises(RuntimeError):
         llm_client.converse("s", "u", purpose="t", client=FakeBedrock([]))
+
+
+def test_prompt_version_is_a_content_hash() -> None:
+    v = llm_client.prompt_version("system prompt", "schema")
+    assert len(v) == 12 and v == llm_client.prompt_version("system prompt", "schema")
+    assert v != llm_client.prompt_version("system prompt.", "schema")
+
+
+def test_converse_turn_is_portable_and_metered(tmp_path: Any) -> None:
+    fake = FakeBedrock([{"toolUse": {"toolUseId": "t1", "name": "get_chain", "input": {"invoice_number": "INV-1002"}}}])
+    tools = [llm_client.tool_spec("get_chain", "d", {"type": "object"})]
+    turn = llm_client.converse_turn("m-1", "sys", [{"role": "user", "content": [{"text": "go"}]}],
+                                    tools=tools, purpose="ai_team_transaction", case_id="C1", client=fake)
+    req = fake.requests[0]
+    assert req["modelId"] == "m-1" and req["inferenceConfig"] == {"maxTokens": AGENT_MAX_TOKENS}
+    assert "toolChoice" not in req["toolConfig"] and "temperature" not in req["inferenceConfig"]
+    assert turn.tool_uses == [{"toolUseId": "t1", "name": "get_chain", "input": {"invoice_number": "INV-1002"}}]
+    assert turn.stop_reason == "tool_use"
+    record = json.loads((tmp_path / "usage.jsonl").read_text())
+    assert record["purpose"] == "ai_team_transaction" and record["model_id"] == "m-1" and record["case_id"] == "C1"
+
+
+def test_tool_spec_wraps_the_schema() -> None:
+    assert llm_client.tool_spec("n", "d", {"type": "object"}) == {
+        "toolSpec": {"name": "n", "description": "d", "inputSchema": {"json": {"type": "object"}}}
+    }
+
+
+def test_tool_spec_asks_for_strict_use_only_when_told() -> None:
+    assert llm_client.tool_spec("n", "d", {"type": "object"}, strict=True)["toolSpec"]["strict"] is True
+    assert "strict" not in llm_client.tool_spec("n", "d", {"type": "object"}, strict=False)["toolSpec"]
+
+
+def test_turn_exposes_text_and_token_counts() -> None:
+    fake = FakeBedrock([{"text": "all "}, {"text": "clear"}])
+    turn = llm_client.converse_turn("m-1", "sys", [], tools=[llm_client.tool_spec("n", "d", {"type": "object"})],
+                                    purpose="ai_team_supervisor", case_id="C1", client=fake)
+    assert turn.text == "all clear" and turn.tool_uses == [] and turn.stop_reason == "end_turn"
+    assert (turn.input_tokens, turn.output_tokens) == (11, 7)
+    assert turn.content == [{"text": "all "}, {"text": "clear"}]
+
+
+def test_default_client_retries_adaptively(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    monkeypatch.setattr(llm_client.boto3, "client", lambda *args, **kwargs: calls.append((args, kwargs)) or "c")
+    llm_client._default_client.cache_clear()
+    try:
+        assert llm_client._default_client() == "c" and llm_client._default_client() == "c"
+    finally:
+        llm_client._default_client.cache_clear()
+
+    ((args, kwargs),) = calls  # built once, then cached
+    assert args == ("bedrock-runtime",) and kwargs["region_name"] == llm_client.AWS_REGION
+    assert kwargs["config"].retries == {"mode": "adaptive", "max_attempts": 8}

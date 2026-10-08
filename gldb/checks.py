@@ -36,18 +36,35 @@ from gldb.config import (
     MATCH_WINDOW_DAYS,
     META_MOD_GAP_HOURS,
     REQUIRED_BANK_MONTHS,
+    SCREENING_MATCH_THRESHOLD,
     START_UP_MAX_MONTHS,
     TOLERANCE_SGD,
     money,
 )
-from gldb.forensics import hidden_text, incremental_updates, mixed_font_tokens
+from gldb.forensics import (
+    amount_mismatches,
+    hidden_text,
+    incremental_updates,
+    mixed_font_tokens,
+)
+from gldb.intake import read_text
+from gldb.ordering import TradeDates, breaks, violations
 from gldb.privacy import mask_id
+from gldb.reference import registry, watchlist
+from gldb.screening import screen, screening_key, similarity
 from gldb.schemas import (
     AgentReport,
     ApplicationManifest,
+    DocMeta,
     EntitySelfCert,
     Evidence,
+    EvidenceCategory,
     ExtractedPack,
+    Guarantor,
+    Invoice,
+    PurchaseOrder,
+    Severity,
+    TimelineEvent,
 )
 
 # ---------------------------------------------------------------------------
@@ -56,7 +73,7 @@ from gldb.schemas import (
 
 FORM_DOC_TYPES = {"fatca_crs_entity", "fatca_crs_individual"}
 
-_EVIDENCE_DOC_PLACEHOLDER = "pack"   # for cross-document evidence with no single source
+PACK_DOC = "pack"   # for cross-document evidence with no single source
 
 
 # ---------------------------------------------------------------------------
@@ -65,8 +82,8 @@ _EVIDENCE_DOC_PLACEHOLDER = "pack"   # for cross-document evidence with no singl
 
 def _ev(
     check_id: str,
-    category: str,
-    severity: str,
+    category: EvidenceCategory,
+    severity: Severity,
     document: str,
     page: int,
     confidence: float,
@@ -79,8 +96,8 @@ def _ev(
     return Evidence(
         evidence_id="",   # assigned later by run_agents
         check_id=check_id,
-        category=category,          # type: ignore[arg-type]
-        severity=severity,          # type: ignore[arg-type]
+        category=category,
+        severity=severity,
         document=document,
         page=page,
         quote=quote,
@@ -116,7 +133,7 @@ def normalise_name(s: str) -> str:
     return " ".join(s.split())
 
 
-def _manifest_missing_evidence(document: str = _EVIDENCE_DOC_PLACEHOLDER) -> Evidence:
+def _manifest_missing_evidence(document: str = PACK_DOC) -> Evidence:
     return _ev(
         "MANIFEST_MISSING",
         "completeness",
@@ -228,7 +245,7 @@ def check_bank_running_bal(pack: ExtractedPack) -> list[Evidence]:
                 f"the running total SGD {running}.",
                 expected=f"SGD {running}",
                 observed=f"SGD {stmt.closing_balance}",
-                quote=f"Closing Balance: SGD {stmt.closing_balance}",
+                quote=stmt.source_quotes.get("Closing Balance"),
             ))
 
     return results
@@ -433,23 +450,29 @@ def check_xdoc_invoice_bank(pack: ExtractedPack) -> list[Evidence]:
 
 # 6b. XDOC_PO_INVOICE ----------------------------------------------------
 
+def matching_po(inv: Invoice, pack: ExtractedPack) -> PurchaseOrder | None:
+    """The purchase order an invoice relates to: from the same buyer, with
+    the closest total. None when that buyer placed no order."""
+    buyer = normalise_name(inv.buyer_name)
+    orders = [po for po in pack.purchase_orders if normalise_name(po.buyer_name) == buyer]
+    return min(orders, key=lambda p: abs(p.total - inv.total)) if orders else None
+
+
 def check_xdoc_po_invoice(pack: ExtractedPack) -> list[Evidence]:
     """Each invoice should be backed by a purchase order from the same buyer.
 
     Only runs when the pack contains purchase orders. Billing less than the
-    order is normal (partial delivery); billing more, billing before the
-    order was placed, or billing a buyer with no order is flagged.
+    order is normal (partial delivery); billing more, or billing a buyer with
+    no order, is flagged. Billing before the order was placed is a date-order
+    break, reported by TEMP_TRADE_SEQUENCE.
     """
     results: list[Evidence] = []
     if not pack.purchase_orders:
         return results
 
     for inv in pack.invoices:
-        buyer = normalise_name(inv.buyer_name)
-        matches = [
-            po for po in pack.purchase_orders if normalise_name(po.buyer_name) == buyer
-        ]
-        if not matches:
+        po = matching_po(inv, pack)
+        if po is None:
             results.append(_ev(
                 "XDOC_PO_INVOICE", "fraud_signal", "medium", inv.doc_id, inv.page, 0.7,
                 f"Invoice {inv.invoice_number} bills '{inv.buyer_name}' but none of the "
@@ -457,10 +480,7 @@ def check_xdoc_po_invoice(pack: ExtractedPack) -> list[Evidence]:
                 expected=f"purchase order from {inv.buyer_name}",
                 observed="none",
             ))
-            continue
-
-        po = min(matches, key=lambda p: abs(p.total - inv.total))
-        if inv.total - po.total > TOLERANCE_SGD:
+        elif inv.total - po.total > TOLERANCE_SGD:
             results.append(_ev(
                 "XDOC_PO_INVOICE", "fraud_signal", "high", inv.doc_id, inv.page, 0.95,
                 f"Invoice {inv.invoice_number} total SGD {inv.total} exceeds purchase "
@@ -469,15 +489,51 @@ def check_xdoc_po_invoice(pack: ExtractedPack) -> list[Evidence]:
                 expected=f"at most SGD {po.total}",
                 observed=f"SGD {inv.total}",
             ))
-        if inv.invoice_date < po.po_date:
-            results.append(_ev(
-                "XDOC_PO_INVOICE", "fraud_signal", "medium", inv.doc_id, inv.page, 0.9,
-                f"Invoice {inv.invoice_number} is dated {inv.invoice_date}, before its "
-                f"purchase order {po.po_number} ({po.po_date}).",
-                expected=f"on or after {po.po_date}",
-                observed=str(inv.invoice_date),
-            ))
 
+    return results
+
+
+def check_xdoc_bl_invoice(pack: ExtractedPack) -> list[Evidence]:
+    """Invoiced quantities should not exceed what the bill of lading shows
+    was shipped: billing for more goods than were shipped is the classic
+    over-invoicing red flag in trade-based money laundering.
+
+    Only runs when the pack contains bills of lading, which link to an invoice
+    by their invoice reference. Invoice lines absent from the bill of lading
+    (services, which are never shipped) are not flagged.
+    """
+    results: list[Evidence] = []
+    if not pack.bills_of_lading:
+        return results
+
+    for inv in pack.invoices:
+        bls = [b for b in pack.bills_of_lading if b.invoice_reference == inv.invoice_number]
+        if not bls:
+            results.append(_ev(
+                "XDOC_BL_INVOICE", "fraud_signal", "medium", inv.doc_id, inv.page, 0.7,
+                f"No bill of lading in the pack refers to invoice {inv.invoice_number}, "
+                "so the goods billed cannot be traced to a shipment.",
+                expected=f"bill of lading referring to {inv.invoice_number}",
+                observed="none",
+            ))
+            continue
+        shipped: dict[str, tuple[int, str]] = {}
+        for bl in bls:
+            for g in bl.goods:
+                key = normalise_name(g.description)
+                total, _ = shipped.get(key, (0, ""))
+                shipped[key] = (total + g.quantity, bl.bl_number)
+        for item in inv.line_items:
+            match = shipped.get(normalise_name(item.description))
+            if match and item.quantity > match[0]:
+                qty, bl_number = match
+                results.append(_ev(
+                    "XDOC_BL_INVOICE", "fraud_signal", "high", inv.doc_id, inv.page, 0.95,
+                    f"Invoice {inv.invoice_number} bills {item.quantity} x '{item.description}' "
+                    f"but bill of lading {bl_number} shows only {qty} shipped.",
+                    expected=f"at most {qty} shipped ({bl_number})",
+                    observed=f"{item.quantity} invoiced",
+                ))
     return results
 
 
@@ -510,30 +566,31 @@ def check_meta_mod_after_create(pack: ExtractedPack) -> list[Evidence]:
 # 8. META_PRODUCER_MISMATCH ----------------------------------------------
 
 def check_meta_producer_mismatch(pack: ExtractedPack) -> list[Evidence]:
-    """Any doc with a different producer from the majority triggers a flag."""
-    results: list[Evidence] = []
-    eligible = [d for d in pack.docs if d.doc_type not in FORM_DOC_TYPES]
-    if not eligible:
-        return results
-
-    # Find most common producer
+    """Within one document type, any doc whose producer differs from that
+    type's majority triggers a flag. Different types come from different
+    issuers (the bank, IRAS, the applicant's accounts software), so their
+    producers are never compared with each other."""
     from collections import Counter
-    counts = Counter(d.producer for d in eligible if d.producer)
-    if not counts:
-        return results
-    majority_producer, _ = counts.most_common(1)[0]
 
-    for doc in eligible:
-        if doc.producer and doc.producer != majority_producer:
-            results.append(_ev(
-                "META_PRODUCER_MISMATCH", "fraud_signal", "medium",
-                doc.doc_id, 1, 0.5,
-                f"PDF producer '{doc.producer}' differs from the pack majority "
-                f"'{majority_producer}'. This may indicate the file was edited "
-                f"or regenerated with different software.",
-                expected=majority_producer,
-                observed=doc.producer,
-            ))
+    results: list[Evidence] = []
+    by_type: dict[str, list[DocMeta]] = {}
+    for d in pack.docs:
+        if d.doc_type not in FORM_DOC_TYPES and d.producer:
+            by_type.setdefault(d.doc_type, []).append(d)
+
+    for docs in by_type.values():
+        majority_producer, _ = Counter(d.producer for d in docs).most_common(1)[0]
+        for doc in docs:
+            if doc.producer != majority_producer:
+                results.append(_ev(
+                    "META_PRODUCER_MISMATCH", "fraud_signal", "medium",
+                    doc.doc_id, 1, 0.5,
+                    f"PDF producer '{doc.producer}' differs from '{majority_producer}', "
+                    f"which made the other {doc.doc_type.replace('_', ' ')} documents in the pack. "
+                    f"This may indicate the file was edited or regenerated with different software.",
+                    expected=majority_producer,
+                    observed=doc.producer,
+                ))
 
     return results
 
@@ -551,7 +608,7 @@ def check_bank_coverage(pack: ExtractedPack) -> list[Evidence]:
     if not pack.bank_statements:
         results.append(_ev(
             "BANK_COVERAGE", "completeness", "medium",
-            _EVIDENCE_DOC_PLACEHOLDER, 1, 1.0,
+            PACK_DOC, 1, 1.0,
             "No bank statements found in the pack.",
             expected=f"{REQUIRED_BANK_MONTHS} months of statements",
             observed="0 statements",
@@ -583,7 +640,7 @@ def check_bank_coverage(pack: ExtractedPack) -> list[Evidence]:
         missing_str = ", ".join(f"{y}-{m:02d}" for y, m in missing)
         results.append(_ev(
             "BANK_COVERAGE", "completeness", "medium",
-            _EVIDENCE_DOC_PLACEHOLDER, 1, 1.0,
+            PACK_DOC, 1, 1.0,
             f"Bank statements do not cover the required {REQUIRED_BANK_MONTHS} "
             f"consecutive months. Missing: {missing_str}.",
             expected=f"{REQUIRED_BANK_MONTHS} months ending {latest_ym[0]}-{latest_ym[1]:02d}",
@@ -625,7 +682,7 @@ def check_checklist_missing_doc(pack: ExtractedPack) -> list[Evidence]:
             if "fatca_crs_entity" not in doc_types_present:
                 results.append(_ev(
                     "CHECKLIST_MISSING_DOC", "completeness", "high",
-                    _EVIDENCE_DOC_PLACEHOLDER, 1, 1.0,
+                    PACK_DOC, 1, 1.0,
                     f"Required document '{label}' is missing from the pack.",
                     expected="fatca_crs_entity document present",
                     observed="not found",
@@ -635,13 +692,37 @@ def check_checklist_missing_doc(pack: ExtractedPack) -> list[Evidence]:
             if "bank_statement" not in doc_types_present:
                 results.append(_ev(
                     "CHECKLIST_MISSING_DOC", "completeness", "high",
-                    _EVIDENCE_DOC_PLACEHOLDER, 1, 1.0,
+                    PACK_DOC, 1, 1.0,
                     f"Required document '{label}' is missing from the pack.",
                     expected="at least one bank_statement document present",
                     observed="not found",
                 ))
 
+        elif item_id == "NOA_GUARANTORS":
+            for g in guarantors_without_noa(pack):
+                masked = mask_id(g.id_number)
+                results.append(_ev(
+                    "CHECKLIST_MISSING_DOC", "completeness", "high",
+                    PACK_DOC, 1, 1.0,
+                    f"Required document '{label}' is missing for guarantor {g.name} ({masked}).",
+                    expected=f"a Notice of Assessment for {masked}",
+                    observed="not found",
+                ))
+
     return results
+
+
+def _id_key(id_number: str) -> str:
+    return "".join(id_number.split()).upper()
+
+
+def guarantors_without_noa(pack: ExtractedPack) -> list[Guarantor]:
+    """The application's guarantors with no Notice of Assessment in the pack,
+    matched on NRIC/FIN (case and spaces ignored). None without application data."""
+    if pack.manifest is None:
+        return []
+    covered = {_id_key(n.id_number) for n in pack.notices_of_assessment}
+    return [g for g in pack.manifest.guarantors if _id_key(g.id_number) not in covered]
 
 
 # ---------------------------------------------------------------------------
@@ -1209,6 +1290,295 @@ def check_forensic_incremental_update(pack: ExtractedPack) -> list[Evidence]:
     return results
 
 
+def check_forensic_ocr_mismatch(pack: ExtractedPack) -> list[Evidence]:
+    """Amounts in the visible text layer vs amounts Textract sees on the page.
+
+    Hidden (white, tiny, off-page) text is excluded from the text layer here;
+    FORENSIC_HIDDEN_TEXT already reports it. Without OCR the comparison cannot
+    run, which is reported as an info finding rather than passed silently.
+    """
+    if not pack.ocr:
+        return [_ev(
+            "FORENSIC_OCR_SKIPPED", "fraud_signal", "info", PACK_DOC, 1, 1.0,
+            "The text layer vs OCR comparison did not run because OCR is turned off. "
+            "Figures covered or pasted over as images would not be detected.",
+        )]
+    results = []
+    for doc_id, path in _forensic_docs(pack):
+        seen = pack.ocr.get(doc_id)
+        if seen is None:
+            continue
+        for m in amount_mismatches(read_text(path, visible_only=True), seen):
+            results.append(_ev(
+                "FORENSIC_OCR_MISMATCH", "fraud_signal", "medium", doc_id, m.page, 0.6,
+                f"On {doc_id} page {m.page}, the amounts a reader sees differ from the "
+                "amounts stored in the file. A figure may be covered, or pasted over the "
+                "original as an image. OCR can misread, so compare with the source.",
+                expected=", ".join(m.covered) or None,
+                observed=", ".join(m.pasted) or None,
+            ))
+    return results
+
+
+def check_prompt_injection(pack: ExtractedPack) -> list[Evidence]:
+    """Pages the prompt attack screen flagged: the text a model would read
+    contains instructions aimed at it. Info PROMPT_SCREEN_SKIPPED when the
+    screen did not run, so its absence is visible."""
+    if pack.prompt_screen is None:
+        return [_ev(
+            "PROMPT_SCREEN_SKIPPED", "fraud_signal", "info", PACK_DOC, 1, 1.0,
+            "Document text was not screened for prompt attacks (PROMPT_SCREEN_ENABLED is off).",
+        )]
+    return [
+        _ev(
+            "PROMPT_INJECTION", "fraud_signal", "high", doc_id, hit.page, 0.9,
+            f"The text on page {hit.page} of {doc_id} contains instructions aimed at an AI "
+            f"model (prompt attack screen, {hit.confidence} confidence). A genuine business "
+            "document has no reason to address an automated reviewer.",
+            expected="no instructions addressed to a model",
+            observed=f"prompt attack detected ({hit.confidence} confidence)",
+        )
+        for doc_id, hits in pack.prompt_screen.items()
+        for hit in hits
+    ]
+
+
+# ---------------------------------------------------------------------------
+# G. REGISTRY & SCREENING (versioned reference data, see gldb.reference)
+# ---------------------------------------------------------------------------
+
+def _registered_entities(pack: ExtractedPack) -> list[tuple[str, int, str, str, str]]:
+    """(doc_id, page, role, UEN, name) for every company identified by UEN."""
+    found = []
+    if pack.manifest is not None:
+        found.append((PACK_DOC, 1, "applicant", pack.manifest.uen,
+                      pack.manifest.company_name))
+    found += [(i.doc_id, i.page, "seller", i.seller_uen, i.seller_name) for i in pack.invoices]
+    found += [(p.doc_id, p.page, "seller", p.seller_uen, p.seller_name) for p in pack.purchase_orders]
+    found += [(f.doc_id, f.page, "company", f.uen, f.company_name) for f in pack.financial_statements]
+    return found
+
+
+def check_registry_entities(pack: ExtractedPack) -> list[Evidence]:
+    """Each UEN should be registered, under the name used, and live."""
+    reg = registry()
+    results = []
+    for doc_id, page, role, uen, name in _registered_entities(pack):
+        entity = reg.entities.get(uen)
+        where = f"the {role} on {doc_id}" if doc_id != PACK_DOC else "the applicant"
+        if entity is None:
+            results.append(_ev(
+                "REGISTRY_ENTITY_NOT_FOUND", "fraud_signal", "high", doc_id, page, 0.95,
+                f"UEN {uen} given for {where} ('{name}') is not in the company register "
+                f"({reg.version}, as of {reg.as_of}).",
+                expected="a registered UEN", observed=f"UEN {uen}",
+            ))
+            continue
+        if similarity(name, entity.name) < SCREENING_MATCH_THRESHOLD:
+            results.append(_ev(
+                "REGISTRY_NAME_MISMATCH", "fraud_signal", "high", doc_id, page, 0.9,
+                f"UEN {uen} is registered to '{entity.name}', but {where} names "
+                f"'{name}' ({reg.version}).",
+                expected=entity.name, observed=name,
+            ))
+        if entity.status != "Live":
+            results.append(_ev(
+                "REGISTRY_ENTITY_INACTIVE", "fraud_signal", "high", doc_id, page, 0.95,
+                f"'{entity.name}' (UEN {uen}) is '{entity.status}' in the company register "
+                f"({reg.version}), so it cannot trade.",
+                expected="Live", observed=entity.status,
+            ))
+    return results
+
+
+def check_registry_signatories(pack: ExtractedPack) -> list[Evidence]:
+    """Authorised signatories should be registered officers of the applicant."""
+    if pack.manifest is None:
+        return []
+    reg = registry()
+    entity = reg.entities.get(pack.manifest.uen)
+    if entity is None:
+        return []  # REGISTRY_ENTITY_NOT_FOUND already reports it
+    return [
+        _ev(
+            "REGISTRY_SIGNATORY_NOT_OFFICER", "fraud_signal", "medium",
+            PACK_DOC, 1, 0.8,
+            f"Authorised signatory '{person}' is not a registered officer of "
+            f"'{entity.name}' ({reg.version}).",
+            expected=", ".join(o.name for o in entity.officers), observed=person,
+        )
+        for person in pack.manifest.authorised_signatories
+        if all(similarity(person, o.name) < SCREENING_MATCH_THRESHOLD for o in entity.officers)
+    ]
+
+
+def _screened_names(pack: ExtractedPack) -> dict[str, tuple[str, str, int, str]]:
+    """screening key -> (name, doc_id, page, role), first mention wins."""
+    mentions: list[tuple[str, str, int, str]] = []
+    if pack.manifest is not None:
+        m = pack.manifest
+        mentions.append((m.company_name, PACK_DOC, 1, "applicant"))
+        mentions += [(n, PACK_DOC, 1, "signatory") for n in m.authorised_signatories]
+        mentions += [(g.name, PACK_DOC, 1, "guarantor") for g in m.guarantors]
+    for i in pack.invoices:
+        mentions += [(i.seller_name, i.doc_id, i.page, "seller"), (i.buyer_name, i.doc_id, i.page, "buyer")]
+    mentions += [(p.buyer_name, p.doc_id, p.page, "buyer") for p in pack.purchase_orders]
+    for b in pack.bills_of_lading:
+        mentions += [(b.shipper_name, b.doc_id, b.page, "shipper"),
+                     (b.consignee_name, b.doc_id, b.page, "consignee")]
+    names: dict[str, tuple[str, str, int, str]] = {}
+    for name, doc_id, page, role in mentions:
+        names.setdefault(screening_key(name), (name, doc_id, page, role))
+    return names
+
+
+def check_sanctions(pack: ExtractedPack) -> list[Evidence]:
+    """Screen the applicant, its people and its counterparties against the
+    sanctions list. A hit is a possible match for a person to dispose of."""
+    wl = watchlist()
+    results = []
+    for name, doc_id, page, role in _screened_names(pack).values():
+        for entry, score in screen(name):
+            results.append(_ev(
+                "SANCTIONS_MATCH", "fraud_signal", "high", doc_id, page, round(score, 2),
+                f"The {role} '{name}' resembles '{entry.name}' on {entry.list} "
+                f"({entry.reference}), similarity {score:.2f}. Sanctions list {wl.version}, "
+                f"as of {wl.as_of}. Confirm or dismiss the match before proceeding.",
+                quote=name,
+                expected="no sanctions match",
+                observed=f"'{name}' ~ '{entry.name}' ({entry.list} {entry.reference})",
+            ))
+    return results
+
+
+# ---------------------------------------------------------------------------
+# H. TEMPORAL CONSISTENCY
+# Evidence "observed" holds the date found wrong, so gldb.timeline can mark
+# the exact event a finding is about.
+# ---------------------------------------------------------------------------
+
+def incorporation(manifest: ApplicationManifest) -> tuple[date, str]:
+    """The applicant's incorporation date and its source: the company
+    register when it lists the UEN, otherwise the application itself."""
+    reg = registry()
+    entity = reg.entities.get(manifest.uen)
+    if entity is not None:
+        return entity.incorporated, f"the company register ({reg.version})"
+    return manifest.date_of_incorporation, "the application"
+
+
+def dated_facts(pack: ExtractedPack) -> list[TimelineEvent]:
+    """Every dated fact the pack states, unsorted. Trade facts carry the
+    invoice they belong to as *ref*."""
+    facts: list[TimelineEvent] = []
+    if pack.manifest is not None:
+        on, source = incorporation(pack.manifest)
+        facts.append(TimelineEvent(on=on, kind="incorporated", label=f"Incorporated, per {source}",
+                                   doc_id=PACK_DOC, page=1))
+        facts.append(TimelineEvent(on=pack.manifest.application_date, kind="application",
+                                   label=f"Application {pack.manifest.application_id} submitted",
+                                   doc_id=PACK_DOC, page=1))
+    facts += [
+        TimelineEvent(on=f.financial_year_end, kind="financial_year_end",
+                      label=f"Financial year ends (revenue SGD {f.revenue})", doc_id=f.doc_id, page=f.page)
+        for f in pack.financial_statements
+    ]
+    facts += [
+        TimelineEvent(on=s.period_start, kind="bank_statement",
+                      label=f"Bank statement {s.period_start} to {s.period_end}", doc_id=s.doc_id, page=s.page)
+        for s in pack.bank_statements
+    ]
+    po_invoice = {
+        po.doc_id: inv.invoice_number
+        for inv in pack.invoices if (po := matching_po(inv, pack)) is not None
+    }
+    facts += [
+        TimelineEvent(on=po.po_date, kind="purchase_order",
+                      label=f"PO {po.po_number} placed by {po.buyer_name}",
+                      doc_id=po.doc_id, page=po.page, ref=po_invoice.get(po.doc_id, ""))
+        for po in pack.purchase_orders
+    ]
+    facts += [
+        TimelineEvent(on=b.shipped_date, kind="shipped",
+                      label=f"B/L {b.bl_number}: shipped on {b.vessel}",
+                      doc_id=b.doc_id, page=b.page, ref=b.invoice_reference)
+        for b in pack.bills_of_lading
+    ]
+    facts += [
+        TimelineEvent(on=i.invoice_date, kind="invoice",
+                      label=f"Invoice {i.invoice_number} to {i.buyer_name}, SGD {i.total}",
+                      doc_id=i.doc_id, page=i.page, ref=i.invoice_number)
+        for i in pack.invoices
+    ]
+    numbers = [i.invoice_number for i in pack.invoices]
+    facts += [
+        TimelineEvent(on=t.date, kind="payment", label=f"Received SGD {t.credit}: {t.description}",
+                      doc_id=s.doc_id, page=s.page, ref=ref)
+        for s in pack.bank_statements
+        for t in s.transactions
+        if t.credit is not None
+        and (ref := next((n for n in numbers if n.upper() in t.description.upper()), None))
+    ]
+    return facts
+
+
+def check_temp_before_incorporation(pack: ExtractedPack) -> list[Evidence]:
+    """No document can describe trading by a company before it existed."""
+    if pack.manifest is None:
+        return []
+    incorporated, source = incorporation(pack.manifest)
+    return [
+        _ev(
+            "TEMP_BEFORE_INCORPORATION", "fraud_signal", "high", f.doc_id, f.page, 0.95,
+            f"{f.label} is dated {f.on}, before the company was incorporated on "
+            f"{incorporated} according to {source}.",
+            expected=f"on or after {incorporated}",
+            observed=str(f.on),
+        )
+        for f in dated_facts(pack)
+        # a payment is already covered by its statement's period
+        if f.kind not in ("incorporated", "application", "payment") and breaks(incorporated, f.on)
+    ]
+
+
+def _out_of_order(po_date: date, step: str, on: date) -> bool:
+    """Whether *step* dated *on* breaks the ordering policy against its
+    purchase order (gldb.ordering, which the AI team's check reads too)."""
+    dates = TradeDates(purchase_order=po_date, shipped=on if step == "shipped" else None,
+                       invoice=on if step == "invoice" else po_date, payment=None, incorporated=None)
+    return any(v.rule == "TEMP_TRADE_SEQUENCE" and v.later == step for v in violations(dates))
+
+
+def check_temp_trade_sequence(pack: ExtractedPack) -> list[Evidence]:
+    """A trade runs order -> shipment, and order -> invoice. An invoice or a
+    shipment dated before its purchase order suggests the order was raised
+    afterwards to support the sale on paper (a retrospective PO)."""
+    results: list[Evidence] = []
+    invoices = {i.invoice_number: i for i in pack.invoices}
+    for inv in pack.invoices:
+        po = matching_po(inv, pack)
+        if po is not None and _out_of_order(po.po_date, "invoice", inv.invoice_date):
+            results.append(_ev(
+                "TEMP_TRADE_SEQUENCE", "fraud_signal", "medium", inv.doc_id, inv.page, 0.9,
+                f"Invoice {inv.invoice_number} is dated {inv.invoice_date}, before its "
+                f"purchase order {po.po_number} ({po.po_date}).",
+                expected=f"on or after {po.po_date}",
+                observed=str(inv.invoice_date),
+            ))
+    for bl in pack.bills_of_lading:
+        inv = invoices.get(bl.invoice_reference)
+        po = matching_po(inv, pack) if inv is not None else None
+        if po is not None and _out_of_order(po.po_date, "shipped", bl.shipped_date):
+            results.append(_ev(
+                "TEMP_TRADE_SEQUENCE", "fraud_signal", "medium", bl.doc_id, bl.page, 0.9,
+                f"Bill of lading {bl.bl_number} says goods were shipped on {bl.shipped_date}, "
+                f"before purchase order {po.po_number} ({po.po_date}) was placed.",
+                expected=f"on or after {po.po_date}",
+                observed=str(bl.shipped_date),
+            ))
+    return results
+
+
 # ---------------------------------------------------------------------------
 # E. AGENTS AND RUNNER
 # ---------------------------------------------------------------------------
@@ -1243,17 +1613,34 @@ AGENTS: list[Agent] = [
     ),
     Agent(
         "Forensics",
-        "Hidden text, figures edited over the original, and re-saved PDFs, found in the raw file.",
+        "Hidden text, figures edited or pasted over the original, re-saved PDFs, and "
+        "instructions aimed at AI models, found in the raw file, by comparing it with "
+        "what OCR sees, and by a Bedrock guardrail.",
         [
             check_forensic_hidden_text,
             check_forensic_mixed_font,
             check_forensic_incremental_update,
+            check_forensic_ocr_mismatch,
+            check_prompt_injection,
         ],
     ),
     Agent(
         "Cross-Document",
-        "Consistency of identity and amounts across invoices, purchase orders, bank and statements.",
-        [check_xdoc_identity, check_xdoc_invoice_bank, check_xdoc_po_invoice],
+        "Consistency of identity, amounts and quantities across invoices, purchase orders, "
+        "bills of lading, bank and statements.",
+        [check_xdoc_identity, check_xdoc_invoice_bank, check_xdoc_po_invoice, check_xdoc_bl_invoice],
+    ),
+    Agent(
+        "Registry & Screening",
+        "Companies and people checked against the company register and the sanctions list "
+        "(versioned reference data).",
+        [check_registry_entities, check_registry_signatories, check_sanctions],
+    ),
+    Agent(
+        "Timeline",
+        "Dates across documents: trading before the company existed, and orders, "
+        "shipments and invoices out of sequence.",
+        [check_temp_before_incorporation, check_temp_trade_sequence],
     ),
     Agent(
         "Compliance & Completeness",
@@ -1291,7 +1678,7 @@ def _run_agent(agent: Agent, pack: ExtractedPack) -> tuple[list[Evidence], Agent
         except Exception as exc:  # noqa: BLE001
             found.append(_ev(
                 "SYSTEM_CHECK_ERROR", "compliance", "medium",
-                _EVIDENCE_DOC_PLACEHOLDER, 1, 1.0,
+                PACK_DOC, 1, 1.0,
                 f"{check_fn.__name__} failed to run; manual verification required. "
                 f"Error: {exc}",
             ))

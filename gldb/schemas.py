@@ -18,7 +18,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, BeforeValidator, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, Field, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +81,29 @@ class PurchaseOrder(BaseModel):
     source_quotes: dict[str, str] = {}
 
 
+class ShippedGoods(BaseModel):
+    description: str
+    quantity: int
+
+
+class BillOfLading(BaseModel):
+    """Trade record: the carrier's receipt for goods shipped. Ties to an
+    invoice by its invoice reference."""
+
+    doc_id: str
+    bl_number: str
+    shipped_date: date
+    shipper_name: str
+    consignee_name: str
+    vessel: str
+    port_of_loading: str
+    port_of_discharge: str
+    invoice_reference: str
+    goods: list[ShippedGoods]
+    page: int = 1
+    source_quotes: dict[str, str] = {}
+
+
 class Transaction(BaseModel):
     date: date
     description: str
@@ -111,6 +134,17 @@ class FinancialStatementSummary(BaseModel):
     total_assets: Money
     total_liabilities: Money
     total_equity: Money
+    page: int = 1
+    source_quotes: dict[str, str] = {}
+
+
+class NoticeOfAssessment(BaseModel):
+    """A guarantor's IRAS Notice of Assessment: who it is for and which year."""
+
+    doc_id: str
+    name: str
+    id_number: str          # NRIC or FIN; masked with gldb.privacy.mask_id before display
+    year_of_assessment: int
     page: int = 1
     source_quotes: dict[str, str] = {}
 
@@ -234,8 +268,10 @@ DocType = Literal[
     "bank_statement",
     "financial_statements",
     "purchase_order",
+    "bill_of_lading",
     "fatca_crs_entity",
     "fatca_crs_individual",
+    "notice_of_assessment",
     "unknown",
 ]
 
@@ -256,6 +292,30 @@ class DocMeta(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class Box(BaseModel):
+    """A region of a page, as fractions (0-1) of its width and height."""
+
+    x0: float
+    top: float
+    x1: float
+    bottom: float
+
+
+class OcrLine(BaseModel):
+    """One line Textract read, with where it is on the page."""
+
+    text: str
+    box: Box
+
+
+class PromptAttackHit(BaseModel):
+    """A page the prompt attack screen flagged (gldb.prompt_screen)."""
+
+    page: int
+    #: The guardrail's confidence: "LOW", "MEDIUM" or "HIGH"
+    confidence: str
+
+
 class ExtractedPack(BaseModel):
     case_id: str
     docs: list[DocMeta]
@@ -263,17 +323,35 @@ class ExtractedPack(BaseModel):
     bank_statements: list[BankStatement]
     financial_statements: list[FinancialStatementSummary]
     purchase_orders: list[PurchaseOrder] = []
+    bills_of_lading: list[BillOfLading] = []
     entity_self_certs: list[EntitySelfCert] = []
+    notices_of_assessment: list[NoticeOfAssessment] = []
     manifest: ApplicationManifest | None = None
     extraction_mode: Literal["llm", "stub", "mixed"]
     #: doc_id -> file on disk, for checks that inspect the raw file (forensics).
     #: Never serialised: it would leak local paths into results and the API.
     paths: dict[str, Path] = Field(default_factory=dict, exclude=True)
+    #: doc_id -> Textract text per page, when the OCR stage ran. Never
+    #: serialised: raw document text would bypass identifier masking.
+    ocr: dict[str, list[str]] = Field(default_factory=dict, exclude=True)
+    #: doc_id -> per page, the lines Textract read with their positions. Kept
+    #: on the server with the case (for highlighting on scanned pages); never
+    #: serialised, as it holds raw document text.
+    ocr_lines: dict[str, list[list[OcrLine]]] = Field(default_factory=dict, exclude=True)
+    #: doc_id -> mean Textract confidence (0-100) per page, when OCR ran
+    ocr_confidence: dict[str, list[float]] = {}
+    #: doc_id -> pages flagged by the prompt attack screen; None when the
+    #: screen did not run, {} when it ran and flagged nothing
+    prompt_screen: dict[str, list[PromptAttackHit]] | None = None
 
 
 # ---------------------------------------------------------------------------
 # Evidence — the only container for a fraud finding
 # ---------------------------------------------------------------------------
+
+EvidenceCategory = Literal["fraud_signal", "compliance", "completeness"]
+Severity = Literal["info", "low", "medium", "high", "critical"]
+RiskBand = Literal["Low", "Medium", "High"]
 
 
 class Evidence(BaseModel):
@@ -281,8 +359,8 @@ class Evidence(BaseModel):
     agent: str = ""                # name of the agent that produced this finding
     check_id: str
     #: fraud_signal feeds the risk score; compliance/completeness feed ReadinessResult only
-    category: Literal["fraud_signal", "compliance", "completeness"] = "fraud_signal"
-    severity: Literal["info", "low", "medium", "high", "critical"]
+    category: EvidenceCategory = "fraud_signal"
+    severity: Severity
     document: str                  # doc_id
     page: int
     quote: str | None = None
@@ -305,11 +383,44 @@ class Evidence(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+SignalFamily = Literal["DOC", "FIN", "TXN", "REG", "ENT", "TEMP", "COMP", "SYS"]
+
+
+class Signal(BaseModel, frozen=True):
+    """A named, versioned risk signal (gldb.signal_library). Maps one check
+    to the name an analyst sees and to what would resolve it."""
+
+    signal_id: str              # e.g. "DOC-001"; family prefix as below
+    check_id: str
+    family: SignalFamily
+    name: str
+    #: What would resolve or explain the signal ("what would change it?")
+    remedy: str
+    #: Fixed points; None uses the severity weight the check reported
+    points: int | None = None
+
+
+class Contribution(BaseModel):
+    """One line of the itemised risk score, traced to its evidence."""
+
+    signal_id: str
+    check_id: str
+    name: str
+    evidence_id: str
+    document: str
+    page: int
+    points: int
+
+
 class RiskResult(BaseModel):
     score: int = Field(..., ge=0, le=100)
-    band: Literal["Low", "Medium", "High"]
+    band: RiskBand
     manual_review_required: bool
     reasons: list[str]
+    #: The score itemised by signal; points may sum above the 100 cap
+    contributions: list[Contribution] = []
+    #: Signal library version that produced the contributions
+    rule_version: str = ""
 
     @field_validator("score")
     @classmethod
@@ -347,6 +458,309 @@ class AgentReport(BaseModel):
     duration_ms: int
 
 
+#: Pipeline stages in run order; "record" (persist + audit) runs outside assess()
+StageId = Literal[
+    "ocr", "intake", "prompt_screen", "extract", "agents", "ai_team", "shadow_score", "score", "readiness", "route",
+    "projections", "record",
+]
+#: "running" is only ever reported live; a finished stage is "ran", "failed", or "off"
+StageState = Literal["running", "ran", "failed", "off"]
+
+
+class StageReport(BaseModel):
+    """What one pipeline stage did in a run: whether it ran or was switched
+    off, how long it took, and the version (model, guardrail, rule set,
+    policy) that ran."""
+
+    stage_id: StageId
+    status: Literal["ran", "failed", "off"]
+    duration_ms: int
+    version: str = ""
+
+
+class ClaimRef(BaseModel):
+    """A fact as one document states it, with where it is stated."""
+
+    doc_id: str
+    page: int
+    label: str
+    value: str
+
+
+#: How an invoice relates to one counterpart record
+ChainStatus = Literal["matched", "contradicts", "missing", "not_provided"]
+
+
+class ChainStep(BaseModel):
+    step: Literal["purchase_order", "bill_of_lading", "payment"]
+    status: ChainStatus
+    invoice_claim: ClaimRef
+    #: The counterpart's claim (None when missing or not provided)
+    counterpart: ClaimRef | None = None
+    #: Findings behind this status (none for a clean match)
+    evidence_ids: list[str] = []
+    note: str = ""
+
+
+class TransactionChain(BaseModel):
+    """One invoice traced through order, shipment and payment, showing
+    where the chain breaks (gldb.reconciliation)."""
+
+    invoice_number: str
+    doc_id: str
+    steps: list[ChainStep]
+    broken: bool
+
+
+TimelineKind = Literal[
+    "incorporated", "financial_year_end", "bank_statement", "purchase_order",
+    "shipped", "invoice", "payment", "application",
+]
+
+
+class TimelineEvent(BaseModel):
+    """One dated fact of the case, with the document and page it comes from
+    (gldb.timeline)."""
+
+    on: date
+    kind: TimelineKind
+    label: str
+    doc_id: str
+    page: int
+    #: The invoice this fact belongs to ("" when it belongs to no trade)
+    ref: str = ""
+    #: Temporal findings about this fact
+    evidence_ids: list[str] = []
+
+
+#: Review paths, least to most cautious
+ReviewPath = Literal["fast_track", "standard_review", "enhanced_review"]
+
+
+TaskPriority = Literal["urgent", "high", "normal"]
+
+
+class InvestigationTask(BaseModel):
+    """One thing for the analyst to resolve: the findings of one signal on
+    one document, with the signal's remedy and what resolving them would
+    change (gldb.investigation). Guidance only: people decide."""
+
+    task_id: str
+    priority: TaskPriority
+    signal_id: str
+    check_id: str
+    name: str
+    category: EvidenceCategory
+    document: str
+    evidence_ids: list[str]
+    remedy: str
+    #: Score points these findings add (0 for readiness items)
+    points: int
+    #: The case if these findings were resolved, all else unchanged
+    score_if_resolved: int
+    band_if_resolved: RiskBand
+    path_if_resolved: ReviewPath
+
+
+class Routing(BaseModel):
+    """Where a scored case goes next. Produced by gldb.routing from rules and
+    versioned policy; never by an LLM. The system only routes: every outcome
+    is decided by a person."""
+
+    path: ReviewPath
+    #: True when a person must review before funding (always, unless fast track
+    #: and not drawn for the QA sample)
+    analyst_review: bool
+    qa_sampled: bool
+    #: Enhanced due diligence
+    edd_required: bool
+    hard_flags: list[str]
+    low_confidence: list[str]
+    reasons: list[str]
+    policy_version: str
+
+
+class ReviewPoint(BaseModel):
+    text: str
+    #: Finding IDs (E…) and lead IDs (L…) the point relies on; never empty
+    evidence_ids: list[str]
+
+
+#: Agent roles: supervisor orchestrates, specialists investigate
+AgentName = Literal["supervisor", "forensics", "transaction", "kyc", "timeline"]
+#: Specialists that investigate: not the supervisor
+SpecialistName = Literal["forensics", "transaction", "kyc", "timeline"]
+#: What a lead's tests show, as its specialist proposes it. Triage: the finding
+#: stands / has an ordinary explanation / is not settled. Pattern: found /
+#: checked and clear / not settled. It never decides anything.
+InvestigationStatus = Literal["supported", "refuted", "unresolved"]
+#: What code establishes about a kept lead's pattern from the case data
+#: (gldb.ai_team.checks), never a model: only verified and corroborated
+#: leads may become flags, memo points or questions
+EvidenceStatus = Literal["verified", "corroborated", "unverified", "contradicted"]
+#: Fraud pattern families
+Pattern = Literal[
+    "third_party_payment",
+    "round_trip",
+    "split_payment",
+    "related_party",
+    "business_mismatch",
+    "document_inconsistency",
+    "sequence_anomaly",
+]
+
+
+class ToolCall(BaseModel):
+    #: R01…
+    call_id: str
+    agent: AgentName
+    tool: str
+    args: dict[str, Any]
+    #: Short, masked; never page text
+    summary: str
+    duration_ms: int
+    #: The call came back as an error result
+    error: bool = False
+
+
+class LeadTest(BaseModel):
+    """One test behind a lead: what the documents say should hold, and what
+    the cited tool results show."""
+
+    #: The tool results (R…) the test rests on: its agent's own recorded calls
+    cites: list[str]
+    expected: str
+    observed: str
+
+
+#: A stored lead's verdict (before the lead contract) -> its investigation status
+_LEGACY_STATUS: dict[str | None, InvestigationStatus] = {
+    "corroborated": "supported", "possibly_innocent": "refuted", "unclear": "unresolved", None: "supported",
+}
+
+
+class Lead(BaseModel):
+    #: L01…, assigned when recorded
+    lead_id: str = ""
+    agent: SpecialistName
+    #: triage: a judgement on risky findings; pattern: a gap-hunt for one of the specialist's patterns
+    kind: Literal["triage", "pattern"]
+    #: The findings (E…) a triage lead judges
+    finding_ids: list[str] = []
+    #: Set for pattern leads
+    pattern: Pattern | None = None
+    #: The subject: what a code check reads (gldb.ai_team.verify.PATTERN_SUBJECTS)
+    invoice_number: str | None = None
+    #: Bank rows, T01…
+    transaction_ids: list[str] = []
+    #: A counterparty, P01…
+    counterparty: str | None = None
+    #: The claim tested, e.g. "INV-1002 was paid by someone other than its buyer"
+    hypothesis: str
+    tests: list[LeadTest]
+    investigation_status: InvestigationStatus
+    #: What would settle an unresolved lead
+    missing_evidence: list[str] = []
+    #: Set by the verifier; withheld leads stay on the record with the reason
+    outcome: Literal["kept", "withheld"] = "kept"
+    withheld_reason: str | None = None
+    #: Set by code for a kept lead, with the facts its check read and why
+    evidence_status: EvidenceStatus | None = None
+    check_facts: dict[str, str] = {}
+    check_reason: str | None = None
+
+    @property
+    def cites(self) -> list[str]:
+        """Every tool result (R…) the lead's tests rest on, in order."""
+        return list(dict.fromkeys(c for test in self.tests for c in test.cites))
+
+    @model_validator(mode="before")
+    @classmethod
+    def _stored_earlier(cls, data: Any) -> Any:
+        """A lead saved before the lead contract (title, detail, cites, verdict:
+        its detail becomes its one test's observation) or before the status
+        split (status, strength) still loads, unverified if kept."""
+        if not isinstance(data, dict) or "investigation_status" in data:
+            return data
+        if "hypothesis" not in data and "title" in data:
+            data = {**data, "hypothesis": data["title"], "status": _LEGACY_STATUS.get(data.get("verdict"), "unresolved"),
+                    "tests": [{"cites": data.get("cites", []), "expected": "", "observed": data.get("detail", "")}]}
+        if "status" not in data:
+            return data
+        return {**data, "investigation_status": data["status"],
+                "evidence_status": "unverified" if data.get("outcome", "kept") == "kept" else None}
+
+
+class ShadowReason(BaseModel):
+    #: A rule's check id, a verified pattern, or "no_issue": from the case's own lists
+    code: str
+    #: Findings (E…) and verified leads (L…) the reason rests on
+    evidence_ids: list[str] = []
+
+
+class ShadowScore(BaseModel):
+    """What a model would route the case to, from the case context and the
+    leads code verified; logged beside the champion, never used by it."""
+
+    status: Literal["ran", "failed"]
+    route: ReviewPath | None = None
+    reasons: list[ShadowReason] = []
+    model: str
+    #: Content hash of the scorer's prompt and tool
+    prompt_version: str
+    #: Set after the fact, never shown to the scorer
+    agrees_with_champion: bool | None = None
+    error: str | None = None
+
+
+class GateDecision(BaseModel):
+    """The route the disposition gate would take: logged, never applied."""
+
+    would_route: ReviewPath
+    reasons: list[str]
+
+
+class Memo(BaseModel):
+    observations: list[ReviewPoint] = []
+    #: For the applicant or a counterparty
+    questions: list[ReviewPoint] = []
+    #: Memo points dropped by the verifier
+    withheld: int = 0
+
+
+class DocRef(BaseModel):
+    """A page of a case document: where the analyst is taken to see a subject."""
+
+    doc_id: str
+    page: int = 1
+
+
+class AgentTeam(BaseModel):
+    status: Literal["ran", "failed"]
+    #: Specialist -> its brief
+    plan: dict[str, str] = {}
+    tool_calls: list[ToolCall] = []
+    #: Every lead recorded, kept or withheld
+    leads: list[Lead] = []
+    #: The Supervisor's reconciliation
+    memo: Memo | None = None
+    #: {"supervisor": id, "specialist": id}
+    models: dict[str, str] = {}
+    prompt_versions: dict[str, str] = {}
+    #: E.g. "transaction: step limit reached", "kyc: budget reached"
+    notes: list[str] = []
+    #: Rule findings code explained (finding id -> why): not raised in the memo, still on the record
+    resolved: dict[str, str] = {}
+    #: Why the team failed, when status is "failed"
+    error: str | None = None
+    #: call_id -> full tool result text; server-only (agent_trace.json), never serialised
+    trace: dict[str, str] = Field(default_factory=dict, exclude=True)
+
+
+#: Stages that no longer exist; results stored with their reports still load
+_RETIRED_STAGES = frozenset({"semantic_review"})
+
+
 class CaseResult(BaseModel):
     case_id: str
     pack: ExtractedPack
@@ -354,12 +768,61 @@ class CaseResult(BaseModel):
     agent_reports: list[AgentReport] = []
     risk: RiskResult
     readiness: ReadinessResult | None = None
-    summary: str | None = None
+    #: None only for results stored before routing existed
+    routing: Routing | None = None
+    chains: list[TransactionChain] = []
+    timeline: list[TimelineEvent] = []
+    investigation: list[InvestigationTask] = []
+    #: None when the team is off
+    ai_team: AgentTeam | None = None
+    #: None when the team or the scorer is off; the champion never reads either
+    shadow: ShadowScore | None = None
+    gate: GateDecision | None = None
+    #: Empty only for results stored before stages were recorded
+    stages: list[StageReport] = []
+
+    @field_validator("stages", mode="before")
+    @classmethod
+    def _drop_retired_stages(cls, stages: Any) -> Any:
+        """Results stored before a stage was retired (e.g. "semantic_review")
+        still load: reports of the retired stages are dropped. Any other
+        unknown stage_id still fails validation."""
+        if not isinstance(stages, list):
+            return stages
+        return [s for s in stages if not isinstance(s, dict) or s.get("stage_id") not in _RETIRED_STAGES]
 
 
 # ---------------------------------------------------------------------------
 # Audit event — append-only; written by gldb/audit.py
 # ---------------------------------------------------------------------------
+
+
+AuditAction = Literal[
+    "case_created",
+    "pipeline_completed",
+    "flag_confirmed",
+    "flag_dismissed",
+    "documents_added",
+    "analyst_decision",
+    "mlro_decision",
+    "final_decision",  # legacy: written before the case lifecycle existed
+]
+
+#: Case status, derived by replaying audit events (gldb.lifecycle)
+CaseStatus = Literal[
+    "assessed", "info_requested", "escalated", "mlro_reviewed", "approved", "declined",
+]
+
+#: Controlled vocabulary for dismissing a flag: lets override patterns be
+#: counted (gldb.feedback) to tune checks and spot unfair outcomes.
+ReasonCode = Literal[
+    "ocr_misread",
+    "extraction_error",
+    "legitimate_explanation",
+    "duplicate_finding",
+    "threshold_too_strict",
+    "other",
+]
 
 
 class AuditEvent(BaseModel):
@@ -368,14 +831,11 @@ class AuditEvent(BaseModel):
     )
     case_id: str
     actor: str
-    action: Literal[
-        "case_created",
-        "pipeline_completed",
-        "flag_confirmed",
-        "flag_dismissed",
-        "final_decision",
-    ]
+    #: "analyst" or "mlro" for human actions; None for the system
+    role: str | None = None
+    action: AuditAction
     evidence_id: str | None = None
     decision: str | None = None
+    reason_code: ReasonCode | None = None
     reason: str | None = None
     details: dict = {}

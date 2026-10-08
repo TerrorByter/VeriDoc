@@ -2,10 +2,11 @@ pydantic>=2
 pdfplumber
 pypdf
 reportlab
+pillow
 fastapi
 uvicorn
 python-multipart
 httpx
-boto3
+boto3[crt]
 python-dotenv
 pytest

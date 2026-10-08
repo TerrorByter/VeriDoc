@@ -1,0 +1,34 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  GLDB prototype - Bedrock guardrail that screens document text for prompt
+  attacks (jailbreak and prompt injection) before any model reads it. Used
+  as a detector through the ApplyGuardrail API: a hit becomes a finding for
+  an analyst (gldb.prompt_screen), not a silent block.
+
+Resources:
+  PromptAttackGuardrail:
+    Type: AWS::Bedrock::Guardrail
+    Properties:
+      Name: gldb-prompt-attack-screen
+      Description: Detects prompt attacks in loan document text (prototype)
+      BlockedInputMessaging: Document text was withheld from the model by the prompt attack screen.
+      BlockedOutputsMessaging: Model output was withheld by the guardrail.
+      ContentPolicyConfig:
+        FiltersConfig:
+          - Type: PROMPT_ATTACK
+            InputStrength: HIGH
+            # The prompt attack filter applies to input only
+            OutputStrength: NONE
+
+  # An immutable, numbered version: every case records which one screened it
+  PromptAttackGuardrailVersion:
+    Type: AWS::Bedrock::GuardrailVersion
+    Properties:
+      GuardrailIdentifier: !GetAtt PromptAttackGuardrail.GuardrailId
+      Description: Prompt attack filter, HIGH input strength
+
+Outputs:
+  GuardrailId:
+    Value: !GetAtt PromptAttackGuardrail.GuardrailId
+  GuardrailVersion:
+    Value: !GetAtt PromptAttackGuardrailVersion.Version

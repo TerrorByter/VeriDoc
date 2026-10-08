@@ -1,9 +1,13 @@
 {
   "pack": "clean",
   "expected_band": "Low",
+  "expected_path": "fast_track",
   "expected_readiness": "Complete",
   "expected_check_ids": [],
+  "expected_check_ids_ocr": [],
   "expected_compliance_check_ids": [],
+  "expected_leads": [],
+  "expected_triage": [],
   "tampers": [],
   "benign": [
     {

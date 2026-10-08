@@ -10,7 +10,8 @@ Rules:
 - sha256_file returns a 64-char hex digest.
 - parse_pdf_date parses Adobe PDF date strings to timezone-aware datetimes.
   Never raises; returns None on bad/missing input.
-- read_text returns per-page text via pdfplumber (Textract OCR for scans).
+- read_text returns per-page text via pdfplumber; pages with no text layer
+  are filled from OCR text when the pipeline's OCR stage supplied it.
 - classify inspects the first page only; forms take priority over generic types.
 - intake() orchestrates all of the above and returns a list of DocMeta.
 - load_manifest reads application.json from a folder and parses it as
@@ -28,9 +29,8 @@ from pathlib import Path
 import pdfplumber
 import pypdf
 
-from gldb.config import MAX_FILE_MB, OCR_ENABLED
+from gldb.config import MAX_FILE_MB
 from gldb.forensics import hidden_reasons
-from gldb.ocr import ocr_pages
 from gldb.schemas import ApplicationManifest, DocMeta, DocType
 
 
@@ -166,26 +166,42 @@ def _visible(page: pdfplumber.page.Page) -> pdfplumber.page.Page:
     )
 
 
-def read_text(path: "Path | str", visible_only: bool = False) -> list[str]:
+def read_text(
+    path: "Path | str", visible_only: bool = False, ocr: list[str] | None = None
+) -> list[str]:
     """Return per-page text from *path* via pdfplumber.
 
     With *visible_only*, characters a reader cannot see (white, tiny or
     off-page text) are dropped. Text bound for an LLM should be read this way
     so hidden instructions never reach the model.
 
-    Returns a list of strings, one per page. Pages with no extractable text
-    return an empty string. When OCR_ENABLED is set and the file has no text
-    layer at all (a scan), the pages are OCR'd with AWS Textract instead.
+    Returns a list of strings, one per page. A page with no extractable text
+    (a scanned page) takes its *ocr* text when given, else an empty string.
     """
-    p = Path(path)
-    with pdfplumber.open(str(p)) as pdf:
+    with pdfplumber.open(str(path)) as pdf:
         pages = [
             (_visible(page) if visible_only else page).extract_text() or ""
             for page in pdf.pages
         ]
-    if OCR_ENABLED and not any(t.strip() for t in pages):
-        return ocr_pages(p)
+    if ocr:
+        pages = [t if t.strip() else seen for t, seen in zip(pages, ocr)]
     return pages
+
+
+def model_view(path: "Path | str", ocr: list[str] | None = None) -> list[str]:
+    """The text of *path* a model is given: visible characters only, with
+    OCR for scanned pages. The prompt attack screen checks exactly this."""
+    return read_text(path, visible_only=True, ocr=ocr)
+
+
+def _squash(s: str) -> str:
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def contains_quote(pages: list[str], quote: str) -> bool:
+    """Whether *quote* appears in *pages*, ignoring differences in spacing
+    and line breaks (pdfplumber and OCR wrap lines differently)."""
+    return _squash(quote) in _squash(" ".join(pages))
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +219,8 @@ _DOC_KEYWORDS: list[tuple[str, DocType]] = [
     ("STATEMENT OF ACCOUNT", "bank_statement"),
     ("FINANCIAL STATEMENTS SUMMARY", "financial_statements"),
     ("PURCHASE ORDER", "purchase_order"),
+    ("BILL OF LADING", "bill_of_lading"),
+    ("NOTICE OF ASSESSMENT", "notice_of_assessment"),
 ]
 
 
@@ -237,7 +255,11 @@ def classify(text: list[str]) -> DocType:
 # ---------------------------------------------------------------------------
 
 
-def intake(case_id: str, file_paths: "list[Path | str]") -> list[DocMeta]:
+def intake(
+    case_id: str,
+    file_paths: "list[Path | str]",
+    ocr: dict[str, list[str]] | None = None,
+) -> list[DocMeta]:
     """Validate, hash, and classify each file in *file_paths*.
 
     Steps per file:
@@ -250,6 +272,8 @@ def intake(case_id: str, file_paths: "list[Path | str]") -> list[DocMeta]:
     Args:
         case_id: The case identifier (used for audit/logging; not stored in DocMeta).
         file_paths: Paths to the uploaded PDF files.
+        ocr: Optional doc_id -> OCR page text from the OCR stage, so scanned
+            documents can be classified.
 
     Returns:
         A list of DocMeta objects, one per file.
@@ -283,7 +307,7 @@ def intake(case_id: str, file_paths: "list[Path | str]") -> list[DocMeta]:
 
         # 4. doc_id and classification
         doc_id = path.stem
-        doc_type: DocType = classify(read_text(path))
+        doc_type: DocType = classify(read_text(path, ocr=(ocr or {}).get(doc_id)))
 
         # 5. Build DocMeta
         docs.append(

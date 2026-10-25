@@ -62,6 +62,7 @@ from gldb.config import (
     PACKS_DIR,
     POLICY_VERSION,
     PROMPT_SCREEN_ENABLED,
+    SEVERITY_WEIGHTS,
     SHADOW_SCORE_ENABLED,
     SHADOW_SCORER_MODEL,
     UPLOADS_DIR,
@@ -96,6 +97,7 @@ from gldb.schemas import (
     RiskResult,
     Routing,
     RuleGroupReport,
+    Severity,
     ShadowScore,
     Signal,
     StageReport,
@@ -234,6 +236,19 @@ class MlroDecision(BaseModel):
     decision: Literal["str_filed", "no_str"]
     reason: str = Field(min_length=1)
     actor: str = "mlro"
+
+
+class PageFinding(BaseModel):
+    """A finding on one page, with what the overlay shows of it: boxes around
+    its quote (or observed value), empty when its text cannot be placed."""
+
+    evidence_id: str
+    check_id: str
+    title: str
+    severity: Severity
+    explanation: str
+    observed: str | None
+    boxes: list[Box]
 
 
 class EvidenceLocation(BaseModel):
@@ -614,13 +629,32 @@ def get_evidence_location(case_id: str, evidence_id: str) -> EvidenceLocation:
         return EvidenceLocation(evidence_id=evidence_id, doc_id=PACK_DOC, page=0,
                                 page_count=0, highlighted=None, boxes=[])
     path, doc = _document(result, ev.document, ev.page)
-    lines = _ocr_lines(result.case_id, doc.doc_id, ev.page)
+    highlighted, boxes = _placed(ev, path, _ocr_lines(result.case_id, doc.doc_id, ev.page))
+    return EvidenceLocation(evidence_id=evidence_id, doc_id=doc.doc_id, page=ev.page,
+                            page_count=doc.page_count, highlighted=highlighted, boxes=boxes)
+
+
+def _placed(ev: Evidence, path: Path, lines: list[OcrLine]) -> tuple[str | None, list[Box]]:
+    """The text of *ev* found on its page and the boxes around it: its quote,
+    else its observed value; (None, []) when neither can be placed."""
     for text in (ev.quote, ev.observed):
         if text and (boxes := locate(path, ev.page, text, lines)):
-            return EvidenceLocation(evidence_id=evidence_id, doc_id=doc.doc_id, page=ev.page,
-                                    page_count=doc.page_count, highlighted=text, boxes=boxes)
-    return EvidenceLocation(evidence_id=evidence_id, doc_id=doc.doc_id, page=ev.page,
-                            page_count=doc.page_count, highlighted=None, boxes=[])
+            return text, boxes
+    return None, []
+
+
+@app.get("/api/cases/{case_id}/documents/{doc_id}/pages/{page}/findings")
+def get_page_findings(case_id: str, doc_id: str, page: int) -> list[PageFinding]:
+    """Every finding on one page that is not information only, most severe
+    first, each with boxes around its text: the forensic overlay."""
+    result = _load(case_id)
+    path, _ = _document(result, doc_id, page)
+    lines = _ocr_lines(result.case_id, doc_id, page)
+    on_page = sorted((e for e in result.evidence if (e.document, e.page) == (doc_id, page) and e.severity != "info"),
+                     key=lambda e: -SEVERITY_WEIGHTS[e.severity])
+    return [PageFinding(evidence_id=e.evidence_id, check_id=e.check_id, title=signal_for(e.check_id).name,
+                        severity=e.severity, explanation=e.explanation, observed=e.observed,
+                        boxes=_placed(e, path, lines)[1]) for e in on_page]
 
 
 @app.get("/api/feedback")

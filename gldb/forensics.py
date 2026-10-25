@@ -57,6 +57,8 @@ class HiddenText:
 class MixedToken:
     page: int
     text: str
+    #: The two fonts the token is drawn in, left then right ("Helvetica 10")
+    fonts: tuple[str, str]
 
 
 @dataclass(frozen=True)
@@ -132,6 +134,15 @@ def hidden_text(path: Path) -> list[HiddenText]:
     return found
 
 
+_SUBSET_TAG = re.compile(r"^[A-Z]{6}\+")
+
+
+def font_label(word: dict[str, Any]) -> str:
+    """A word's font and size as a reader would name them: "Arial-BoldMT 9.5",
+    without the tag an embedded subset font carries ("ABCDEF+")."""
+    return f"{_SUBSET_TAG.sub('', word['fontname'])} {round(word['size'], 1):g}"
+
+
 def mixed_font_tokens(path: Path) -> list[MixedToken]:
     """Digit-bearing tokens drawn with more than one font or size."""
     found: list[MixedToken] = []
@@ -147,7 +158,7 @@ def mixed_font_tokens(path: Path) -> list[MixedToken]:
                 )
                 token = left["text"] + right["text"]
                 if same_line and touching and differs and any(c.isdigit() for c in token):
-                    found.append(MixedToken(number, token))
+                    found.append(MixedToken(number, token, (font_label(left), font_label(right))))
     return found
 
 

@@ -159,6 +159,14 @@ def test_mixed_font_inside_a_number(tmp_path: Path) -> None:
 
     tokens = forensics.mixed_font_tokens(_pdf(tmp_path, draw))
     assert [t.text for t in tokens] == ["18,000.00"]
+    assert tokens[0].fonts == ("Helvetica 10", "Courier 10")
+    (ev,) = check_forensic_mixed_font(_pack(_pdf(tmp_path, draw, "m.pdf")))
+    assert ev.observed == "Helvetica 10 / Courier 10"  # the two fonts, not which one is the original
+
+
+def test_a_subset_fonts_tag_is_not_part_of_its_name() -> None:
+    assert forensics.font_label({"fontname": "ABCDEF+Arial-BoldMT", "size": 9.4999}) == "Arial-BoldMT 9.5"
+    assert forensics.font_label({"fontname": "Helvetica", "size": 10.0}) == "Helvetica 10"
 
 
 def test_bold_label_then_normal_value_is_not_mixed(tmp_path: Path) -> None:

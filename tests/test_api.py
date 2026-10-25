@@ -113,6 +113,28 @@ def test_evidence_location_highlights_its_quote(client: TestClient) -> None:
     assert client.get(f"/api/cases/{cid}/evidence/E99/location").status_code == 404
 
 
+def test_page_findings_box_every_finding_on_the_page_most_severe_first(client: TestClient) -> None:
+    case = _case(client)
+    cid = case["case_id"]
+    url = f"/api/cases/{cid}/documents/invoice_INV-1002/pages/1/findings"
+    found = client.get(url).json()
+    expected = [e for e in case["evidence"]
+                if (e["document"], e["page"]) == ("invoice_INV-1002", 1) and e["severity"] != "info"]
+    assert {f["evidence_id"] for f in found} == {e["evidence_id"] for e in expected} != set()
+    rank = ["critical", "high", "medium", "low"]
+    assert [rank.index(f["severity"]) for f in found] == sorted(rank.index(f["severity"]) for f in found)
+    hidden = next(f for f in found if f["check_id"] == "FORENSIC_HIDDEN_TEXT")
+    location = client.get(f"/api/cases/{cid}/evidence/{hidden['evidence_id']}/location").json()
+    assert hidden["boxes"] == location["boxes"] != []
+    assert hidden["explanation"] and hidden["title"]
+
+
+def test_page_findings_of_a_document_not_in_the_case_are_404(client: TestClient) -> None:
+    cid = _case(client)["case_id"]
+    assert client.get(f"/api/cases/{cid}/documents/nope/pages/1/findings").status_code == 404
+    assert client.get(f"/api/cases/{cid}/documents/invoice_INV-1002/pages/9/findings").status_code == 404
+
+
 def test_findings_on_the_application_have_no_page(client: TestClient) -> None:
     case = _case(client, "incomplete")
     cid = case["case_id"]

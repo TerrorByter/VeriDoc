@@ -5,6 +5,7 @@ import type {
   CaseView,
   Controls,
   EvidenceLocation,
+  PageFinding,
   FlagDecision,
   MlroDecision,
   PackInfo,
@@ -97,3 +98,6 @@ export const pageUrl = (caseId: string, docId: string, page: number) =>
 
 export const getEvidenceLocation = (caseId: string, evidenceId: string) =>
   request<EvidenceLocation>(`/api/cases/${caseId}/evidence/${evidenceId}/location`);
+
+export const getPageFindings = (caseId: string, docId: string, page: number) =>
+  request<PageFinding[]>(`${pageUrl(caseId, docId, page)}/findings`);

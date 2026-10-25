@@ -158,6 +158,17 @@ export interface EvidenceLocation {
   boxes: Box[];
 }
 
+/** A finding on one page, as the forensic overlay draws it; no boxes when its text cannot be placed */
+export interface PageFinding {
+  evidence_id: string;
+  check_id: string;
+  title: string;
+  severity: Severity;
+  explanation: string;
+  observed: string | null;
+  boxes: Box[];
+}
+
 /** What the document viewer should open: a page, optionally for a finding */
 export interface ViewTarget {
   docId: string;

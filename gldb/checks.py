@@ -1603,7 +1603,7 @@ def check_forensic_mixed_font(pack: ExtractedPack) -> list[Evidence]:
             "FORENSIC_MIXED_FONT", "fraud_signal", "medium", doc_id, token.page, 0.7,
             f"'{token.text}' in {doc_id} page {token.page} mixes fonts or sizes within "
             "one token, which can mean a figure was edited on top of the original.",
-            quote=token.text,
+            quote=token.text, observed=" / ".join(token.fonts),
         )
         for doc_id, path in _forensic_docs(pack)
         for token in mixed_font_tokens(path)

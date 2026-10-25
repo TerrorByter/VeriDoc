@@ -23,8 +23,8 @@ VeriDoc reviews trade-finance application packs (invoices, purchase orders, bill
 
 ## Operating Context
 
-- Cases are opened from an uploaded pack or a demo pack, then run through ten stages: OCR, Intake, Prompt screen, Extract, Agents, Score, Readiness, Route, Investigation, Audit record.
-- The analyst reads a finding beside the document page it came from, and confirms or dismisses it with a reason.
+- Cases are opened from an uploaded pack or a demo pack, then run through twelve stages: OCR, Intake, Prompt screen, Extract, Official records, Rule checks, Agents, Score, Readiness, Route, Investigation, Audit record.
+- The analyst reads a finding beside the document page it came from (the forensic overlay boxes every finding on a page at once), and confirms or dismisses it with a reason.
 - A Model and controls screen compares model setups and shows cost per case.
 - Banking and system terms appear as written: STRO, MLRO, UEN, and rule check ids such as XDOC_INVOICE_BANK.
 
@@ -42,7 +42,7 @@ Binding visual constraint volunteered by the user: the interface is used in ligh
 
 ## Evidence on Hand
 
-- Eleven synthetic demo packs in `data/packs/` and several live runs of the AI team (cases `LIVE-RUN-7` and `LIVE-RUN-9`, among others, with their documents under `data/uploads/`).
+- Eight synthetic demo packs in `data/packs/` (each with the invoices, purchase orders and bills of lading behind its trade), the test packs in `tests/fixtures/packs/`, and several live runs of the AI team (cases `LIVE-RUN-7` and `LIVE-RUN-9`, among others, with their documents under `data/uploads/`).
 - No real bank data, customers, testimonials or benchmarks exist. Future work must not invent any. The header already says "Prototype · synthetic data".
 
 ## Product Principles

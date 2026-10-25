@@ -135,9 +135,10 @@ it after each plenary (February, June, October).
 
 The UI has four screens: **Cases** (every case, newest first), **New case**
 (demo packs or an upload), a **live run** that shows each pipeline stage as it
-runs, and the **case workspace**, where each of the 11 stages has its own page
-(the arrow keys step through them) beside the document viewer. **Model &
-controls** shows the saved evaluation, capabilities, signal library and spend.
+runs, and the **case workspace**, where each of the 12 stages has its own page
+(the arrow keys step through them) beside the document viewer, whose
+**Forensic overlay** boxes every finding on a page at once, coloured by
+severity. **Model & controls** shows the saved evaluation, capabilities, signal library and spend.
 A case on the enhanced review path cannot be approved until the MLRO has
 reviewed it: the analyst escalates it, a different person records the MLRO
 decision, and then approval opens. Declining is never held back.
@@ -159,14 +160,27 @@ gldb/               Core package
   reference.py      The lists names are screened against: the designations and the bank's own watchlist
   screening.py      Deterministic name screening (names and aliases) against them
   intake.py         File validation (PDF and .xlsx), hashing, metadata, text extraction, classification
+  prompt_screen.py  Bedrock guardrail screen for instructions aimed at AI models (a hard flag)
   workbook.py       Read-only .xlsx reader (standard library): sheets, cells, file properties
   extract_stub.py   Deterministic parsers: the generated layout, AcroForms, ACRA profile, IRAS notice, financial workbook
+  form_maps.py      FATCA/CRS AcroForm field maps
   llm_client.py     The only AWS Bedrock wrapper (Converse API; extraction at temperature 0, agent turns send none)
   extract_llm.py    LLM-based field extraction
   extract.py        Dispatcher: routes to stub or LLM extractor
   checks.py         Deterministic checks grouped into rule groups; run_rule_checks() merges Evidence
   forensics.py      PDF forensics primitives (hidden text, mixed fonts, incremental saves)
-  scoring.py        Rule-based risk score (LLMs never touch the score)
+  ordering.py       The ordering policy of a trade: order, shipment, invoice, payment
+  signal_library.py Every check as a named, versioned signal
+  scoring.py        Rule-based risk score and application readiness (LLMs never touch the score)
+  routing.py        Review path (fast track, standard, enhanced) from the score, hard flags, confidence and readiness
+  reconciliation.py Transaction chains: each invoice through its order, shipment and payment
+  timeline.py       Every dated fact in the pack, in order
+  investigation.py  The analyst's queue, and what resolving each task would change
+  coverage.py       Share of risk findings traceable to their source
+  lifecycle.py      Case lifecycle as an event-sourced state machine (the MLRO gate)
+  feedback.py       How often analysts override each check, and why
+  usage.py          Usage metering and cost per case
+  privacy.py        Identifier masking
   audit.py          Append-only JSONL audit log
   pipeline.py       run(case_id, file_paths) -> CaseResult
   ai_team/          AI agent team: a Supervisor and four specialists on Bedrock
@@ -175,17 +189,21 @@ gldb/               Core package
     verify.py       Deterministic gate: withholds leads and memo points that are ungrounded or give a verdict
     prompts.py      Supervisor and specialist prompts, with their versions
     team.py         run_team(): plan, fan out, verify leads, reconcile into a memo
+    checks.py       Code checks of each lead against the case data (verified, contradicted, ...)
+    shadow.py       Shadow case scorer and the log-only gate (never changes the route)
+  evaluate.py       Scores the pipeline against each demo pack's ground truth
   agent_eval.py     Champion vs challenger evaluation of the AI team on the packs
   api.py            FastAPI app used by the frontend
   jobs.py           Progress of background pipeline runs, for the live run screen
   ocr.py            Textract OCR of every PDF page except the FATCA/CRS forms
   viewer.py         Evidence viewer: a page (or workbook sheet) as an image, and where a quote sits on it
 mock_gov/           Mock ACRA and IRAS records service (stands in for the ACRA and Myinfo APIs)
+infra/              The prompt screen's guardrail (CloudFormation)
 frontend/           React + TypeScript (Vite) UI
 data/
   packs/            Demo packs in the format of the team's sample (one folder per case)
   mock_gov/         The mock service's ACRA and IRAS records
-  reference/        designations.json (UN designations, from the sync; history/ keeps replaced ones) and sanctions.json (the bank's own names)
+  reference/        designations.json (UN designations, from the sync; history/ keeps replaced ones), sanctions.json (the bank's own names), high_risk_countries.json (FATF)
   templates/sample/ The team's sample documents the demo packs are edited from
   uploads/          Runtime uploads (gitignored)
   cases/            Processed case outputs (gitignored)

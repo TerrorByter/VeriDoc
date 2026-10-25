@@ -7,6 +7,7 @@ Page rendering and quote location for the evidence drill-down. No AWS calls.
 from __future__ import annotations
 
 import io
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pypdf
@@ -26,6 +27,16 @@ INVOICE = PACKS / "tampered" / "invoice_INV-1002.pdf"
 def test_page_renders_as_png() -> None:
     png = render_page(INVOICE, 1)
     assert png.startswith(b"\x89PNG") and len(png) > 10_000
+
+
+def test_concurrent_renders_match_a_single_render() -> None:
+    """pdfium is not thread-safe: unserialised, overlapping renders come out
+    truncated and leave every later render in the process failing."""
+    expected = render_page(INVOICE, 1)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        pages = list(pool.map(lambda _: render_page(INVOICE, 1), range(16)))
+    assert pages == [expected] * 16
+    assert render_page(INVOICE, 1) == expected
 
 
 def test_quote_is_located_as_page_relative_boxes() -> None:

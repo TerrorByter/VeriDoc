@@ -37,6 +37,7 @@ from gldb.schemas import (
     OptionalMoney,
     ReadinessResult,
     RiskResult,
+    RuleGroupReport,
     Signatory,
     StageReport,
     TaxResidencyRow,
@@ -578,6 +579,23 @@ def test_entity_self_cert_in_pack_roundtrip():
 # ---------------------------------------------------------------------------
 
 
+def test_result_stored_with_the_rule_groups_called_agents_still_loads():
+    """Results stored when the rule groups were called agents still load: the
+    reports, each finding's group and the "agents" stage take their new names."""
+    result = _make_case_result().model_copy(update={
+        "evidence": [_make_evidence().model_copy(update={"rule_group": "Timeline"})],
+        "rule_group_reports": [
+            RuleGroupReport(name="Timeline", description="Dates", checks_run=2, findings=1, duration_ms=3),
+        ],
+        "stages": [StageReport(stage_id="rule_checks", status="ran", duration_ms=2)],
+    })
+    stored = result.model_dump(mode="json")
+    stored["agent_reports"] = stored.pop("rule_group_reports")
+    stored["evidence"][0]["agent"] = stored["evidence"][0].pop("rule_group")
+    stored["stages"][0]["stage_id"] = "agents"
+    assert CaseResult.model_validate_json(json.dumps(stored)) == result
+
+
 def test_agent_team_trace_is_never_serialised():
     team = AgentTeam(status="ran", trace={"R01": "PAGE TEXT"})
     json_str = team.model_dump_json()
@@ -585,5 +603,5 @@ def test_agent_team_trace_is_never_serialised():
 
 
 def test_stage_report_accepts_failed():
-    report = StageReport(stage_id="agents", status="failed", duration_ms=100)
+    report = StageReport(stage_id="rule_checks", status="failed", duration_ms=100)
     assert report.status == "failed"

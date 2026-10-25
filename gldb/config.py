@@ -184,7 +184,7 @@ BAND_MEDIUM_MAX: int = 49
 # version whenever anything in this section changes.
 # ---------------------------------------------------------------------------
 
-POLICY_VERSION: str = "2026-10-04.2"
+POLICY_VERSION: str = "2026-10-25.1"
 
 #: Findings serious enough on their own to force enhanced review (EDD),
 #: whatever the score: sanctions hits, unregistered entities, and deliberate
@@ -211,6 +211,8 @@ OCR_MIN_CONFIDENCE: float = 80.0
 #: bank's own hand-kept list (in the prototype, fictional demo names).
 DESIGNATIONS_PATH: str = "data/reference/designations.json"
 WATCHLIST_PATH: str = "data/reference/sanctions.json"
+#: FATF's lists of high-risk jurisdictions, kept by hand (FATF publishes no feed)
+HIGH_RISK_COUNTRIES_PATH: str = "data/reference/high_risk_countries.json"
 
 #: MAS's page of the UN lists that Singapore's targeted financial sanctions
 #: apply, and how often `python -m gldb.sanctions_sync --every` looks at it

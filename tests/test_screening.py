@@ -2,7 +2,7 @@
 tests/test_screening.py
 -----------------------
 Reference data (the synthetic sanctions list), deterministic name screening,
-and the Registry & Screening agent against ACRA's records (the in-process
+and the Registry & Screening rule group against ACRA's records (the in-process
 mock service). No AWS calls.
 """
 
@@ -15,7 +15,8 @@ import pytest
 
 from gldb import reference, screening
 from gldb.checks import (
-    AGENTS,
+    RULE_GROUPS,
+    check_high_risk_countries,
     check_official_copies,
     check_official_records,
     check_registry_entities,
@@ -34,7 +35,8 @@ PACKS = Path(__file__).parent / "fixtures" / "packs"
 def test_reference_data_is_versioned_and_dated() -> None:
     watchlist = reference.watchlist()
     assert watchlist.version and watchlist.as_of and watchlist.entries
-    assert reference.versions() == {"sanctions": watchlist.version}
+    assert reference.versions() == {
+        "sanctions": watchlist.version, "high_risk_countries": reference.high_risk_countries().version}
 
 
 @pytest.mark.parametrize(("a", "b", "same"), [
@@ -77,21 +79,68 @@ def test_name_mismatch_against_the_registry() -> None:
     assert [e.check_id for e in found] == ["REGISTRY_NAME_MISMATCH"]
 
 
+def _with_acra(pack: ExtractedPack, uen: str, **record: object) -> ExtractedPack:
+    """*pack* with ACRA's record of *uen* changed."""
+    assert pack.official is not None
+    changed = pack.official.companies[uen].model_copy(update=record)
+    return pack.model_copy(update={"official": pack.official.model_copy(update={"companies": {**pack.official.companies, uen: changed}})})
+
+
+def test_a_struck_off_applicant_is_one_finding_however_many_documents_name_it() -> None:
+    """The clean pack names its applicant on the application, two invoices and two orders."""
+    pack = pack_from_folder(PACKS / "clean")
+    assert pack.official is not None and pack.official.applicant_uen
+    (ev,) = check_registry_entities(_with_acra(pack, pack.official.applicant_uen, status="STRUCK OFF"))
+    assert (ev.check_id, ev.severity, ev.document) == ("REGISTRY_ENTITY_INACTIVE", "high", "pack")
+    assert "also named on invoice_INV-1001, invoice_INV-1002, purchase_order_PO-2001, purchase_order_PO-2002" in ev.explanation
+
+
+def test_an_unregistered_uen_on_several_documents_is_one_finding_on_the_first() -> None:
+    pack = pack_from_folder(PACKS / "clean")
+    assert pack.official is not None
+    unknown = pack.model_copy(update={"official": pack.official.model_copy(update={"companies": {}})})
+    found = [e for e in check_registry_entities(unknown) if e.check_id == "REGISTRY_ENTITY_NOT_FOUND"]
+    assert len(found) == len({e.observed for e in found}) == 1
+    assert found[0].document == "pack" and "also named on invoice_INV-1001" in found[0].explanation
+
+
+def test_each_wrong_name_for_a_company_is_a_finding_once() -> None:
+    pack = pack_from_folder(PACKS / "clean")
+    renamed = [i.model_copy(update={"seller_name": "Lumen Harbor Holdings Pte. Ltd."}) for i in pack.invoices]
+    found = check_registry_entities(pack.model_copy(update={"invoices": renamed}))
+    assert [(e.check_id, e.document) for e in found] == [("REGISTRY_NAME_MISMATCH", "invoice_INV-1001")]
+
+
+def test_two_struck_off_companies_are_two_findings() -> None:
+    pack = pack_from_folder(PACKS / "clean")
+    assert pack.official is not None and pack.official.applicant_uen
+    other = pack.official.companies[pack.official.applicant_uen].model_copy(update={"uen": "999999999Z", "status": "STRUCK OFF"})
+    both = _with_acra(pack, pack.official.applicant_uen, status="STRUCK OFF")
+    assert both.official is not None
+    renumbered = [pack.invoices[0].model_copy(update={"seller_uen": other.uen, "seller_name": other.company_name}), *pack.invoices[1:]]
+    with_other = both.model_copy(update={
+        "invoices": renumbered,
+        "official": both.official.model_copy(update={"companies": {**both.official.companies, other.uen: other}}),
+    })
+    assert sorted(e.observed or "" for e in check_registry_entities(with_other) if e.check_id == "REGISTRY_ENTITY_INACTIVE") == [
+        "STRUCK OFF", "STRUCK OFF"]
+
+
 def test_signatory_must_be_a_registered_officer() -> None:
     (ev,) = check_registry_signatories(_clean_with(authorised_signatories=["Tan Wei Ming", "Peter Lim"]))
     assert (ev.check_id, ev.severity) == ("REGISTRY_SIGNATORY_NOT_OFFICER", "medium")
     assert ev.observed == "Peter Lim"
 
 
-def test_agent_and_signals_are_registered() -> None:
-    agent = next(a for a in AGENTS if a.name == "Registry & Screening")
-    assert agent.checks == [check_official_records, check_official_copies, check_registry_entities,
-                            check_registry_signatories, check_sanctions]
+def test_group_and_signals_are_registered() -> None:
+    group = next(g for g in RULE_GROUPS if g.name == "Registry & Screening")
+    assert group.checks == [check_official_records, check_official_copies, check_registry_entities,
+                            check_registry_signatories, check_sanctions, check_high_risk_countries]
     for check_id, signal_id in [
         ("XDOC_OFFICIAL_RECORD", "REG-009"), ("OFFICIAL_RECORDS_UNAVAILABLE", "REG-010"),
         ("REGISTRY_ENTITY_NOT_FOUND", "REG-002"), ("REGISTRY_NAME_MISMATCH", "REG-003"),
         ("REGISTRY_ENTITY_INACTIVE", "REG-004"), ("REGISTRY_SIGNATORY_NOT_OFFICER", "REG-005"),
-        ("SANCTIONS_MATCH", "COMP-030"),
+        ("SANCTIONS_MATCH", "COMP-030"), ("HIGH_RISK_COUNTRY", "COMP-031"),
     ]:
         assert BY_CHECK[check_id].signal_id == signal_id
 

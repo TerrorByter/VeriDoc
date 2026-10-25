@@ -1,8 +1,8 @@
 """
 gldb/reference.py
 -----------------
-Versioned reference data: the lists a name is screened against. Two files
-are read as one watchlist:
+Versioned reference data: the lists a name is screened against, and the
+countries a case is checked for. Two files are read as one watchlist:
 
 - the designations: the individuals and entities on the UN lists that MAS
   names, kept current by gldb.sanctions_sync (the UN lists are what Singapore's
@@ -10,7 +10,8 @@ are read as one watchlist:
 - the bank's own watchlist: hand-kept names (in the prototype, fictional ones
   that the demo cases plant).
 
-Company and tax records are not reference data: they are fetched per case from
+The third file is FATF's lists of high-risk jurisdictions, kept by hand after
+each plenary. Company and tax records are not reference data: they are fetched per case from
 ACRA and IRAS (gldb.official).
 
 Each file carries a source, version and as-of date. Findings that use the lists
@@ -30,7 +31,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from gldb.config import DESIGNATIONS_PATH, WATCHLIST_PATH
+from gldb.config import DESIGNATIONS_PATH, HIGH_RISK_COUNTRIES_PATH, WATCHLIST_PATH
 
 #: WatchlistEntry has a field named `list`, which hides the builtin in its body
 Strings = list[str]
@@ -72,6 +73,23 @@ class Watchlist(BaseModel):
     as_of: date
     entries: list[WatchlistEntry]
     lists: list[ListSource] = []
+
+
+class HighRiskCountry(BaseModel):
+    name: str
+    #: The FATF list it is on: a call for action (counter-measures or enhanced
+    #: due diligence), or increased monitoring
+    fatf_list: Literal["call_for_action", "increased_monitoring"]
+    #: Other ways a form can write it: names and ISO codes. A bare "Korea" or
+    #: "Congo" is ambiguous, so is not one.
+    aliases: Strings = []
+
+
+class CountryList(BaseModel):
+    source: str
+    version: str
+    as_of: date
+    countries: list[HighRiskCountry]
 
 
 def _read(path: Path) -> Watchlist:
@@ -122,6 +140,16 @@ def watchlist() -> Watchlist:
     return _combined(tuple((path, path.stat().st_mtime_ns) for path in paths))
 
 
+@lru_cache(maxsize=1)
+def _countries(modified: int) -> CountryList:
+    """The countries file, read again when its modification time *modified* changes."""
+    return CountryList.model_validate_json(Path(HIGH_RISK_COUNTRIES_PATH).read_text(encoding="utf-8"))
+
+
+def high_risk_countries() -> CountryList:
+    return _countries(Path(HIGH_RISK_COUNTRIES_PATH).stat().st_mtime_ns)
+
+
 def versions() -> dict[str, str]:
     """Reference data versions, for the audit log."""
-    return {"sanctions": watchlist().version}
+    return {"sanctions": watchlist().version, "high_risk_countries": high_risk_countries().version}

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from gldb.checks import matching_po
+from gldb.checks import is_purchase, matching_po
 from gldb.config import MATCH_WINDOW_DAYS, TOLERANCE_SGD
 from gldb.schemas import (
     ChainStatus,
@@ -93,26 +93,27 @@ def _payment_step(inv: Invoice, pack: ExtractedPack, evidence: list[Evidence]) -
     flags = _findings(evidence, "XDOC_INVOICE_BANK", inv.doc_id)
     if not pack.bank_statements:
         return ChainStep(step="payment", status="not_provided", invoice_claim=claim)
-    # XDOC_INVOICE_BANK raises a non-info finding only when no credit matches
-    # (its "observed" is the closest credit, not "none"), so any is "missing".
+    # XDOC_INVOICE_BANK raises a non-info finding only when no payment matches
+    # (its "observed" is the closest payment, not "none"), so any is "missing".
     status: ChainStatus = "missing" if any(e.severity != "info" for e in flags) else "matched"
+    kind = "debit" if is_purchase(inv.buyer_name, pack) else "credit"
     window_end = inv.invoice_date + timedelta(days=MATCH_WINDOW_DAYS)
-    credit = next(
+    payment = next(
         (
             (stmt, txn)
             for stmt in pack.bank_statements
             for txn in stmt.transactions
-            if txn.credit is not None
+            if getattr(txn, kind) is not None
             and inv.invoice_date <= txn.date <= window_end
-            and abs(txn.credit - inv.total) <= TOLERANCE_SGD
+            and abs(getattr(txn, kind) - inv.total) <= TOLERANCE_SGD
         ),
         None,
     ) if status == "matched" else None
     return ChainStep(
         step="payment", status=status, invoice_claim=claim,
-        counterpart=ClaimRef(doc_id=credit[0].doc_id, page=credit[0].page,
-                             label=f"Bank credit on {credit[1].date}", value=f"SGD {credit[1].credit}")
-        if credit else None,
+        counterpart=ClaimRef(doc_id=payment[0].doc_id, page=payment[0].page,
+                             label=f"Bank {kind} on {payment[1].date}", value=f"SGD {getattr(payment[1], kind)}")
+        if payment else None,
         evidence_ids=[e.evidence_id for e in flags],
         note="; ".join(e.explanation for e in flags),
     )

@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from gldb import extract_llm
-from gldb.checks import AGENTS, check_xdoc_bl_invoice
+from gldb.checks import RULE_GROUPS, check_xdoc_bl_invoice
 from gldb.data_factory import ENTITY_TEMPLATE, generate_packs
 from gldb.extract_stub import _parse_bill_of_lading
 from gldb.intake import classify, read_text
@@ -90,7 +90,7 @@ def test_pack_without_bills_of_lading_is_not_checked() -> None:
 
 
 def test_bill_of_lading_is_wired_in() -> None:
-    cross = next(a for a in AGENTS if a.name == "Cross-Document")
+    cross = next(a for a in RULE_GROUPS if a.name == "Cross-Document")
     assert check_xdoc_bl_invoice in cross.checks
     assert BY_CHECK["XDOC_BL_INVOICE"].signal_id == "TXN-003"
     assert extract_llm._MODELS["bill_of_lading"] is BillOfLading

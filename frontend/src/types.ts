@@ -4,7 +4,7 @@ export type Band = "Low" | "Medium" | "High";
 
 export interface Evidence {
   evidence_id: string;
-  agent: string;
+  rule_group: string;
   check_id: string;
   category: Category;
   severity: Severity;
@@ -26,7 +26,7 @@ export interface DocMeta {
   page_count: number;
 }
 
-export interface AgentReport {
+export interface RuleGroupReport {
   name: string;
   description: string;
   checks_run: number;
@@ -299,7 +299,7 @@ export type StageId =
   | "prompt_screen"
   | "extract"
   | "records"
-  | "agents"
+  | "rule_checks"
   | "ai_team"
   | "shadow_score"
   | "score"
@@ -308,8 +308,8 @@ export type StageId =
   | "projections"
   | "record";
 
-/** The stages the rail shows: the AI team runs inside stage 6 and the shadow score inside stage 7 */
-export type RailStageId = Exclude<StageId, "ai_team" | "shadow_score">;
+/** The stages the rail shows: the shadow score runs inside the Score stage */
+export type RailStageId = Exclude<StageId, "shadow_score">;
 
 export type StageState = "running" | "ran" | "off" | "failed";
 
@@ -344,7 +344,7 @@ export interface CaseView {
   company_name: string | null;
   docs: DocMeta[];
   evidence: Evidence[];
-  agent_reports: AgentReport[];
+  rule_group_reports: RuleGroupReport[];
   risk: Risk;
   readiness: Readiness | null;
   routing: Routing | null;

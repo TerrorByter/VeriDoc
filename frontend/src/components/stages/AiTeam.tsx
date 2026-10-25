@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { flushSync } from "react-dom";
 import { AGENT_TITLE, duration, SPECIALISTS, usd } from "../../catalogue";
 import type { AgentName, Evidence, ReviewPoint, ViewTarget } from "../../types";
@@ -46,10 +46,10 @@ function Points({ points, evidence, onView }: {
   );
 }
 
-/** The AI agent team's part of the Agents stage: what it found and what the Supervisor wrote, first; then (the
- * rule findings, passed as children) ; then how the team got there, folded: its plan, every tool call, and the
- * leads the verifier could not turn into flags. Nothing here feeds the score or the route. */
-export function AiTeam({ kase, onView, children }: StageProps & { children?: ReactNode }) {
+/** The Agents stage: what the AI agent team found and what the Supervisor wrote, first; then how the team got
+ * there, folded: its plan, every tool call, and the leads the verifier could not turn into flags. Nothing here
+ * feeds the score or the route. */
+export function AiTeam({ kase, onView }: StageProps) {
   const [agent, setAgent] = useState<AgentName>("supervisor");
   const [focus, setFocus] = useState<string | null>(null);
   const [traceOpen, setTraceOpen] = useState(false);
@@ -57,12 +57,9 @@ export function AiTeam({ kase, onView, children }: StageProps & { children?: Rea
 
   if (!team) {
     return (
-      <>
-        <Section title="AI agent team" primary aside="Leads never change the score">
-          <OffNote stage="ai_team">The rule sweep ran in full, so the findings, score and route are complete.</OffNote>
-        </Section>
-        {children}
-      </>
+      <Section title="AI agent team" primary aside="Leads never change the score">
+        <OffNote stage="ai_team">The rule checks ran in full, so the findings, score and route are complete.</OffNote>
+      </Section>
     );
   }
 
@@ -140,8 +137,6 @@ export function AiTeam({ kase, onView, children }: StageProps & { children?: Rea
           )}
         </Section>
       )}
-
-      {children}
 
       <Fold title="How the team got here" aside={`${team.tool_calls.length} tool calls${report ? `, ${duration(report.duration_ms)}` : ""}${cost ? `, ${usd(cost, 4)}` : ""}`}>
         <dl className="facts">

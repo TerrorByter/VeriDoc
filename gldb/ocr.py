@@ -8,9 +8,11 @@ single-page PDFs with pypdf. Returns per-page text in reading order, the same
 shape as intake.read_text().
 
 ocr_files() is the pipeline's OCR stage: every page of every document, so
-scans can be read and the Forensics agent can compare the text layer with
-what is visible. Fillable forms (AcroForms) are skipped: they are read
-deterministically and their tax identifiers stay on our side.
+scans can be read and the Forensics rule group can compare the text layer with
+what is visible. The FATCA/CRS forms are skipped: they are read field by
+field and their tax identifiers stay on our side. A fillable bank statement
+is read like any page: its figures are form fields, so OCR is the only look
+at what a reader sees.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ import pypdf
 from botocore.config import Config
 
 from gldb.config import AWS_REGION, OCR_MAX_WORKERS
+from gldb.intake import FORM_DOC_TYPES, classify, read_text
 from gldb.schemas import Box, OcrLine
 from gldb.usage import log_usage
 from gldb.workbook import is_workbook
@@ -86,8 +89,8 @@ def _ocr_bytes(textract: Any, page_pdf: bytes) -> tuple[str, float, list[OcrLine
 
 
 def ocr_files(paths: list[Path], case_id: str = "", client: Any | None = None) -> OcrResult:
-    """OCR every page of every non-form PDF with Textract DetectDocumentText.
-    Workbooks have no pages to read and are skipped.
+    """OCR every page of every PDF with Textract DetectDocumentText, except
+    the FATCA/CRS forms. Workbooks have no pages to read and are skipped.
 
     Pages are split sequentially (pypdf readers are not thread-safe); only the
     Textract calls run concurrently.
@@ -100,11 +103,9 @@ def ocr_files(paths: list[Path], case_id: str = "", client: Any | None = None) -
     textract = client or _default_client()
     jobs: list[tuple[str, bytes]] = []
     for path in paths:
-        if is_workbook(path):
+        if is_workbook(path) or classify(read_text(path)) in FORM_DOC_TYPES:
             continue
-        reader = pypdf.PdfReader(str(path))
-        if not reader.get_fields():
-            jobs.extend((path.stem, _page_bytes(page)) for page in reader.pages)
+        jobs.extend((path.stem, _page_bytes(page)) for page in pypdf.PdfReader(str(path)).pages)
     with ThreadPoolExecutor(max_workers=OCR_MAX_WORKERS) as pool:
         pages = list(pool.map(lambda job: _ocr_bytes(textract, job[1]), jobs))
     if jobs:

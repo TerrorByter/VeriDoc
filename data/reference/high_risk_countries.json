@@ -1,0 +1,237 @@
+{
+  "source": "FATF's public statements of 19 June 2026: High-Risk Jurisdictions subject to a Call for Action, and Jurisdictions under Increased Monitoring. MAS's FATF Statement of 25 June 2026 and the FIC's advisory of 22 June 2026 repeat them. Kept by hand: FATF publishes no machine-readable list. Update it after each plenary (February, June, October); the October 2026 plenary was not yet reported when this was written.",
+  "version": "FATF-2026-06",
+  "as_of": "2026-06-19",
+  "countries": [
+    {
+      "name": "Democratic People's Republic of Korea",
+      "fatf_list": "call_for_action",
+      "aliases": [
+        "North Korea",
+        "Korea, North",
+        "Korea, Democratic People's Republic of",
+        "DPRK",
+        "KP",
+        "PRK"
+      ]
+    },
+    {
+      "name": "Iran",
+      "fatf_list": "call_for_action",
+      "aliases": [
+        "Islamic Republic of Iran",
+        "Iran, Islamic Republic of",
+        "IR",
+        "IRN"
+      ]
+    },
+    {
+      "name": "Myanmar",
+      "fatf_list": "call_for_action",
+      "aliases": [
+        "Burma",
+        "Myanmar (Burma)",
+        "Republic of the Union of Myanmar",
+        "MM",
+        "MMR"
+      ]
+    },
+    {
+      "name": "Angola",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "AO",
+        "AGO"
+      ]
+    },
+    {
+      "name": "Bolivia",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "Bolivia, Plurinational State of",
+        "Plurinational State of Bolivia",
+        "BO",
+        "BOL"
+      ]
+    },
+    {
+      "name": "Bosnia and Herzegovina",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "Bosnia",
+        "Bosnia-Herzegovina",
+        "BA",
+        "BIH"
+      ]
+    },
+    {
+      "name": "Bulgaria",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "BG",
+        "BGR"
+      ]
+    },
+    {
+      "name": "Cameroon",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "CM",
+        "CMR"
+      ]
+    },
+    {
+      "name": "Côte d'Ivoire",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "Ivory Coast",
+        "CI",
+        "CIV"
+      ]
+    },
+    {
+      "name": "Democratic Republic of the Congo",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "DR Congo",
+        "DRC",
+        "Democratic Republic of Congo",
+        "Congo, Democratic Republic of the",
+        "Congo (Kinshasa)",
+        "CD",
+        "COD"
+      ]
+    },
+    {
+      "name": "Haiti",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "HT",
+        "HTI"
+      ]
+    },
+    {
+      "name": "Iraq",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "IQ",
+        "IRQ"
+      ]
+    },
+    {
+      "name": "Kenya",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "KE",
+        "KEN"
+      ]
+    },
+    {
+      "name": "Kuwait",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "KW",
+        "KWT"
+      ]
+    },
+    {
+      "name": "Lao PDR",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "Laos",
+        "Lao People's Democratic Republic",
+        "LA",
+        "LAO"
+      ]
+    },
+    {
+      "name": "Lebanon",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "LB",
+        "LBN"
+      ]
+    },
+    {
+      "name": "Monaco",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "MC",
+        "MCO"
+      ]
+    },
+    {
+      "name": "Nepal",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "NP",
+        "NPL"
+      ]
+    },
+    {
+      "name": "Papua New Guinea",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "PNG",
+        "PG"
+      ]
+    },
+    {
+      "name": "South Sudan",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "Republic of South Sudan",
+        "SS",
+        "SSD"
+      ]
+    },
+    {
+      "name": "Syria",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "Syrian Arab Republic",
+        "SY",
+        "SYR"
+      ]
+    },
+    {
+      "name": "Venezuela",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "Venezuela, Bolivarian Republic of",
+        "Bolivarian Republic of Venezuela",
+        "VE",
+        "VEN"
+      ]
+    },
+    {
+      "name": "Vietnam",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "Viet Nam",
+        "Socialist Republic of Vietnam",
+        "VN",
+        "VNM"
+      ]
+    },
+    {
+      "name": "Virgin Islands (UK)",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "British Virgin Islands",
+        "Virgin Islands, British",
+        "BVI",
+        "VG",
+        "VGB"
+      ]
+    },
+    {
+      "name": "Yemen",
+      "fatf_list": "increased_monitoring",
+      "aliases": [
+        "YE",
+        "YEM"
+      ]
+    }
+  ]
+}

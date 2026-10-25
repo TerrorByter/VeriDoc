@@ -76,6 +76,18 @@ def test_illegal_transitions_are_refused(status: CaseStatus, action: str) -> Non
         lifecycle.require(status, action)
 
 
+def test_enhanced_review_is_not_approved_before_the_mlro_has_reviewed_it() -> None:
+    assert lifecycle.allowed_actions("assessed", edd_required=True) == ["decline", "escalate", "request_info"]
+    assert lifecycle.allowed_actions("mlro_reviewed", edd_required=True) == ["approve", "decline"]
+    assert lifecycle.allowed_actions("assessed", edd_required=False) == ["approve", "decline", "escalate", "request_info"]
+    with pytest.raises(lifecycle.TransitionError, match="enhanced review.*MLRO"):
+        lifecycle.require("assessed", "approve", edd_required=True)
+    lifecycle.require("assessed", "decline", edd_required=True)  # the cautious way is never held back
+    lifecycle.require("assessed", "escalate", edd_required=True)
+    lifecycle.require("mlro_reviewed", "approve", edd_required=True)
+    lifecycle.require("assessed", "approve")  # any other case: the analyst may approve
+
+
 def test_legacy_final_decision_events_still_replay() -> None:
     assert lifecycle.status([*ASSESSED, _event("final_decision", "rejected")]) == "declined"
 

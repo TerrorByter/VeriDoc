@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { duration, PATH_LABEL, STAGE_BY_ID, STAGES, usd } from "../../catalogue";
 import { href } from "../../route";
 import type { AuditEvent, CaseView, FlagDecision, RailStageId, ReasonCode, StageId, ViewTarget } from "../../types";
-import { AgentsStage } from "../stages/AgentsStage";
+import { AiTeam } from "../stages/AiTeam";
 import { AuditStage } from "../stages/AuditStage";
 import { ExtractStage } from "../stages/ExtractStage";
 import { IntakeStage } from "../stages/IntakeStage";
@@ -12,6 +12,7 @@ import { PromptScreenStage } from "../stages/PromptScreenStage";
 import { RecordsStage } from "../stages/RecordsStage";
 import { ReadinessStage } from "../stages/ReadinessStage";
 import { RouteStage } from "../stages/RouteStage";
+import { RuleChecksStage } from "../stages/RuleChecksStage";
 import { ScoreStage } from "../stages/ScoreStage";
 import { Icon, Pill, ServiceTag } from "../ui";
 import { aiLeads, openFindings, stageStatus } from "./stageStatus";
@@ -48,14 +49,14 @@ function result(kase: CaseView, id: RailStageId): string {
       const found = Object.values(records.companies).filter(Boolean).length;
       return `${plural(found, "ACRA record")}, ${plural(records.notices.length, "IRAS notice")}`;
     }
-    case "agents": {
+    case "rule_checks": {
       const explained = risky.length - openFindings(kase).length;
-      const rules = `${plural(risky.length - explained, "open finding")} from ${kase.agent_reports.reduce((n, a) => n + a.checks_run, 0)} checks`
+      return `${plural(risky.length - explained, "open finding")} from ${kase.rule_group_reports.reduce((n, g) => n + g.checks_run, 0)} checks`
         + (explained ? `, ${explained} explained by code` : "");
-      const team = !kase.ai_team ? "AI team off"
-        : kase.ai_team.status === "failed" ? "AI team failed" : plural(aiLeads(kase).length, "AI lead");
-      return `${rules} · ${team}`;
     }
+    case "ai_team":
+      return !kase.ai_team ? "AI team off"
+        : kase.ai_team.status === "failed" ? "AI team failed" : plural(aiLeads(kase).length, "AI lead");
     case "score":
       return `${kase.risk.score} / 100, ${kase.risk.band}`;
     case "readiness":
@@ -75,7 +76,8 @@ const BODY: Record<RailStageId, (p: StageProps) => ReactNode> = {
   prompt_screen: (p) => <PromptScreenStage {...p} />,
   extract: (p) => <ExtractStage {...p} />,
   records: (p) => <RecordsStage {...p} />,
-  agents: (p) => <AgentsStage {...p} />,
+  rule_checks: (p) => <RuleChecksStage {...p} />,
+  ai_team: (p) => <AiTeam {...p} />,
   score: (p) => <ScoreStage {...p} />,
   readiness: (p) => <ReadinessStage {...p} />,
   route: (p) => <RouteStage {...p} />,
@@ -90,14 +92,14 @@ export function StageDetail(props: StageProps & { stage: RailStageId }) {
   const off = status.state === "off";
   const prev = STAGES[info.n - 2];
   const next = STAGES[info.n];
-  // Stage 6 runs two steps (the rule agents and the AI team): its time and cost are both together
+  // The Score stage runs two steps (the score and the shadow scorer): its time and cost are both together
   const steps: StageId[] = info.steps ?? [stage];
   const reports = kase.stages.filter((s) => steps.includes(s.stage_id));
   const costs = steps.flatMap((id) => kase.cost?.usd_by_stage[id] ?? []);
   const cost = costs.length ? String(costs.reduce((n, c) => n + Number(c), 0)) : undefined;
-  // Only the AI team calls Bedrock in stage 6
-  const team = steps.includes("ai_team") ? kase.ai_team : undefined;
-  const serviceOff = off || (steps.includes("ai_team") && !team);
+  // The Agents stage is the one that calls Bedrock
+  const team = stage === "ai_team" ? kase.ai_team : undefined;
+  const serviceOff = off || (stage === "ai_team" && !team);
 
   return (
     <section className="detail" aria-labelledby="stage-title">

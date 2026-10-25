@@ -62,6 +62,16 @@
       "chargeable_income": "109322.00",
       "tax_payable": "6522.03",
       "postal_code": "760620"
+    },
+    {
+      "name": "MS WONG MEI LING",
+      "id_number": "S7512345M",
+      "year_of_assessment": 2025,
+      "income": "131862.00",
+      "deductions": "22540.00",
+      "chargeable_income": "109322.00",
+      "tax_payable": "6522.03",
+      "postal_code": "550210"
     }
   ]
 }

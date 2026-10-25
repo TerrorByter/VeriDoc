@@ -78,7 +78,6 @@ from gldb.signal_library import RULE_VERSION, SIGNALS, signal_for
 from gldb.usage import CaseCost
 from gldb.viewer import locate, render_page
 from gldb.schemas import (
-    AgentReport,
     AgentTeam,
     AuditEvent,
     Box,
@@ -96,6 +95,7 @@ from gldb.schemas import (
     ReasonCode,
     RiskResult,
     Routing,
+    RuleGroupReport,
     ShadowScore,
     Signal,
     StageReport,
@@ -124,7 +124,7 @@ class CaseView(BaseModel):
     company_name: str | None
     docs: list[DocMeta]
     evidence: list[Evidence]
-    agent_reports: list[AgentReport]
+    rule_group_reports: list[RuleGroupReport]
     risk: RiskResult
     readiness: ReadinessResult | None
     routing: Routing | None
@@ -279,7 +279,7 @@ def _view(result: CaseResult) -> CaseView:
         company_name=_company_name(result),
         docs=result.pack.docs,
         evidence=result.evidence,
-        agent_reports=result.agent_reports,
+        rule_group_reports=result.rule_group_reports,
         risk=result.risk,
         readiness=result.readiness,
         routing=result.routing,
@@ -291,7 +291,7 @@ def _view(result: CaseResult) -> CaseView:
         gate=result.gate,
         extraction_mode=result.pack.extraction_mode,
         status=status,
-        allowed_actions=lifecycle.allowed_actions(status),
+        allowed_actions=lifecycle.allowed_actions(status, _edd(result)),
         open_flags=lifecycle.open_flags(result.evidence, events),
         stages=result.stages,
         official=_masked(result.pack.official),
@@ -303,11 +303,16 @@ def _view(result: CaseResult) -> CaseView:
     )
 
 
-def _require(case_id: str, action: str) -> list[AuditEvent]:
+def _edd(result: CaseResult) -> bool:
+    """Whether the case's latest assessment put it on the enhanced review path."""
+    return result.routing is not None and result.routing.edd_required
+
+
+def _require(result: CaseResult, action: str) -> list[AuditEvent]:
     """The case's events, after checking *action* is allowed (409 if not)."""
-    events = read_events(case_id)
+    events = read_events(result.case_id)
     try:
-        lifecycle.require(lifecycle.status(events), action)
+        lifecycle.require(lifecycle.status(events), action, _edd(result))
     except lifecycle.TransitionError as exc:
         raise HTTPException(409, str(exc)) from exc
     return events
@@ -517,7 +522,7 @@ def analyst_decision(case_id: str, body: AnalystDecision) -> AuditEvent:
     """Approve, decline, request information, or escalate to the MLRO.
     Approval waits until every fraud flag has been confirmed or dismissed."""
     result = _load(case_id)
-    events = _require(case_id, body.decision)
+    events = _require(result, body.decision)
     if body.decision == "approve":
         undecided = lifecycle.open_flags(result.evidence, events)
         if undecided:
@@ -538,8 +543,7 @@ def analyst_decision(case_id: str, body: AnalystDecision) -> AuditEvent:
 def mlro_decision(case_id: str, body: MlroDecision) -> AuditEvent:
     """The MLRO decides whether to file a suspicious transaction report.
     Maker-checker: the MLRO cannot be the analyst who escalated."""
-    _load(case_id)
-    events = _require(case_id, "mlro_decision")
+    events = _require(_load(case_id), "mlro_decision")
     if body.actor == lifecycle.escalated_by(events):
         raise HTTPException(
             409, "segregation of duties: the MLRO must not be the analyst who escalated"
@@ -562,8 +566,7 @@ def add_documents(
 ) -> RunStarted:
     """Documents answering a request for information: added to the case,
     which is then re-assessed on its full document set."""
-    _load(case_id)
-    _require(case_id, "documents_added")
+    _require(_load(case_id), "documents_added")
     names = _save(_case_folder(case_id), files)
     log_event(AuditEvent(
         case_id=case_id, actor=SYSTEM, action="documents_added", details={"filenames": names},

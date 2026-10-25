@@ -26,6 +26,7 @@ import io
 import re
 from decimal import Decimal
 from pathlib import Path
+from threading import Lock
 from typing import NamedTuple
 
 import pdfplumber
@@ -135,18 +136,25 @@ def _sheet_boxes(path: Path, page: int, text: str) -> list[Box]:
     ]
 
 
+#: pdfium is not thread-safe, and the API serves requests from a thread pool:
+#: overlapping renders come out truncated and leave every later render in the
+#: process failing, so one render at a time.
+_PDFIUM_LOCK = Lock()
+
+
 def render_page(path: Path, page: int) -> bytes:
     """PNG of 1-based *page*, with a fillable form's field values drawn (pdfium
     draws form fields only once its form environment is initialised). A
     workbook's sheet is drawn as a table."""
     if is_workbook(path):
         return _render_sheet(path, page)
-    pdf = pdfium.PdfDocument(str(path))
-    try:
-        pdf.init_forms()
-        image = pdf[page - 1].render(scale=VIEWER_DPI / 72, may_draw_forms=True).to_pil()
-    finally:
-        pdf.close()
+    with _PDFIUM_LOCK:
+        pdf = pdfium.PdfDocument(str(path))
+        try:
+            pdf.init_forms()
+            image = pdf[page - 1].render(scale=VIEWER_DPI / 72, may_draw_forms=True).to_pil()
+        finally:
+            pdf.close()
     buf = io.BytesIO()
     image.convert("RGB").save(buf, format="PNG")
     return buf.getvalue()

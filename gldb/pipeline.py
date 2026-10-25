@@ -4,7 +4,7 @@ gldb/pipeline.py
 Pipeline orchestration for the gldb-prototype.
 
 Stage functions are named after future LangGraph nodes:
-    ocr -> intake -> prompt_screen -> extract -> agents -> ai_team -> score -> readiness
+    ocr -> intake -> prompt_screen -> extract -> rule_checks -> ai_team -> score -> readiness
     -> route -> projections (chains, timeline, investigation) -> record
 
 Each stage is timed and recorded as a StageReport ("ran", "failed" or "off"), and an
@@ -33,7 +33,7 @@ from gldb.ai_team.shadow import compared, decide, run_shadow
 from gldb.ai_team.team import CONFIGURED_TEAM, TeamModels, flagged, run_team
 from gldb.ai_team.tools import CaseData
 from gldb.audit import log_event
-from gldb.checks import AGENTS, FORM_DOC_TYPES, run_agents
+from gldb.checks import RULE_GROUPS, run_rule_checks
 from gldb.config import (
     AGENT_STRICT_TOOL_MODELS,
     BEDROCK_MODEL_ID,
@@ -51,7 +51,13 @@ from gldb.coverage import coverage
 from gldb.extract import parse_pack
 from gldb.extract_llm import PROMPT_VERSION as EXTRACT_PROMPT_VERSION
 from gldb.extract_stub import parse_pack as parse_pack_stub
-from gldb.intake import document_paths, intake, load_manifest, model_view
+from gldb.intake import (
+    FORM_DOC_TYPES,
+    document_paths,
+    intake,
+    load_manifest,
+    model_view,
+)
 from gldb.investigation import build_queue
 from gldb.ocr import OcrResult, ocr_files
 from gldb.official import fetch as fetch_official
@@ -119,7 +125,7 @@ def pack_from_folder(folder: str | Path) -> ExtractedPack:
 #: The rule score, readiness and route come before the AI team: they are
 #: fixed before any AI runs, and nothing it produces can reach them
 ASSESS_STAGES: tuple[StageId, ...] = (
-    "ocr", "intake", "prompt_screen", "extract", "records", "agents", "score", "readiness", "route", "ai_team",
+    "ocr", "intake", "prompt_screen", "extract", "records", "rule_checks", "score", "readiness", "route", "ai_team",
     "shadow_score", "projections",
 )
 
@@ -238,7 +244,7 @@ def assess(
     on_activity: Activity = lambda _: None,
 ) -> CaseResult:
     """Run the stages in ASSESS_STAGES: ocr -> intake -> prompt_screen ->
-    extract -> records -> agents -> score -> readiness -> route -> ai_team ->
+    extract -> records -> rule_checks -> score -> readiness -> route -> ai_team ->
     shadow_score -> projections (chains, timeline, investigation queue). The
     rule score, readiness and route are fixed before any AI runs. A stage switched off in config
     is recorded as "off"; the AI team runs on *team* (None: off) and tells
@@ -280,8 +286,8 @@ def assess(
     else:
         stages.off("records")
 
-    evidence, agent_reports = stages.run("agents", lambda: run_agents(pack),
-                                         version=f"{sum(len(a.checks) for a in AGENTS)} checks")
+    evidence, rule_group_reports = stages.run("rule_checks", lambda: run_rule_checks(pack),
+                                              version=f"{sum(len(g.checks) for g in RULE_GROUPS)} checks")
     risk = stages.run("score", lambda: score(evidence), version=RULE_VERSION)
     ready = stages.run("readiness", lambda: readiness(evidence, pack))
     routing = stages.run("route", lambda: route(case_id, evidence, risk, ready, pack),
@@ -320,7 +326,7 @@ def assess(
         case_id=case_id,
         pack=pack,
         evidence=evidence,
-        agent_reports=agent_reports,
+        rule_group_reports=rule_group_reports,
         risk=risk,
         readiness=ready,
         routing=routing,
@@ -390,7 +396,7 @@ def run(
     1. Log ``case_created`` audit event (new cases only).
     2. Load manifest from *manifest_path* (or None).
     3-7. assess(): the stages in ASSESS_STAGES (OCR, intake, prompt screen,
-         extract, agents, AI team, score, readiness, route, projections).
+         extract, rule checks, AI team, score, readiness, route, projections).
     8-9. The "record" stage: persist CaseResult JSON to
          ``<CASES_DIR>/<case_id>/result.json`` and log the
          ``pipeline_completed`` audit event.

@@ -60,6 +60,8 @@ class Invoice(BaseModel):
     seller_name: str
     seller_uen: str
     buyer_name: str
+    #: The buyer's purchase order the invoice names, if it names one
+    po_number: str | None = None
     line_items: list[LineItem]
     subtotal: Money
     gst: Money
@@ -505,7 +507,7 @@ RiskBand = Literal["Low", "Medium", "High"]
 
 class Evidence(BaseModel):
     evidence_id: str = ""          # assigned later as E01, E02, …
-    agent: str = ""                # name of the agent that produced this finding
+    rule_group: str = ""           # name of the rule group that produced this finding
     check_id: str
     #: fraud_signal feeds the risk score; compliance/completeness feed ReadinessResult only
     category: EvidenceCategory = "fraud_signal"
@@ -597,8 +599,8 @@ class ReadinessResult(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class AgentReport(BaseModel):
-    """What one agent did in a run: its scope, findings and time taken."""
+class RuleGroupReport(BaseModel):
+    """What one rule group did in a run: its scope, findings and time taken."""
 
     name: str
     description: str
@@ -609,7 +611,7 @@ class AgentReport(BaseModel):
 
 #: Pipeline stages in run order; "record" (persist + audit) runs outside assess()
 StageId = Literal[
-    "ocr", "intake", "prompt_screen", "extract", "records", "agents", "ai_team", "shadow_score", "score", "readiness", "route",
+    "ocr", "intake", "prompt_screen", "extract", "records", "rule_checks", "ai_team", "shadow_score", "score", "readiness", "route",
     "projections", "record",
 ]
 #: "running" is only ever reported live; a finished stage is "ran", "failed", or "off"
@@ -914,7 +916,7 @@ class CaseResult(BaseModel):
     case_id: str
     pack: ExtractedPack
     evidence: list[Evidence]
-    agent_reports: list[AgentReport] = []
+    rule_group_reports: list[RuleGroupReport] = []
     risk: RiskResult
     readiness: ReadinessResult | None = None
     #: None only for results stored before routing existed
@@ -929,6 +931,25 @@ class CaseResult(BaseModel):
     gate: GateDecision | None = None
     #: Empty only for results stored before stages were recorded
     stages: list[StageReport] = []
+
+    @model_validator(mode="before")
+    @classmethod
+    def _stored_earlier(cls, data: Any) -> Any:
+        """A result stored when the rule groups were called agents still loads:
+        agent_reports, each finding's agent and the "agents" stage take their
+        new names."""
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        if "agent_reports" in data:
+            data["rule_group_reports"] = data.pop("agent_reports")
+        if isinstance(data.get("evidence"), list):
+            data["evidence"] = [{**{k: v for k, v in e.items() if k != "agent"}, "rule_group": e["agent"]}
+                                if isinstance(e, dict) and "agent" in e else e for e in data["evidence"]]
+        if isinstance(data.get("stages"), list):
+            data["stages"] = [{**s, "stage_id": "rule_checks"} if isinstance(s, dict) and s.get("stage_id") == "agents"
+                              else s for s in data["stages"]]
+        return data
 
     @field_validator("stages", mode="before")
     @classmethod

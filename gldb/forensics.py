@@ -2,7 +2,7 @@
 gldb/forensics.py
 -----------------
 PDF forensics primitives. Each function inspects one file and returns plain
-findings; gldb.checks wraps them into Evidence for the Forensics agent.
+findings; gldb.checks wraps them into Evidence for the Forensics rule group.
 
 Detects, without any AWS call:
 - hidden text (white, tiny or off-page): where injected instructions and
@@ -13,17 +13,24 @@ Detects, without any AWS call:
 - incremental updates: a PDF saved again after creation;
 - amount mismatches between the text layer and what OCR sees on the page:
   a figure covered by a box, or one pasted over the original as an image.
+  A fillable form keeps its figures in form fields, not in the text layer, so
+  the comparison counts the field values (form_values) as stored text.
 """
 
 from __future__ import annotations
 
 import re
+from contextlib import suppress
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+from itertools import groupby
 from pathlib import Path
 from typing import Any
 
 import pdfplumber
+import pypdf
 from PIL import Image
+from pypdf.generic import TextStringObject
 
 from gldb.config import (
     BACKDROP_DPI,
@@ -142,6 +149,61 @@ def mixed_font_tokens(path: Path) -> list[MixedToken]:
                 if same_line and touching and differs and any(c.isdigit() for c in token):
                     found.append(MixedToken(number, token))
     return found
+
+
+#: Height (points) of a band of a page: form fields in one band are one line
+_LINE_BAND_PT = 4
+
+
+_NUMBER_FORMAT = re.compile(r"AFNumber_Format\(\s*(\d+)")
+
+
+def _inherited(widget: Any, key: str) -> Any:
+    """*key* of a form field; a widget without it takes its parent field's."""
+    while widget is not None:
+        if key in widget:
+            return widget[key]
+        widget = widget["/Parent"].get_object() if "/Parent" in widget else None
+    return None
+
+
+def _decimals(widget: Any) -> int | None:
+    """The decimal places a field's number-format script shows its value with, if it has one."""
+    action = (_inherited(widget, "/AA") or {}).get("/F")
+    script = action.get_object().get("/JS") if action is not None else None
+    if script is None:
+        return None
+    script = script.get_object()
+    match = _NUMBER_FORMAT.search(script.get_data().decode("latin-1") if hasattr(script, "get_data") else str(script))
+    return int(match[1]) if match else None
+
+
+def _field_value(widget: Any) -> str:
+    """The text a form field shows: its value, a number as its format script
+    writes it (the form stores 1213365 and shows 1,213,365.00)."""
+    value = _inherited(widget, "/V")
+    text = str(value).strip() if isinstance(value, TextStringObject) else ""
+    if (decimals := _decimals(widget)) is not None and text:
+        with suppress(InvalidOperation):
+            text = f"{Decimal(text):.{decimals}f}"
+    return text
+
+
+def form_values(path: Path | str) -> list[str]:
+    """Per page, the text the PDF's form fields show, in reading order (a line
+    to each row of fields). A fillable form keeps its figures here and only its
+    labels in the page text. A page with no fields, and every page of a PDF
+    with no form, gives an empty string."""
+    pages = []
+    for page in pypdf.PdfReader(str(path)).pages:
+        placed = []
+        for ref in page.get("/Annots") or []:
+            widget = ref.get_object()
+            if value := _field_value(widget):
+                x0, y0, x1, y1 = (float(v) for v in widget.get("/Rect", (0, 0, 0, 0)))
+                placed.append((-round(max(y0, y1) / _LINE_BAND_PT), min(x0, x1), value))
+        pages.append("\n".join(" ".join(v for _, _, v in row) for _, row in groupby(sorted(placed), key=lambda p: p[0])))
+    return pages
 
 
 def _amounts(text: str) -> dict[str, str]:

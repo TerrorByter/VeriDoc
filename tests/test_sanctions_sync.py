@@ -286,7 +286,7 @@ def test_the_watchlist_is_the_un_designations_and_the_banks_own_list(database: P
     merged = reference.watchlist()
     assert len(merged.entries) == 11 + len(own.entries)
     assert {e.list for e in merged.entries} >= {"UN 1718 List", "UN-SYN"}
-    assert merged.version.endswith(own.version) and reference.versions() == {"sanctions": merged.version}
+    assert merged.version.endswith(own.version) and reference.versions()["sanctions"] == merged.version
 
 
 def test_a_sync_shows_without_restarting(database: Path) -> None:

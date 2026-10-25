@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from gldb.checks import run_agents
+from gldb.checks import run_rule_checks
 from gldb.intake import IntakeError, document_paths, intake, model_view, read_text, validate_file
 from gldb.ocr import ocr_files
 from gldb.schemas import ExtractedPack
@@ -110,7 +110,7 @@ def test_pdf_forensics_and_metadata_checks_leave_workbooks_alone(tmp_path: Path)
     docs = intake("t", [path])
     pack = ExtractedPack(case_id="t", docs=docs, invoices=[], bank_statements=[], financial_statements=[],
                          extraction_mode="stub", paths={docs[0].doc_id: path})
-    evidence, _ = run_agents(pack)
+    evidence, _ = run_rule_checks(pack)
     assert {e.check_id for e in evidence if e.category == "fraud_signal"} <= {
         "FORENSIC_OCR_SKIPPED", "PROMPT_SCREEN_SKIPPED",
     }

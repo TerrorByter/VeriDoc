@@ -1,7 +1,7 @@
 """
 tests/test_forensics.py
 -----------------------
-Tests for gldb/forensics.py and the Forensics agent checks. PDFs are built
+Tests for gldb/forensics.py and the Forensics rule group checks. PDFs are built
 on the fly with reportlab; no AWS calls.
 """
 
@@ -19,7 +19,7 @@ from reportlab.pdfgen.canvas import Canvas
 
 from gldb import forensics
 from gldb.checks import (
-    AGENTS,
+    RULE_GROUPS,
     check_forensic_hidden_text,
     check_forensic_incremental_update,
     check_forensic_mixed_font,
@@ -221,6 +221,6 @@ def test_paths_never_leak_into_serialised_pack(tmp_path: Path) -> None:
     assert str(tmp_path) not in pack.model_dump_json()
 
 
-def test_forensics_agent_is_registered() -> None:
-    agent = next(a for a in AGENTS if a.name == "Forensics")
-    assert len(agent.checks) == 5
+def test_forensics_group_is_registered() -> None:
+    group = next(g for g in RULE_GROUPS if g.name == "Forensics")
+    assert len(group.checks) == 5

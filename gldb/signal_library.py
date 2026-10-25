@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from gldb.schemas import Signal
 
-RULE_VERSION = "2026-10-21.2"
+RULE_VERSION = "2026-10-25.1"
 
 SIGNALS: tuple[Signal, ...] = (
     # DOC: document integrity and forensics -------------------------------
@@ -184,6 +184,10 @@ SIGNALS: tuple[Signal, ...] = (
            name="Possible sanctions list match",
            remedy="Compare identifiers (date of birth, registration number, address) with the list "
                   "entry; escalate to the MLRO if not ruled out."),
+    Signal(signal_id="COMP-031", check_id="HIGH_RISK_COUNTRY", family="COMP",
+           name="Country on a FATF high-risk list",
+           remedy="Establish why the applicant or its people are connected with the country; apply enhanced "
+                  "due diligence, and escalate to the MLRO if the reason is not clear."),
     # SYS: system health ---------------------------------------------------
     Signal(signal_id="SYS-001", check_id="SYSTEM_CHECK_ERROR", family="SYS",
            name="A check failed to run",

@@ -9,6 +9,10 @@ profile and Notice of Assessment are not in a pack: the bank fetches them,
 so each company's ACRA and IRAS records go into the mock service's data
 (data/mock_gov) instead.
 
+Every statement's sales and goods purchases also get an invoice, a purchase
+order and a bill of lading (gldb.demo_trade) that agree with the payment to
+the cent; a case may make one of them disagree.
+
 Every company is the ACMA sample at another scale (every amount times one
 factor, so the documents still agree with each other and with ACRA), and every
 case changes it in exactly the ways its story needs. The sample itself has one
@@ -34,6 +38,7 @@ from typing import Any
 
 from pypdf import PdfReader, PdfWriter
 
+from gldb import demo_trade
 from gldb.config import PACKS_DIR, money
 from gldb.extract_stub import parse_bank_statement_form
 from gldb.schemas import Transaction
@@ -138,6 +143,8 @@ class Case:
     declared_name: str | None = None
     #: A second guarantor, with no notice at IRAS
     extra_guarantor: Person | None = None
+    #: (partner on the statement, demo_trade fault): a trade whose documents disagree
+    trade_faults: tuple[tuple[str, str], ...] = ()
     tampers: tuple[dict[str, Any], ...] = field(default_factory=tuple)
 
 
@@ -200,6 +207,13 @@ FERNLEAF = _company(
     ("NUR AISYAH", "S9090123I"), "0.7", "666-789-012-345", "Woodlands Branch", status="STRUCK OFF",
 )
 
+OAKRIDGE = _company(
+    "OAKRIDGE FABRICATION PTE. LTD.", "201833377R", "2018-04-17",
+    Address("9", "SIN MING LANE", "03", "14", "SIN MING TECHHUB", "573970"),
+    ("WONG MEI LING", "S7512345M", _home("210", "SERANGOON AVENUE 2", "08", "301", "550210"), "MS"),
+    ("FAISAL HASSAN", "S8156789N"), "1.1", "777-890-123-456", "Serangoon Branch",
+)
+
 CASES: tuple[Case, ...] = (
     Case("clean", ACMA,
          "ACMA's documents agree with each other and with ACRA and IRAS, but its new CEO, who signs, is not on ACRA yet.",
@@ -221,13 +235,16 @@ CASES: tuple[Case, ...] = (
                    "check_ids": ["FS_ACRA_MISMATCH", "XDOC_BANK_REVENUE"],
                    "detail": "every figure doubled against the ACRA filing"},)),
     Case("tampered_statement", CORVID,
-         "A sales credit on Corvid's statement was raised and the file re-saved; its balances no longer add up.",
+         "A sales credit on Corvid's statement was raised and the file re-saved; its balances no longer add up, "
+         "and the invoice for that sale no longer matches the credit.",
          "High", "enhanced_review", "Complete",
-         ("BANK_RUNNING_BAL", "FORENSIC_INCREMENTAL_UPDATE", "META_MOD_AFTER_CREATE"),
+         ("BANK_RUNNING_BAL", "FORENSIC_INCREMENTAL_UPDATE", "META_MOD_AFTER_CREATE", "XDOC_INVOICE_BANK"),
          tamper_credit=Decimal("250000.00"),
          tampers=({"doc": "bank_statement", "type": "credit_raised",
                    "check_ids": ["BANK_RUNNING_BAL", "FORENSIC_INCREMENTAL_UPDATE", "META_MOD_AFTER_CREATE"],
-                   "detail": "a sales credit raised by SGD 250,000 in an incremental save three weeks later"},)),
+                   "detail": "a sales credit raised by SGD 250,000 in an incremental save three weeks later"},
+                  {"doc": "invoice_INV-1001", "type": "credit_not_invoiced", "check_ids": ["XDOC_INVOICE_BANK"],
+                   "detail": "the invoice for that sale is for SGD 250,000 less than the credit now on the statement"})),
     Case("identity_mismatch", DUSKFIELD,
          "Duskfield's forms disagree with ACRA: a signatory who is no officer, another office, a guarantor's name.",
          "High", "enhanced_review", "Incomplete", ("XDOC_ACRA_ENTITY", "XDOC_ACRA_PERSON", "XDOC_ACRA_SIGNATORY"),
@@ -250,6 +267,20 @@ CASES: tuple[Case, ...] = (
          "Medium", "standard_review", "Complete", ("REGISTRY_ENTITY_INACTIVE",),
          tampers=({"doc": "pack", "type": "struck_off", "check_ids": ["REGISTRY_ENTITY_INACTIVE"],
                    "detail": "ACRA status STRUCK OFF"},)),
+    Case("invoice_mismatch", OAKRIDGE,
+         "Oakridge's invoices disagree with its other paperwork: two charge more than they were ordered for and paid, "
+         "one bills more goods than were shipped, one names an order that was never issued.",
+         "High", "enhanced_review", "Complete", ("XDOC_INVOICE_BANK", "XDOC_PO_INVOICE", "XDOC_BL_INVOICE"),
+         trade_faults=(("EFG Company", "overbilled"), ("Metallica Inc.", "short_shipped"),
+                       ("SteelMen Pte Ltd.", "overbilled"), ("Caterpillarz Inc.", "no_order")),
+         tampers=({"doc": "invoice_INV-1001", "type": "sale_overbilled", "check_ids": ["XDOC_PO_INVOICE", "XDOC_INVOICE_BANK"],
+                   "detail": "EFG Company is billed 25% more than its order and than the credit received"},
+                  {"doc": "invoice_INV-1002", "type": "goods_not_shipped", "check_ids": ["XDOC_BL_INVOICE"],
+                   "detail": "Metallica Inc. is billed for 25 units; the bill of lading shows 18 shipped"},
+                  {"doc": "invoice_SM-260128", "type": "purchase_overbilled", "check_ids": ["XDOC_PO_INVOICE", "XDOC_INVOICE_BANK"],
+                   "detail": "SteelMen bills 25% more than the order and than the debit paid"},
+                  {"doc": "invoice_CAT-260331", "type": "order_never_issued", "check_ids": ["XDOC_PO_INVOICE"],
+                   "detail": "Caterpillarz names PO-4004, which is not in the pack"})),
 )
 
 
@@ -289,6 +320,14 @@ def _scaled_rows(company: Company, until: date | None) -> tuple[Decimal, list[Tr
         balance = balance + (credit or 0) - (debit or 0)
         rows.append(Transaction(date=t.date, description=t.description, credit=credit, debit=debit, balance=balance))
     return opening, rows
+
+
+def seller_of(company: Company) -> demo_trade.Seller:
+    """*company* as its invoices print it."""
+    office = company.office
+    street = f"{office.street.title()}, #{office.floor}-{office.unit}" + (f" {office.building.title()}" if office.building else "")
+    return demo_trade.Seller(company.name, company.uen, (street, f"Singapore {office.postal}"),
+                             f"{demo_trade.BANK}, {company.branch}", company.account)
 
 
 def _statement(case: Case, out: Path) -> None:
@@ -399,7 +438,7 @@ def acra_record(company: Company) -> dict[str, Any]:
     return {
         "company_name": company.name, "uen": company.uen, "incorporation_date": company.incorporated,
         "status": company.status, "registered_address": company.acra_office or company.office.acra(),
-        "issued_on": "2026-07-09",
+        "issued_on": demo_trade.RECORDS_ISSUED_ON,
         "officers": [{"name": p.name, "id_number": p.id_number, "position": p.position, "appointed": p.appointed,
                       "postal_code": p.home.postal}
                      for p in (company.chairman, *([company.ceo] if company.ceo_in_acra else []))],
@@ -446,14 +485,18 @@ def build_pack(case: Case, folder: Path) -> None:
     _entity_form(case, folder / "fatca_crs_entity.pdf")
     _individual_form(case, folder / "fatca_crs_individual.pdf")
     _workbook(case, folder / "Submitted financials.xlsx")
+    for trade in demo_trade.plan(seller_of(case.company), _scaled_rows(case.company, case.statement_until)[1], case.trade_faults):
+        demo_trade.write(folder, trade)
     (folder / "application.json").write_text(json.dumps(_manifest(case), indent=2) + "\n", encoding="utf-8")
     (folder / "ground_truth.json").write_text(json.dumps(_truth(case), indent=2) + "\n", encoding="utf-8")
 
 
 def write_records(mock_dir: Path = MOCK_GOV_DIR) -> None:
-    """Put every demo company's ACRA and IRAS records into the mock service's data."""
+    """Put every demo company's, and every supplier's, ACRA records and every demo company's
+    IRAS records into the mock service's data."""
     companies = list({c.company.uen: c.company for c in CASES}.values())
-    _upsert(mock_dir / "acra.json", "companies", "uen", [acra_record(c) for c in companies])
+    _upsert(mock_dir / "acra.json", "companies", "uen",
+            [*(acra_record(c) for c in companies), *(demo_trade.acra_record(s) for s in demo_trade.suppliers())])
     _upsert(mock_dir / "iras.json", "notices", "id_number", [n for c in companies for n in iras_records(c)])
 
 

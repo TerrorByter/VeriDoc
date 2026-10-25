@@ -49,32 +49,37 @@ export const STAGES: StageInfo[] = [
     input: "UENs and NRICs the documents give", output: "ACRA records and IRAS notices",
   },
   {
-    id: "agents", n: 6, group: "Check", name: "Agents", steps: ["agents", "ai_team"], service: "Bedrock",
-    what: "The rule checks run first as mandatory tools, so no AI can skip one. Then a Supervisor briefs four AI specialists, who investigate with read-only tools and report leads. Leads never change the score.",
+    id: "rule_checks", n: 6, group: "Check", name: "Rule checks",
+    what: "The rule checks run first, before any AI: each is a fixed test over the extracted fields and raw files, and every finding names the check behind it. Nothing the agents find afterwards changes the score, readiness or route.",
     input: "Extracted fields and raw files", output: "Findings",
   },
   {
-    id: "score", n: 7, group: "Decide", name: "Score", steps: ["score", "shadow_score"],
+    id: "ai_team", n: 7, group: "Check", name: "Agents", service: "Bedrock",
+    what: "A Supervisor briefs four AI specialists, who investigate what the rules cannot state, with read-only tools, and report leads. Code verifies every lead, and leads never change the score or the route.",
+    input: "Findings and extracted fields", output: "Verified leads and a case memo",
+  },
+  {
+    id: "score", n: 8, group: "Decide", name: "Score", steps: ["score", "shadow_score"],
     what: "Only fraud findings score. Each maps to a named signal with fixed points, so every line of the score names the rule behind it.",
     input: "Fraud findings", output: "Score out of 100 and risk band",
   },
   {
-    id: "readiness", n: 8, group: "Decide", name: "Readiness",
+    id: "readiness", n: 9, group: "Decide", name: "Readiness",
     what: "Missing documents and form errors make a case incomplete. They never add risk points: completeness and risk are kept apart on purpose.",
     input: "Compliance and completeness findings", output: "Complete or incomplete",
   },
   {
-    id: "route", n: 9, group: "Decide", name: "Route",
+    id: "route", n: 10, group: "Decide", name: "Route",
     what: "A versioned policy table turns the score, readiness and hard flags into a review path. A hard flag can raise the path but never lower it.",
     input: "Score, readiness, hard flags", output: "Review path",
   },
   {
-    id: "projections", n: 10, group: "Explain", name: "Investigation",
+    id: "projections", n: 11, group: "Explain", name: "Investigation",
     what: "The investigation queue, transaction chains and timeline are built from the findings, never separately, so they cannot disagree with them.",
     input: "Findings and extracted fields", output: "Tasks, chains and a timeline",
   },
   {
-    id: "record", n: 11, group: "Record", name: "Audit record",
+    id: "record", n: 12, group: "Record", name: "Audit record",
     what: "The result is stored and one audit event records everything needed to reconstruct the decision later: versions, file hashes and evidence coverage.",
     input: "Case result", output: "Stored result and audit event",
   },
@@ -82,8 +87,8 @@ export const STAGES: StageInfo[] = [
 
 export const STAGE_BY_ID = Object.fromEntries(STAGES.map((s) => [s.id, s])) as Record<RailStageId, StageInfo>;
 
-/** The rail stage a server stage belongs to: the AI team runs in stage 6, the shadow score in stage 7 */
-export const stageOf = (id: StageId): StageInfo => STAGE_BY_ID[id === "ai_team" ? "agents" : id === "shadow_score" ? "score" : id];
+/** The rail stage a server stage belongs to: the shadow score runs in the Score stage */
+export const stageOf = (id: StageId): StageInfo => STAGE_BY_ID[id === "shadow_score" ? "score" : id];
 
 /** The AI team in its order: the Supervisor plans, then the specialists investigate */
 export const SPECIALISTS: SpecialistName[] = ["forensics", "transaction", "kyc", "timeline"];

@@ -5,7 +5,7 @@
 
 ## 1. What the system does
 
-A loan officer uploads a set of corporate loan documents. The system extracts their fields, runs specialist agents that look for tampering and inconsistencies, produces a rule-based fraud-risk score with explainable evidence, and records every officer action in an audit log.
+A loan officer uploads a set of corporate loan documents. The system extracts their fields, runs rule checks, in groups, that look for tampering and inconsistencies, produces a rule-based fraud-risk score with explainable evidence, and records every officer action in an audit log.
 
 ```
 Upload -> Intake -> Extraction -> Agents (parallel) -> Scoring -> Explain -> Officer review
@@ -31,9 +31,9 @@ Upload -> Intake -> Extraction -> Agents (parallel) -> Scoring -> Explain -> Off
 5. Uploaded document text is untrusted data, never instructions.
 6. Synthetic data only. Personal identifiers are masked in Evidence, UI and logs.
 
-## 2. The agents
+## 2. The rule groups
 
-| Agent | Checks | What it catches |
+| Rule group | Checks | What it catches |
 |---|---|---|
 | **Document Integrity** | 6 | Invoice arithmetic, bank running balance and continuity, financial-statement balance, PDF modified after creation, producer mismatch |
 | **Forensics** | 3 | Hidden text (white, tiny or off-page, where injected instructions live), figures whose digits mix fonts (edited over the original), PDFs re-saved after creation |

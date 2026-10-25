@@ -29,7 +29,7 @@ def _assess(pack: str = "clean", on_stage: StageCallback = ignore_stage) -> Case
 
 
 def test_every_stage_is_recorded_in_order() -> None:
-    assert ASSESS_STAGES == ("ocr", "intake", "prompt_screen", "extract", "records", "agents", "score", "readiness", "route",
+    assert ASSESS_STAGES == ("ocr", "intake", "prompt_screen", "extract", "records", "rule_checks", "score", "readiness", "route",
                              "ai_team", "shadow_score", "projections")
     result = _assess()
     assert [s.stage_id for s in result.stages] == list(ASSESS_STAGES)

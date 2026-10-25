@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from gldb.checks import run_agents
+from gldb.checks import run_rule_checks
 from gldb.pipeline import pack_from_folder
 from gldb.reconciliation import build_chains
 from gldb.schemas import TransactionChain
@@ -19,7 +19,7 @@ PACKS = Path(__file__).parent / "fixtures" / "packs"
 
 def _chains(pack_name: str) -> dict[str, TransactionChain]:
     pack = pack_from_folder(PACKS / pack_name)
-    evidence, _ = run_agents(pack)
+    evidence, _ = run_rule_checks(pack)
     return {c.invoice_number: c for c in build_chains(pack, evidence)}
 
 
@@ -71,7 +71,7 @@ def test_untouched_invoice_in_tampered_pack_stays_matched() -> None:
 def test_missing_document_type_is_not_provided() -> None:
     pack = pack_from_folder(PACKS / "clean")
     pack = pack.model_copy(update={"bills_of_lading": []})
-    evidence, _ = run_agents(pack)
+    evidence, _ = run_rule_checks(pack)
     chain = next(c for c in build_chains(pack, evidence) if c.invoice_number == "INV-1002")
     assert _statuses(chain)["bill_of_lading"] == "not_provided"
     assert not chain.broken

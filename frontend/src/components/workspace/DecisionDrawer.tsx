@@ -132,6 +132,11 @@ export function DecisionDrawer({
             })}
           </div>
         )}
+        {kase.routing?.edd_required && kase.status === "assessed" && (
+          <p className="hint">
+            Enhanced review: the MLRO must review this case before it can be approved. Escalate it to the MLRO.
+          </p>
+        )}
         {kase.allowed_actions.includes("approve") && openFlags.length > 0 && (
           <p className="hint">
             Approval needs every fraud flag confirmed or dismissed first. Open: {openFlags.join(", ")}.
@@ -143,6 +148,7 @@ export function DecisionDrawer({
             <p className="hint">
               Decide whether to file a suspicious transaction report with STRO. You must not be the
               analyst who escalated the case.
+              {kase.routing?.edd_required && " This case is on enhanced review: your review is the senior sign-off that lets the analyst approve it."}
             </p>
             <div className="decision-grid">
               <button

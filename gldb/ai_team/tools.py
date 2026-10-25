@@ -30,12 +30,21 @@ from typing import Any, TypeVar, get_args
 
 from pydantic import ValidationError
 
-from gldb.ai_team.checks import bank_rows, counterparties, counterparty_id, payment_context
 from gldb import official
+from gldb.ai_team.checks import (
+    bank_rows,
+    counterparties,
+    counterparty_id,
+    payment_context,
+)
 from gldb.ai_team.verify import PATTERNS, check_lead
-from gldb.checks import FORM_DOC_TYPES, PACK_DOC, incorporation
-from gldb.config import AGENT_MAX_RESULT_CHARS, AGENT_TOKEN_BUDGET, SCREENING_MATCH_THRESHOLD
-from gldb.intake import model_view
+from gldb.checks import PACK_DOC, incorporation
+from gldb.config import (
+    AGENT_MAX_RESULT_CHARS,
+    AGENT_TOKEN_BUDGET,
+    SCREENING_MATCH_THRESHOLD,
+)
+from gldb.intake import FORM_DOC_TYPES, model_view
 from gldb.llm_client import tool_spec
 from gldb.privacy import mask_id
 from gldb.reconciliation import build_chains
@@ -47,8 +56,8 @@ from gldb.schemas import (
     DocMeta,
     Evidence,
     ExtractedPack,
-    Invoice,
     InvestigationStatus,
+    Invoice,
     Lead,
     Pattern,
     PurchaseOrder,
@@ -229,7 +238,7 @@ def _findings(case: CaseData, doc_id: str | None = None) -> list[dict[str, Any]]
     a quote is untrusted document text."""
     return [
         {"id": e.evidence_id, "check": e.check_id, "severity": e.severity, "document": e.document,
-         "page": e.page, "agent": e.agent, "explanation": e.explanation, "expected": e.expected,
+         "page": e.page, "rule_group": e.rule_group, "explanation": e.explanation, "expected": e.expected,
          "observed": e.observed}
         for e in case.risky
         if doc_id in (None, e.document)

@@ -34,10 +34,15 @@ import pdfplumber
 import pypdf
 
 from gldb.config import MAX_FILE_MB
-from gldb.forensics import hidden_chars
+from gldb.forensics import form_values, hidden_chars
 from gldb.schemas import ApplicationManifest, DocMeta, DocType
-from gldb.workbook import WorkbookError, is_workbook, properties, read_workbook, workbook_text
-
+from gldb.workbook import (
+    WorkbookError,
+    is_workbook,
+    properties,
+    read_workbook,
+    workbook_text,
+)
 
 # ---------------------------------------------------------------------------
 # Exceptions
@@ -199,10 +204,19 @@ def read_text(
     return pages
 
 
+def _with_form_values(path: "Path | str", pages: list[str]) -> list[str]:
+    """*pages* with the values of each page's form fields added: a fillable
+    form keeps its figures there and only its labels in the text."""
+    if is_workbook(path):
+        return pages
+    return ["\n".join(filter(None, (text, values))) for text, values in zip(pages, form_values(path))]
+
+
 def model_view(path: "Path | str", ocr: list[str] | None = None) -> list[str]:
     """The text of *path* a model is given: visible characters only, with
-    OCR for scanned pages. The prompt attack screen checks exactly this."""
-    return read_text(path, visible_only=True, ocr=ocr)
+    OCR for scanned pages, and the values in a fillable form's fields. The
+    prompt attack screen checks exactly this."""
+    return _with_form_values(path, read_text(path, visible_only=True, ocr=ocr))
 
 
 def _squash(s: str) -> str:
@@ -234,6 +248,11 @@ _DOC_KEYWORDS: list[tuple[str, DocType]] = [
     ("NOTICE OF ASSESSMENT", "notice_of_assessment"),
     ("CORPORATE COMPLIANCE AND FINANCIAL PROFILE", "acra_profile"),
 ]
+
+
+#: The FATCA/CRS forms. They are read field by field and carry tax identifiers,
+#: so no OCR, no model and no forensic text checks see them.
+FORM_DOC_TYPES: frozenset[DocType] = frozenset({"fatca_crs_entity", "fatca_crs_individual"})
 
 
 def classify(text: list[str]) -> DocType:

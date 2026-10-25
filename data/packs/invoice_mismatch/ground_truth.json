@@ -1,0 +1,53 @@
+{
+  "pack": "invoice_mismatch",
+  "company": "OAKRIDGE FABRICATION PTE. LTD.",
+  "note": "Oakridge's invoices disagree with its other paperwork: two charge more than they were ordered for and paid, one bills more goods than were shipped, one names an order that was never issued.",
+  "expected_band": "High",
+  "expected_path": "enhanced_review",
+  "expected_readiness": "Complete",
+  "expected_check_ids": [
+    "XDOC_INVOICE_BANK",
+    "XDOC_PO_INVOICE",
+    "XDOC_BL_INVOICE"
+  ],
+  "expected_check_ids_ocr": [],
+  "expected_compliance_check_ids": [],
+  "expected_leads": [],
+  "expected_triage": [],
+  "tampers": [
+    {
+      "doc": "invoice_INV-1001",
+      "type": "sale_overbilled",
+      "check_ids": [
+        "XDOC_PO_INVOICE",
+        "XDOC_INVOICE_BANK"
+      ],
+      "detail": "EFG Company is billed 25% more than its order and than the credit received"
+    },
+    {
+      "doc": "invoice_INV-1002",
+      "type": "goods_not_shipped",
+      "check_ids": [
+        "XDOC_BL_INVOICE"
+      ],
+      "detail": "Metallica Inc. is billed for 25 units; the bill of lading shows 18 shipped"
+    },
+    {
+      "doc": "invoice_SM-260128",
+      "type": "purchase_overbilled",
+      "check_ids": [
+        "XDOC_PO_INVOICE",
+        "XDOC_INVOICE_BANK"
+      ],
+      "detail": "SteelMen bills 25% more than the order and than the debit paid"
+    },
+    {
+      "doc": "invoice_CAT-260331",
+      "type": "order_never_issued",
+      "check_ids": [
+        "XDOC_PO_INVOICE"
+      ],
+      "detail": "Caterpillarz names PO-4004, which is not in the pack"
+    }
+  ]
+}

@@ -10,7 +10,7 @@ import { Timeline } from "./investigation/Timeline";
 
 type View = "queue" | "chains" | "timeline";
 
-/** The AI team's kept leads, beside the rule tasks; each opens stage 6 for its trace. */
+/** The AI team's kept leads, beside the rule tasks; each opens the Agents stage for its trace. */
 function LeadsToReview({ kase }: StageProps) {
   const team = kase.ai_team;
   if (!team) return null;
@@ -32,7 +32,7 @@ function LeadsToReview({ kase }: StageProps) {
               <button
                 type="button"
                 className="link"
-                onClick={() => navigate({ screen: "case", caseId: kase.case_id, stage: "agents" })}
+                onClick={() => navigate({ screen: "case", caseId: kase.case_id, stage: "ai_team" })}
               >
                 {lead.hypothesis}
               </button>

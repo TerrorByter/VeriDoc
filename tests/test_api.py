@@ -65,16 +65,16 @@ def test_tampered_pack_is_high_and_pack_is_not_exposed(client: TestClient) -> No
     assert client.get(f"/api/cases/{case['case_id']}").json() == case
 
 
-def test_case_reports_each_agent_and_tags_evidence(client: TestClient) -> None:
+def test_case_reports_each_rule_group_and_tags_evidence(client: TestClient) -> None:
     case = _case(client)
-    names = [a["name"] for a in case["agent_reports"]]
+    names = [a["name"] for a in case["rule_group_reports"]]
     assert names == [
         "Document Integrity", "Forensics", "Cross-Document", "Registry & Screening",
         "Timeline", "Compliance & Completeness",
     ]
-    assert {e["agent"] for e in case["evidence"]} <= set(names)
+    assert {e["rule_group"] for e in case["evidence"]} <= set(names)
     fraud = [e for e in case["evidence"] if e["category"] == "fraud_signal"]
-    assert all(e["agent"] != "Compliance & Completeness" for e in fraud)
+    assert all(e["rule_group"] != "Compliance & Completeness" for e in fraud)
 
 
 def test_clean_pack_is_low(client: TestClient) -> None:
@@ -167,8 +167,8 @@ def _flags(case: dict[str, Any]) -> list[str]:
 def test_new_case_reports_status_routing_and_open_flags(client: TestClient) -> None:
     case = _case(client)
     assert case["status"] == "assessed"
-    assert case["allowed_actions"] == ["approve", "decline", "escalate", "request_info"]
     assert case["routing"]["path"] == "enhanced_review"
+    assert case["allowed_actions"] == ["decline", "escalate", "request_info"]  # approval waits for the MLRO
     assert _flags(case) and all(f.startswith("E") for f in _flags(case))
 
 
@@ -187,7 +187,8 @@ def test_flag_decisions_need_a_reason_code_to_dismiss(client: TestClient) -> Non
 
 
 def test_approval_waits_until_every_flag_is_decided(client: TestClient) -> None:
-    case = _case(client)
+    case = _case(client, "retro_po")
+    assert case["routing"]["path"] == "standard_review" and "approve" in case["allowed_actions"]
     cid = case["case_id"]
     approve = {"decision": "approve", "reason": "looks fine"}
     blocked = client.post(f"/api/cases/{cid}/decision", json=approve)
@@ -198,6 +199,24 @@ def test_approval_waits_until_every_flag_is_decided(client: TestClient) -> None:
     final = client.get(f"/api/cases/{cid}").json()
     assert (final["status"], final["allowed_actions"]) == ("approved", [])
     assert client.post(f"/api/cases/{cid}/decision", json=approve).status_code == 409
+
+
+def test_enhanced_review_is_approved_only_after_the_mlro_has_reviewed_it(client: TestClient) -> None:
+    case = _case(client)
+    cid = case["case_id"]
+    assert case["routing"]["edd_required"]
+    for eid in _flags(case):
+        client.post(f"/api/cases/{cid}/flags/{eid}", json={"decision": "confirmed"})
+    approve = {"decision": "approve", "reason": "looks fine"}
+    refused = client.post(f"/api/cases/{cid}/decision", json=approve)
+    assert refused.status_code == 409 and "MLRO" in refused.json()["detail"]
+    escalate = {"decision": "escalate", "reason": "enhanced due diligence", "actor": "alice"}
+    assert client.post(f"/api/cases/{cid}/decision", json=escalate).status_code == 200
+    reviewed = {"decision": "no_str", "reason": "reviewed; no suspicion", "actor": "mona"}
+    assert client.post(f"/api/cases/{cid}/mlro-decision", json=reviewed).status_code == 200
+    assert "approve" in client.get(f"/api/cases/{cid}").json()["allowed_actions"]
+    assert client.post(f"/api/cases/{cid}/decision", json=approve).status_code == 200
+    assert client.get(f"/api/cases/{cid}").json()["status"] == "approved"
 
 
 def test_escalation_needs_a_different_person_as_mlro(client: TestClient) -> None:
@@ -264,7 +283,7 @@ def test_progress_lists_every_stage_in_run_order(client: TestClient) -> None:
     assert (progress["state"], progress["current"], progress["error"]) == ("done", None, None)
     assert [s["stage_id"] for s in progress["stages"]] == [*pipeline.ASSESS_STAGES, "record"]
     states = {s["stage_id"]: s["state"] for s in progress["stages"]}
-    assert states["ocr"] == "off" and states["agents"] == "ran" and states["record"] == "ran"
+    assert states["ocr"] == "off" and states["rule_checks"] == "ran" and states["record"] == "ran"
 
 
 def test_progress_tracks_the_stage_running_now() -> None:

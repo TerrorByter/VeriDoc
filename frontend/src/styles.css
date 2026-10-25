@@ -403,7 +403,9 @@ table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
 .workspace { display: grid; grid-template-columns: 232px minmax(0, 1fr) minmax(320px, 0.8fr); min-height: 0; }
 
 .rail { border-right: 1px solid var(--border); background: var(--surface); padding: 10px 8px 16px; }
-.rail ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; position: sticky; top: 62px; }
+/* The list and its hint stick as one block: a hint outside it scrolls over the pinned list */
+.rail-sticky { position: sticky; top: 62px; }
+.rail ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
 .rail-group { display: block; padding: 14px 10px 4px; font-size: 12px; font-weight: 500; color: var(--muted); }
 .rail li:first-child .rail-group { padding-top: 4px; }
 .step {
@@ -455,6 +457,7 @@ table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
 .doc-status { padding: 6px 14px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--border); background: var(--surface); }
 .doc-status.found { color: var(--med); }
 .doc-scroll { overflow: auto; padding: 20px; }
+.doc-error { max-width: 560px; margin: 0 auto; padding: 12px 14px; border-radius: 6px; font-size: 13px; color: var(--high); background: var(--high-soft); }
 .sheet { position: relative; max-width: 560px; margin: 0 auto; background: var(--sheet-paper); box-shadow: var(--shadow-sheet); border-radius: 2px; line-height: 0; }
 .sheet img { display: block; width: 100%; height: auto; mix-blend-mode: var(--sheet-blend); filter: var(--sheet-filter); }
 .sheet.loading { min-height: 420px; }
@@ -712,7 +715,8 @@ a, .link { text-underline-offset: 3px; }
   .logo small, .env-tag { display: none; }
   .workspace { grid-template-columns: minmax(0, 1fr); }
   .rail { border-right: 0; border-bottom: 1px solid var(--border); }
-  .rail ol { position: static; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .rail-sticky { position: static; }
+  .rail ol { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
   .rail-group, .rail-hint { display: none; }
   .detail { padding: 20px 16px; }
   .io, .two-col, .path-ladder { grid-template-columns: minmax(0, 1fr); }

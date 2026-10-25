@@ -22,6 +22,7 @@ export function DocumentPane({
 }) {
   const [page, setPage] = useState(target.page);
   const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
   const [location, setLocation] = useState<EvidenceLocation | null>(null);
   const [locating, setLocating] = useState(Boolean(target.evidenceId));
   const doc = docs.find((d) => d.doc_id === target.docId);
@@ -37,6 +38,7 @@ export function DocumentPane({
 
   const goTo = (next: number) => {
     setLoaded(false);
+    setFailed(false);
     setPage(next);
   };
   const boxes = location && location.page === page ? location.boxes : [];
@@ -80,23 +82,34 @@ export function DocumentPane({
         {status ?? (doc ? DOC_TYPE_LABEL[doc.doc_type] ?? doc.doc_type : "")}
       </p>
       <div className="doc-scroll">
-        <div className={`sheet${loaded ? "" : " loading"}`}>
-          <img src={src} alt={`${doc?.filename ?? target.docId}, page ${page}`} onLoad={() => setLoaded(true)} />
-          {loaded &&
-            boxes.map((b, i) => (
-              <span
-                key={i}
-                className="highlight"
-                aria-hidden="true"
-                style={{
-                  left: `${b.x0 * 100}%`,
-                  top: `${b.top * 100}%`,
-                  width: `${(b.x1 - b.x0) * 100}%`,
-                  height: `${(b.bottom - b.top) * 100}%`,
-                }}
-              />
-            ))}
-        </div>
+        {failed ? (
+          <p className="doc-error" role="alert">
+            This page could not be loaded. Try another page, or open it full size.
+          </p>
+        ) : (
+          <div className={`sheet${loaded ? "" : " loading"}`}>
+            <img
+              src={src}
+              alt={`${doc?.filename ?? target.docId}, page ${page}`}
+              onLoad={() => setLoaded(true)}
+              onError={() => setFailed(true)}
+            />
+            {loaded &&
+              boxes.map((b, i) => (
+                <span
+                  key={i}
+                  className="highlight"
+                  aria-hidden="true"
+                  style={{
+                    left: `${b.x0 * 100}%`,
+                    top: `${b.top * 100}%`,
+                    width: `${(b.x1 - b.x0) * 100}%`,
+                    height: `${(b.bottom - b.top) * 100}%`,
+                  }}
+                />
+              ))}
+          </div>
+        )}
       </div>
     </aside>
   );

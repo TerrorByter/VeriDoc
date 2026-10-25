@@ -21,7 +21,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen.canvas import Canvas
 
 from gldb import evaluate, extract_stub, forensics, pipeline
-from gldb.checks import AGENTS, check_forensic_ocr_mismatch
+from gldb.checks import RULE_GROUPS, check_forensic_ocr_mismatch
 from gldb.data_factory import ENTITY_TEMPLATE, generate_packs
 from gldb.intake import read_text
 from gldb.ocr import OcrResult, ocr_files
@@ -226,9 +226,9 @@ def test_ocr_text_never_leaks_into_serialised_pack(tmp_path: Path) -> None:
     assert "secret OCR text" not in pack.model_dump_json()
 
 
-def test_forensics_agent_runs_the_ocr_check() -> None:
-    agent = next(a for a in AGENTS if a.name == "Forensics")
-    assert check_forensic_ocr_mismatch in agent.checks
+def test_forensics_group_runs_the_ocr_check() -> None:
+    group = next(g for g in RULE_GROUPS if g.name == "Forensics")
+    assert check_forensic_ocr_mismatch in group.checks
 
 
 # ---------------------------------------------------------------------------

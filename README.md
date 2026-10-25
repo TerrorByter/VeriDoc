@@ -40,14 +40,22 @@ cp .env.example .env
 
 Edit `.env`. `.env` is gitignored and must never be committed. Each teammate needs their own.
 
-#### Connecting AWS (optional; the app runs without it using the deterministic parser)
+#### Connecting AWS (optional)
 
-1. Install the CLI (`brew install awscli`) and save an IAM user's keys as a profile: `aws configure --profile gldb` (region `ap-southeast-1`). The keys live in `~/.aws/credentials`, never in the project.
-2. The IAM user needs `bedrock:InvokeModel` and `textract:DetectDocumentText` (Resource `*`). Textract also has to be activated once for the account.
-3. In `.env`, set `AWS_PROFILE=gldb`, `AWS_REGION` and `BEDROCK_MODEL_ID` (a model ID, inference profile ID or inference profile ARN from the Bedrock console).
-4. Turn features on: `EXTRACTION_MODE=llm` (Bedrock extraction), `OCR_ENABLED=true` (Textract for scans), `AGENTS_ENABLED=true` (AI agent team on Bedrock). Restart the backend after editing `.env`.
+The app runs without AWS. With the `.env` copied from `.env.example`, every AWS feature is off and cases use the deterministic parser, so you can run all the demo packs and `pytest` with no AWS account and no login. Do the steps below only to use Bedrock or Textract.
 
-Check the connection with `aws sts get-caller-identity --profile gldb`, then the live tests below.
+1. **Sign in.** You need access to an AWS account with Bedrock and Textract; that account's admin grants it. Install the AWS CLI 2.32 or later (`brew install awscli`) and run `aws login --profile <name>`, which opens your browser. The session lives in your own `~/.aws`, never in the project, and no keys go in `.env`.
+2. **Permissions.** The role needs `bedrock:InvokeModel` and `textract:DetectDocumentText`, and `bedrock:ApplyGuardrail` for the prompt screen. Once per account, enable the Claude model in Bedrock (this needs the Anthropic use-case form) and activate Textract.
+3. **Configure `.env`.** Set `AWS_PROFILE=<name>`, `AWS_REGION=ap-southeast-1` and `BEDROCK_MODEL_ID` (a model ID or inference profile ID from the Bedrock console). Then turn on what you want:
+   - `EXTRACTION_MODE=llm`: Bedrock extraction.
+   - `OCR_ENABLED=true`: Textract reads every page of every PDF except the FATCA/CRS forms (scans, and the fillable bank statement), and what it sees is compared with what the file stores.
+   - `AGENTS_ENABLED=true`: the AI agent team on Bedrock (the shadow scorer follows it).
+   - `PROMPT_SCREEN_ENABLED=true` with `GUARDRAIL_ID` and `GUARDRAIL_VERSION`: the prompt attack screen. The guardrail belongs to an account and Region, so deploy `infra/guardrail.yaml` with CloudFormation, or ask whoever did for the ID and version. They are not in the repo.
+
+   Restart the backend after editing `.env`.
+4. **Check the connection** with `aws sts get-caller-identity --profile <name>`, then the live tests below.
+
+**Your session expires.** `aws login` refreshes your credentials every 15 minutes, but one login lasts 12 hours at most. After that, a case that needs AWS stops with "AWS call failed: Your session has expired or credentials have changed. Please reauthenticate using 'aws login'. Start a new case". Run `aws login --profile <name>` again and start a new case; if the backend still reports the old error, restart it. AWS calls are billed to the account you signed in to.
 
 ### 5. Run tests
 
@@ -91,6 +99,15 @@ it running, a case is marked incomplete ("ACRA and IRAS records could not be
 fetched"). Its data is `data/mock_gov/acra.json` and `iras.json`, edited by hand
 or rebuilt for the demo companies by `python -m gldb.demo_packs`.
 
+Each demo pack also carries the paperwork behind its trade. For every sale and
+goods purchase on its bank statement there is an invoice, a purchase order and a
+bill of lading that agree with the payment to the cent: a sale is an invoice the
+company issues and a credit pays it, a purchase is a supplier's invoice to the
+company and a debit pays it, and the suppliers are in the mock ACRA. The
+`invoice_mismatch` pack makes four of them disagree (overbilled against the order
+and the payment, more goods billed than shipped, an order never issued) so the
+transaction chains break at different steps.
+
 Names are screened against the individuals and entities designated on the UN
 lists that MAS names (DPRK, Iran, Libya, the Congo, Somalia, Sudan, South Sudan,
 Yemen, counter-terrorism), kept in `data/reference/designations.json`. Update it
@@ -106,11 +123,22 @@ keeps the list it replaces in `data/reference/history/`. A running backend picks
 the new file up without a restart. The bank's own hand-kept names are in
 `data/reference/sanctions.json` (the fictional demo names) and are screened too.
 
+The company's registered address and every tax residence on the application and
+its forms are checked against FATF's two lists, kept by hand in
+`data/reference/high_risk_countries.json` because FATF publishes no feed. A
+country under a call for action (DPRK, Iran, Myanmar) is a critical finding and
+puts the case on enhanced review; one under increased monitoring is a high
+finding. The file carries the plenary it is taken from (June 2026 now): update
+it after each plenary (February, June, October).
+
 The UI has four screens: **Cases** (every case, newest first), **New case**
 (demo packs or an upload), a **live run** that shows each pipeline stage as it
 runs, and the **case workspace**, where each of the 11 stages has its own page
 (the arrow keys step through them) beside the document viewer. **Model &
 controls** shows the saved evaluation, capabilities, signal library and spend.
+A case on the enhanced review path cannot be approved until the MLRO has
+reviewed it: the analyst escalates it, a different person records the MLRO
+decision, and then approval opens. Declining is never held back.
 Starting a case returns at once (202) and the pipeline runs in the background;
 the browser polls `GET /api/cases/{id}/progress`.
 
@@ -121,7 +149,9 @@ gldb/               Core package
   config.py         Constants and env settings
   schemas.py        All Pydantic models (Evidence, CaseResult, …)
   demo_packs.py     Builds the demo packs from the team's sample, and the demo companies' ACRA/IRAS records
-  data_factory.py   Generates the text-only test packs (tests/fixtures/packs), the only ones with trade documents
+  demo_trade.py     The paperwork behind each pack's trade: an invoice, order and bill of lading per sale and goods purchase, and the suppliers' ACRA records
+  invoice_pdf.py    Prints a tax invoice (letterhead, logo, item table, totals); the figures always add up
+  data_factory.py   Generates the text-only test packs (tests/fixtures/packs), whose trade documents are plain text
   official.py       Fetches a case's ACRA and IRAS records (the mock service in the prototype)
   sanctions_sync.py Updates the UN designations from MAS's page: its lists, each UN page, each XML list
   reference.py      The lists names are screened against: the designations and the bank's own watchlist
@@ -132,7 +162,7 @@ gldb/               Core package
   llm_client.py     The only AWS Bedrock wrapper (Converse API; extraction at temperature 0, agent turns send none)
   extract_llm.py    LLM-based field extraction
   extract.py        Dispatcher: routes to stub or LLM extractor
-  checks.py         Deterministic checks grouped into agents; run_agents() merges Evidence
+  checks.py         Deterministic checks grouped into rule groups; run_rule_checks() merges Evidence
   forensics.py      PDF forensics primitives (hidden text, mixed fonts, incremental saves)
   scoring.py        Rule-based risk score (LLMs never touch the score)
   audit.py          Append-only JSONL audit log
@@ -146,7 +176,7 @@ gldb/               Core package
   agent_eval.py     Champion vs challenger evaluation of the AI team on the packs
   api.py            FastAPI app used by the frontend
   jobs.py           Progress of background pipeline runs, for the live run screen
-  ocr.py            Textract OCR for scanned PDFs
+  ocr.py            Textract OCR of every PDF page except the FATCA/CRS forms
   viewer.py         Evidence viewer: a page (or workbook sheet) as an image, and where a quote sits on it
 mock_gov/           Mock ACRA and IRAS records service (stands in for the ACRA and Myinfo APIs)
 frontend/           React + TypeScript (Vite) UI

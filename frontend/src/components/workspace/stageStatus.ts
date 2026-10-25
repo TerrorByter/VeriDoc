@@ -62,8 +62,10 @@ export function stageStatus(kase: CaseView, audit: AuditEvent[], id: RailStageId
       return flagged(byCheck(kase, "PROMPT_INJECTION").length);
     case "records":
       return flagged(byCheck(kase, "OFFICIAL_RECORDS_UNAVAILABLE", "XDOC_OFFICIAL_RECORD").length);
-    case "agents":
-      return flagged(openFindings(kase).length + aiLeads(kase).length);
+    case "rule_checks":
+      return flagged(openFindings(kase).length);
+    case "ai_team":
+      return flagged(aiLeads(kase).length);
     case "score":
       return { state: kase.risk.band === "Low" ? "ran" : "flag", report };
     case "readiness":

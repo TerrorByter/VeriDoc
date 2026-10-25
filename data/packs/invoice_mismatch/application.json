@@ -1,0 +1,39 @@
+{
+  "application_id": "APP-2026-INVOICE_MISMATCH",
+  "application_date": "2026-07-10",
+  "company_name": "OAKRIDGE FABRICATION PTE. LTD.",
+  "uen": "201833377R",
+  "country_of_incorporation": "SINGAPORE",
+  "date_of_incorporation": "2018-04-17",
+  "registered_address": {
+    "block": "9",
+    "street": "SIN MING LANE",
+    "floor": "03",
+    "unit": "14",
+    "building": "SIN MING TECHHUB",
+    "city_state": "SINGAPORE",
+    "postal_code": "573970",
+    "country": "SINGAPORE"
+  },
+  "authorised_signatories": [
+    "FAISAL HASSAN",
+    "WONG MEI LING"
+  ],
+  "guarantors": [
+    {
+      "name": "WONG MEI LING",
+      "id_number": "S7512345M",
+      "nationality": "SINGAPORE",
+      "residential_address": {
+        "block": "210",
+        "street": "SERANGOON AVENUE 2",
+        "floor": "08",
+        "unit": "301",
+        "building": "",
+        "city_state": "SINGAPORE",
+        "postal_code": "550210",
+        "country": "SINGAPORE"
+      }
+    }
+  ]
+}

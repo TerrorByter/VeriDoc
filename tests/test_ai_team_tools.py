@@ -364,7 +364,7 @@ def test_overview_has_no_quotes_and_score_matches_scoring(tampered: CaseData, ta
     assert all("quote" not in f for f in overview["findings"])
     assert {f["id"] for f in overview["findings"]} == \
         {e.evidence_id for e in tampered.evidence if e.severity != "info"}
-    assert set(overview["findings"][0]) == {"id", "check", "severity", "document", "page", "agent",
+    assert set(overview["findings"][0]) == {"id", "check", "severity", "document", "page", "rule_group",
                                             "explanation", "expected", "observed"}
     assert {"doc_id": "invoice_INV-1002", "doc_type": "invoice", "page_count": 1} in overview["documents"]
     assert overview["chain_breaks"] and {b["invoice"] for b in overview["chain_breaks"]} == {"INV-1002"}

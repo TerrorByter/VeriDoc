@@ -1,14 +1,15 @@
 {
   "pack": "tampered_statement",
   "company": "CORVID MARINE ENGINEERING PTE. LTD.",
-  "note": "A sales credit on Corvid's statement was raised and the file re-saved; its balances no longer add up.",
+  "note": "A sales credit on Corvid's statement was raised and the file re-saved; its balances no longer add up, and the invoice for that sale no longer matches the credit.",
   "expected_band": "High",
   "expected_path": "enhanced_review",
   "expected_readiness": "Complete",
   "expected_check_ids": [
     "BANK_RUNNING_BAL",
     "FORENSIC_INCREMENTAL_UPDATE",
-    "META_MOD_AFTER_CREATE"
+    "META_MOD_AFTER_CREATE",
+    "XDOC_INVOICE_BANK"
   ],
   "expected_check_ids_ocr": [],
   "expected_compliance_check_ids": [],
@@ -24,6 +25,14 @@
         "META_MOD_AFTER_CREATE"
       ],
       "detail": "a sales credit raised by SGD 250,000 in an incremental save three weeks later"
+    },
+    {
+      "doc": "invoice_INV-1001",
+      "type": "credit_not_invoiced",
+      "check_ids": [
+        "XDOC_INVOICE_BANK"
+      ],
+      "detail": "the invoice for that sale is for SGD 250,000 less than the credit now on the statement"
     }
   ]
 }

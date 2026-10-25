@@ -34,7 +34,7 @@ export function RouteStage({ kase }: StageProps) {
       <dl className="facts">
         <div><dt>Hard flags</dt><dd>{routing.hard_flags.length ? routing.hard_flags.join(", ") : "None"}</dd></div>
         <div><dt>Analyst review</dt><dd>{routing.analyst_review ? "Required" : "Not required"}</dd></div>
-        <div><dt>Enhanced due diligence</dt><dd>{routing.edd_required ? "Required" : "Not required"}</dd></div>
+        <div><dt>Enhanced due diligence</dt><dd>{routing.edd_required ? "Required: the MLRO must review the case before it is approved" : "Not required"}</dd></div>
         <div><dt>Quality sample</dt><dd>{routing.qa_sampled ? "Drawn for QA" : "Not drawn"}</dd></div>
       </dl>
     </>

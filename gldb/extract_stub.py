@@ -10,6 +10,10 @@ Rendering contract (must match data_factory.py exactly):
 - Table rows: cells separated by " | "  (money no SGD prefix; empty cell = "-")
 - First line of every document is its title.
 
+An invoice may instead be laid out as gldb/invoice_pdf.py prints it (a
+letterhead, a details strip, a bill-to block, a numbered item table and a totals
+box); _parse_invoice reads either.
+
 This module also handles FATCA/CRS AcroForms via gldb/form_maps.py.
 """
 
@@ -123,10 +127,68 @@ def _parse_line_items(doc_id: str, lines: list[str], stop_prefix: str) -> list[L
 # Invoice parser
 # ---------------------------------------------------------------------------
 
-def _parse_invoice(doc_id: str, pages: list[str]) -> Invoice:
-    text = pages[0] if pages else ""
-    lines = [l for l in text.splitlines() if l.strip()]
+_STYLED_DAY = "%d %b %Y"
+_AMOUNT = r"(-?[\d,]+\.\d{2})"
+#: invoice_pdf's details strip: number, issued, due, terms, purchase order
+_STYLED_STRIP = re.compile(r"^(\S+) (\d{2} \w{3} \d{4}) (\d{2} \w{3} \d{4}) (.+) (\S+)$")
+_STYLED_ROW = re.compile(rf"^(\d+) (.+) (\d+) {_AMOUNT} {_AMOUNT}$")
 
+
+def _parse_invoice(doc_id: str, pages: list[str]) -> Invoice:
+    lines = [line for line in (pages[0] if pages else "").splitlines() if line.strip()]
+    if any(line.startswith("BILL TO") for line in lines):
+        return _parse_styled_invoice(doc_id, lines)
+    return _parse_plain_invoice(doc_id, lines)
+
+
+def _parse_styled_invoice(doc_id: str, lines: list[str]) -> Invoice:
+    """An invoice as gldb/invoice_pdf.py prints it. Each text line holds one
+    thing, so the seller is the letterhead's first line, the details are the
+    line under their labels and the table is the numbered rows."""
+
+    def after(label: str) -> str:
+        found = next((n for n, line in enumerate(lines) if line.startswith(label)), None)
+        if found is None or found + 1 == len(lines):
+            raise ValueError(f"{doc_id}: no '{label}' on the invoice")
+        return lines[found + 1]
+
+    def figure(label: str) -> tuple[Decimal, str]:
+        line = next((line for line in lines if re.fullmatch(rf"{re.escape(label)} {_AMOUNT}", line)), None)
+        if line is None:
+            raise ValueError(f"{doc_id}: no '{label}' figure on the invoice")
+        return _parse_money(line.rsplit(" ", 1)[1]), line
+
+    strip = _STYLED_STRIP.match(after("INVOICE NO"))
+    uen = re.search(r"UEN: (\w+)", "\n".join(lines))
+    if strip is None or uen is None:
+        raise ValueError(f"{doc_id}: the invoice's details are not in the layout it is printed in")
+    number, issued, _due, _terms, po_number = strip.groups()
+
+    items: list[LineItem] = []
+    table = next((n for n, line in enumerate(lines) if line.startswith("NO. DESCRIPTION")), None)
+    if table is None:
+        raise ValueError(f"{doc_id}: no item table on the invoice")
+    for line in lines[table + 1:]:
+        if line.startswith("Subtotal"):
+            break
+        row = _STYLED_ROW.match(line)
+        if row is None:
+            raise _row_error(doc_id, line)
+        _, description, quantity, unit_price, amount = row.groups()
+        items.append(LineItem(description=description, quantity=int(quantity),
+                              unit_price=_parse_money(unit_price), amount=_parse_money(amount)))
+
+    (subtotal, subtotal_line), (gst, gst_line), (total, total_line) = (
+        figure("Subtotal"), figure("GST (9%)"), figure("TOTAL (SGD)"))
+    return Invoice(
+        doc_id=doc_id, invoice_number=number, invoice_date=datetime.strptime(issued, _STYLED_DAY).date(),
+        seller_name=lines[0].removesuffix(" TAX INVOICE"), seller_uen=uen.group(1), buyer_name=after("BILL TO"),
+        po_number=po_number, line_items=items, subtotal=subtotal, gst=gst, total=total, page=1,
+        source_quotes={"Subtotal": subtotal_line, "GST (9%)": gst_line, "Total": total_line},
+    )
+
+
+def _parse_plain_invoice(doc_id: str, lines: list[str]) -> Invoice:
     def _get(label: str) -> str:
         for l in lines:
             if l.startswith(f"{label}:"):
@@ -966,7 +1028,7 @@ def parse_pack(
     """Parse all documents in a pack and return a populated ExtractedPack.
 
     *ocr* (doc_id -> page text from the OCR stage) fills pages that have no
-    text layer and is kept on the pack for the Forensics agent.
+    text layer and is kept on the pack for the Forensics rule group.
     """
     from gldb.schemas import ExtractedPack
 

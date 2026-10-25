@@ -15,10 +15,12 @@ from pathlib import Path
 import pdfplumber
 import pytest
 
-from gldb import demo_packs, forensics, official
+from gldb import demo_packs, demo_trade, forensics, official
 from gldb.config import PACKS_DIR
 from gldb.evaluate import evaluate_pack
 from gldb.extract_stub import _parse_acra_profile, parse_bank_statement_form
+from gldb.intake import document_paths, load_manifest
+from gldb.pipeline import assess
 
 PACKS = Path(PACKS_DIR)
 
@@ -48,6 +50,12 @@ def test_the_mock_service_holds_each_companys_records() -> None:
         assert all(iras[n["id_number"]] == n for n in demo_packs.iras_records(company))
 
 
+def test_the_mock_service_holds_each_suppliers_record() -> None:
+    acra = {c["uen"]: c for c in json.loads((demo_packs.MOCK_GOV_DIR / "acra.json").read_text())["companies"]}
+    for supplier in demo_trade.suppliers():
+        assert acra[supplier.uen] == demo_trade.acra_record(supplier)
+
+
 def test_the_mock_service_holds_acmas_profile_as_the_team_issued_it() -> None:
     """ACMA's record is the team's ACRA profile (the sample), field for field, so uploading that PDF as a copy
     differs from the original in nothing. Matthew Tan, who signs as CEO, is not on it: a new CEO ACRA does not
@@ -62,16 +70,55 @@ def test_the_mock_service_holds_acmas_profile_as_the_team_issued_it() -> None:
     assert record.officers[0].postal_code == "478236"  # the chairman's address, as the notice and the individual form give it
 
 
-def test_a_pack_is_the_samples_four_files_and_the_application(tmp_path: Path) -> None:
+def _trades(case: demo_packs.Case) -> list[demo_trade.Trade]:
+    return demo_trade.plan(demo_packs.seller_of(case.company), demo_packs._scaled_rows(case.company, case.statement_until)[1],
+                           case.trade_faults)
+
+
+def test_a_pack_is_the_samples_four_files_the_application_and_the_paperwork_of_its_trade(tmp_path: Path) -> None:
     case = next(c for c in demo_packs.CASES if c.name == "inflated_financials")
     demo_packs.build_pack(case, tmp_path / case.name)
-    assert sorted(p.name for p in (tmp_path / case.name).iterdir()) == [
+    trade_files = {name for t in _trades(case) for name in (
+        f"invoice_{t.invoice.number}.pdf", f"purchase_order_{t.invoice.po_number}.pdf", f"bill_of_lading_{t.bl_number}.pdf")}
+    assert len(trade_files) == 21
+    assert sorted(p.name for p in (tmp_path / case.name).iterdir()) == sorted({
         "Submitted financials.xlsx", "application.json", "bank_statement.pdf", "fatca_crs_entity.pdf",
-        "fatca_crs_individual.pdf", "ground_truth.json",
-    ]
+        "fatca_crs_individual.pdf", "ground_truth.json", *trade_files})
     statement = parse_bank_statement_form("s", tmp_path / case.name / "bank_statement.pdf")
     assert statement.account_holder == case.company.name
     assert statement.closing_balance == statement.transactions[-1].balance
+
+
+@pytest.mark.parametrize("case", [c for c in demo_packs.CASES if not (c.trade_faults or c.tamper_credit)], ids=lambda c: c.name)
+def test_every_sale_and_goods_purchase_of_a_pack_is_traced_to_its_order_shipment_and_payment(case: demo_packs.Case) -> None:
+    result = assess(case.name, document_paths(PACKS / case.name), load_manifest(PACKS / case.name), team=None)
+    trades = _trades(case)
+    assert sorted(c.invoice_number for c in result.chains) == sorted(t.invoice.number for t in trades)
+    assert all(not chain.broken for chain in result.chains)
+    assert all(step.status == "matched" for chain in result.chains for step in chain.steps)
+    payments = {c.invoice_number: c.steps[-1].counterpart.label.split()[1] for c in result.chains if c.steps[-1].counterpart}
+    assert payments == {t.invoice.number: "debit" if t.purchase else "credit" for t in trades}
+
+
+def test_the_tampered_statements_raised_credit_is_not_the_one_its_invoice_was_paid_by() -> None:
+    folder = PACKS / "tampered_statement"
+    result = assess("tampered_statement", document_paths(folder), load_manifest(folder), team=None)
+    payments = {c.invoice_number: c.steps[-1].status for c in result.chains}
+    assert payments["INV-1001"] == "missing" and {n: s for n, s in payments.items() if n != "INV-1001"} == {
+        n: "matched" for n in payments if n != "INV-1001"}
+    assert all(step.status == "matched" for c in result.chains for step in c.steps[:2])
+
+
+def test_the_mismatch_pack_breaks_each_chain_where_its_paperwork_was_made_to_disagree() -> None:
+    result = assess("invoice_mismatch", document_paths(PACKS / "invoice_mismatch"), load_manifest(PACKS / "invoice_mismatch"),
+                    team=None)
+    steps = {c.invoice_number: {s.step: s.status for s in c.steps} for c in result.chains}
+    matched = {"purchase_order": "matched", "bill_of_lading": "matched", "payment": "matched"}
+    assert steps["INV-1001"] == {**matched, "purchase_order": "contradicts", "payment": "missing"}  # overbilled
+    assert steps["INV-1002"] == {**matched, "bill_of_lading": "contradicts"}  # billed more goods than shipped
+    assert steps["SM-260128"] == {**matched, "purchase_order": "contradicts", "payment": "missing"}  # a supplier overbilled
+    assert steps["CAT-260331"] == {**matched, "purchase_order": "missing"}  # names an order never issued
+    assert [n for n, s in steps.items() if s == matched] == ["ABC-251219", "CR-260221", "TC-260518"]
 
 
 def test_only_the_tampered_statement_was_saved_twice() -> None:

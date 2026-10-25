@@ -11,7 +11,7 @@ Rules:
 - Mask personal identifiers with gldb.privacy.mask_id(). UENs are not masked.
 - If pack.manifest is None, skip manifest-dependent checks and emit
   MANIFEST_MISSING (completeness, medium, 1.0).
-- Checks are grouped into Agents (section E); run_agents() runs them.
+- Checks are grouped into rule groups (section E); run_rule_checks() runs them.
 - FORM_DOC_TYPES docs are skipped for META_MOD_AFTER_CREATE and
   META_PRODUCER_MISMATCH.
 """
@@ -21,9 +21,9 @@ from __future__ import annotations
 import re
 import string
 from calendar import monthrange
-from datetime import date, timedelta
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import date, timedelta
 from decimal import Decimal
 from time import perf_counter
 from typing import Callable
@@ -39,8 +39,8 @@ from gldb.config import (
     DEBT_INTEREST_WORDS,
     DEBT_NAME_WORDS,
     DEBT_REPAYMENT_WORDS,
-    HIDDEN_QUOTE_MAX_CHARS,
     GST_RATE,
+    HIDDEN_QUOTE_MAX_CHARS,
     MATCH_WINDOW_DAYS,
     META_MOD_GAP_HOURS,
     NON_SALES_CREDIT_WORDS,
@@ -56,15 +56,14 @@ from gldb.forensics import (
     incremental_updates,
     mixed_font_tokens,
 )
-from gldb.intake import read_text
+from gldb.intake import FORM_DOC_TYPES, model_view
 from gldb.ordering import TradeDates, breaks, violations
 from gldb.privacy import mask_id
-from gldb.reference import watchlist
-from gldb.screening import screen, screening_key, similarity
+from gldb.reference import HighRiskCountry, high_risk_countries, watchlist
 from gldb.schemas import (
     IRAS_DOC,
     AcraProfile,
-    AgentReport,
+    RuleGroupReport,
     ApplicationManifest,
     BankStatement,
     DocMeta,
@@ -80,13 +79,13 @@ from gldb.schemas import (
     Severity,
     TimelineEvent,
 )
+from gldb.screening import high_risk_country, screen, screening_key, similarity
 from gldb.workbook import is_workbook
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-FORM_DOC_TYPES = {"fatca_crs_entity", "fatca_crs_individual"}
 
 PACK_DOC = "pack"   # for cross-document evidence with no single source
 
@@ -109,7 +108,7 @@ def _ev(
     observed: str | None = None,
 ) -> Evidence:
     return Evidence(
-        evidence_id="",   # assigned later by run_agents
+        evidence_id="",   # assigned later by run_rule_checks
         check_id=check_id,
         category=category,
         severity=severity,
@@ -342,6 +341,15 @@ def _reference_identity(pack: ExtractedPack) -> tuple[str, str, str] | None:
     return None
 
 
+def is_purchase(buyer_name: str, pack: ExtractedPack) -> bool:
+    """Whether a trade document, by who it is addressed to, is the applicant's
+    purchase: a supplier's invoice to it, or its own order to a supplier. Such a
+    document's seller is a supplier, held to ACRA's record of that supplier by
+    the registry checks; every other document is a sale by the applicant."""
+    reference = _reference_identity(pack)
+    return reference is not None and normalise_name(buyer_name) == normalise_name(reference[1])
+
+
 def check_xdoc_identity(pack: ExtractedPack) -> list[Evidence]:
     """Cross-document identity checks against the company's registered
     identity: the ACRA profile if the pack has one, else the financial
@@ -354,8 +362,10 @@ def check_xdoc_identity(pack: ExtractedPack) -> list[Evidence]:
     ref_uen, ref_name, source = reference
     ref_name_norm = normalise_name(ref_name)
 
+    sales = [inv for inv in pack.invoices if not is_purchase(inv.buyer_name, pack)]
+
     # UEN check on invoices (high, 1.0)
-    for inv in pack.invoices:
+    for inv in sales:
         if inv.seller_uen != ref_uen:
             results.append(_ev(
                 "XDOC_IDENTITY", "fraud_signal", "high", inv.doc_id, inv.page, 1.0,
@@ -366,7 +376,7 @@ def check_xdoc_identity(pack: ExtractedPack) -> list[Evidence]:
             ))
 
     # Name check on invoices (medium, 0.9)
-    for inv in pack.invoices:
+    for inv in sales:
         inv_name_norm = normalise_name(inv.seller_name)
         if inv_name_norm != ref_name_norm:
             results.append(_ev(
@@ -391,8 +401,9 @@ def check_xdoc_identity(pack: ExtractedPack) -> list[Evidence]:
                 observed=holder_norm,
             ))
 
-    # Purchase orders: seller must be the applicant (high 1.0 / medium 0.9)
-    for po in pack.purchase_orders:
+    # Purchase orders: seller must be the applicant (high 1.0 / medium 0.9),
+    # unless the applicant placed the order
+    for po in (po for po in pack.purchase_orders if not is_purchase(po.buyer_name, pack)):
         if po.seller_uen != ref_uen:
             results.append(_ev(
                 "XDOC_IDENTITY", "fraud_signal", "high", po.doc_id, po.page, 1.0,
@@ -417,72 +428,66 @@ def check_xdoc_identity(pack: ExtractedPack) -> list[Evidence]:
 # 6. XDOC_INVOICE_BANK ---------------------------------------------------
 
 def check_xdoc_invoice_bank(pack: ExtractedPack) -> list[Evidence]:
-    """For each invoice, find a matching bank credit within MATCH_WINDOW_DAYS."""
+    """For each invoice, find the bank payment that settled it within
+    MATCH_WINDOW_DAYS: a credit for a sale, a debit for a purchase."""
     results: list[Evidence] = []
 
-    # Collect all credits across all statements, each usable at most once.
+    # Every credit and debit across all statements, each usable at most once.
     # Tuple: (stmt_doc_id, transaction)
-    available_credits: list[tuple[str, object]] = []
-    for stmt in pack.bank_statements:
-        for txn in stmt.transactions:
-            if txn.credit is not None:
-                available_credits.append((stmt.doc_id, txn))
-
-    used: set[int] = set()   # indices into available_credits
+    available = {
+        kind: [(stmt.doc_id, txn) for stmt in pack.bank_statements
+               for txn in stmt.transactions if getattr(txn, kind) is not None]
+        for kind in ("credit", "debit")
+    }
+    used: dict[str, set[int]] = {"credit": set(), "debit": set()}   # indices into available
 
     for inv in pack.invoices:
+        kind = "debit" if is_purchase(inv.buyer_name, pack) else "credit"
+        payments, taken = available[kind], used[kind]
         window_end = inv.invoice_date + timedelta(days=MATCH_WINDOW_DAYS)
 
-        # Gather candidates: credits in date window
+        # Gather candidates: payments in date window
         candidates = [
-            (idx, doc_id, txn)
-            for idx, (doc_id, txn) in enumerate(available_credits)
-            if idx not in used
+            (idx, txn)
+            for idx, (_, txn) in enumerate(payments)
+            if idx not in taken
             and inv.invoice_date <= txn.date <= window_end
         ]
 
         # Find exact match (within tolerance)
-        exact_idx: int | None = None
-        for idx, doc_id, txn in candidates:
-            if abs(txn.credit - inv.total) <= TOLERANCE_SGD:
-                exact_idx = idx
-                break
+        exact_idx = next(
+            (idx for idx, txn in candidates if abs(getattr(txn, kind) - inv.total) <= TOLERANCE_SGD), None,
+        )
 
         if exact_idx is not None:
-            _, txn = available_credits[exact_idx]
-            used.add(exact_idx)
+            _, txn = payments[exact_idx]
+            taken.add(exact_idx)
             # Check whether it's truly exact or just within tolerance
-            if txn.credit != inv.total:
+            if getattr(txn, kind) != inv.total:
                 results.append(_ev(
                     "XDOC_INVOICE_BANK", "fraud_signal", "info",
                     inv.doc_id, inv.page, 1.0,
                     f"Invoice {inv.invoice_number} total SGD {inv.total}: matching "
-                    f"bank credit SGD {txn.credit} on {txn.date} differs by "
-                    f"SGD {abs(txn.credit - inv.total):.2f} (within tolerance — "
+                    f"bank {kind} SGD {getattr(txn, kind)} on {txn.date} differs by "
+                    f"SGD {abs(getattr(txn, kind) - inv.total):.2f} (within tolerance — "
                     f"likely a partial payment or rounding).",
                     expected=f"SGD {inv.total}",
-                    observed=f"SGD {txn.credit} on {txn.date}",
+                    observed=f"SGD {getattr(txn, kind)} on {txn.date}",
                 ))
         else:
-            # Find closest credit by amount (across all statements, not just window)
-            all_unused = [
-                (idx, doc_id, txn)
-                for idx, (doc_id, txn) in enumerate(available_credits)
-                if idx not in used
-            ]
-            closest_str = "none"
-            if all_unused:
-                best = min(all_unused, key=lambda x: abs(x[2].credit - inv.total))
-                closest_str = f"SGD {best[2].credit} on {best[2].date}"
+            # Find closest payment by amount (across all statements, not just window)
+            unused = [txn for idx, (_, txn) in enumerate(payments) if idx not in taken]
+            closest = min(unused, key=lambda txn: abs(getattr(txn, kind) - inv.total), default=None)
+            closest_str = "none" if closest is None else f"SGD {getattr(closest, kind)} on {closest.date}"
 
             results.append(_ev(
                 "XDOC_INVOICE_BANK", "fraud_signal", "high",
                 inv.doc_id, inv.page, 0.95,
-                f"No bank credit matching invoice {inv.invoice_number} "
+                f"No bank {kind} matching invoice {inv.invoice_number} "
                 f"(SGD {inv.total}) found within {MATCH_WINDOW_DAYS} days "
                 f"after {inv.invoice_date}.",
                 expected=(
-                    f"credit of SGD {inv.total} between {inv.invoice_date} "
+                    f"{kind} of SGD {inv.total} between {inv.invoice_date} "
                     f"and {window_end}"
                 ),
                 observed=closest_str,
@@ -494,8 +499,11 @@ def check_xdoc_invoice_bank(pack: ExtractedPack) -> list[Evidence]:
 # 6b. XDOC_PO_INVOICE ----------------------------------------------------
 
 def matching_po(inv: Invoice, pack: ExtractedPack) -> PurchaseOrder | None:
-    """The purchase order an invoice relates to: from the same buyer, with
-    the closest total. None when that buyer placed no order."""
+    """The purchase order an invoice relates to: the one it names (None if the
+    pack lacks it), else one from the same buyer, with the closest total. None
+    when that buyer placed no order."""
+    if inv.po_number:
+        return next((po for po in pack.purchase_orders if po.po_number == inv.po_number), None)
     buyer = normalise_name(inv.buyer_name)
     orders = [po for po in pack.purchase_orders if normalise_name(po.buyer_name) == buyer]
     return min(orders, key=lambda p: abs(p.total - inv.total)) if orders else None
@@ -518,9 +526,11 @@ def check_xdoc_po_invoice(pack: ExtractedPack) -> list[Evidence]:
         if po is None:
             results.append(_ev(
                 "XDOC_PO_INVOICE", "fraud_signal", "medium", inv.doc_id, inv.page, 0.7,
-                f"Invoice {inv.invoice_number} bills '{inv.buyer_name}' but none of the "
-                f"{len(pack.purchase_orders)} purchase orders in the pack is from that buyer.",
-                expected=f"purchase order from {inv.buyer_name}",
+                (f"Invoice {inv.invoice_number} names purchase order {inv.po_number}, which is not in the pack."
+                 if inv.po_number else
+                 f"Invoice {inv.invoice_number} bills '{inv.buyer_name}' but none of the "
+                 f"{len(pack.purchase_orders)} purchase orders in the pack is from that buyer."),
+                expected=f"purchase order {inv.po_number}" if inv.po_number else f"purchase order from {inv.buyer_name}",
                 observed="none",
             ))
         elif inv.total - po.total > TOLERANCE_SGD:
@@ -1624,7 +1634,8 @@ def check_forensic_ocr_mismatch(pack: ExtractedPack) -> list[Evidence]:
     if not pack.ocr:
         return [_ev(
             "FORENSIC_OCR_SKIPPED", "fraud_signal", "info", PACK_DOC, 1, 1.0,
-            "The text layer vs OCR comparison did not run because OCR is turned off. "
+            "The text layer vs OCR comparison did not run because no page was read by OCR (OCR is "
+            "turned off, or the case holds only forms and workbooks). "
             "Figures covered or pasted over as images would not be detected.",
         )]
     results = []
@@ -1632,7 +1643,8 @@ def check_forensic_ocr_mismatch(pack: ExtractedPack) -> list[Evidence]:
         seen = pack.ocr.get(doc_id)
         if seen is None:
             continue
-        for m in amount_mismatches(read_text(path, visible_only=True), seen):
+        # The file's own text: its visible text layer and, for a fillable form, its field values
+        for m in amount_mismatches(model_view(path), seen):
             results.append(_ev(
                 "FORENSIC_OCR_MISMATCH", "fraud_signal", "medium", doc_id, m.page, 0.6,
                 f"On {doc_id} page {m.page}, the amounts a reader sees differ from the "
@@ -1786,14 +1798,18 @@ def _acra_version(pack: ExtractedPack) -> str:
 
 def check_registry_entities(pack: ExtractedPack) -> list[Evidence]:
     """Each UEN the documents give is registered with ACRA, under the name
-    used, and live."""
+    used, and live. What ACRA says of a company is one finding however many
+    documents name it, on the first, which lists the others; a wrong name is
+    one finding per name."""
     if pack.official is None or pack.official.error is not None:
         return []
     version = _acra_version(pack)
     results = []
     applicant = pack.official.applicant_uen
-    named = {e[3].strip() for e in registered_entities(pack)}
-    if applicant and applicant not in named and pack.official.applicant() is None:
+    by_uen: dict[str, list[tuple[str, int, str, str]]] = {}
+    for doc_id, page, role, uen, name in registered_entities(pack):
+        by_uen.setdefault(uen.strip(), []).append((doc_id, page, role, name))
+    if applicant and applicant not in by_uen and pack.official.applicant() is None:
         # Given only on the forms (no application data): reported on the form that gives it
         form = next((c.doc_id for c in pack.entity_self_certs
                      for row in c.tax_rows if (row.tin or "").strip() == applicant), PACK_DOC)
@@ -1802,28 +1818,35 @@ def check_registry_entities(pack: ExtractedPack) -> list[Evidence]:
             f"The applicant's UEN {applicant} is not registered with ACRA ({version}).",
             expected="a registered UEN", observed=f"UEN {applicant}",
         ))
-    for doc_id, page, role, uen, name in registered_entities(pack):
-        entity = pack.official.companies.get(uen.strip())
+    for uen, mentions in by_uen.items():
+        entity = pack.official.companies.get(uen)
+        doc_id, page, role, name = mentions[0]
         where = f"the {role} on {doc_id}" if doc_id != PACK_DOC else "the applicant"
+        elsewhere = list(dict.fromkeys(d for d, *_ in mentions if d not in (doc_id, PACK_DOC)))
+        also = f" It is also named on {', '.join(elsewhere)}." if elsewhere else ""
         if entity is None:
             results.append(_ev(
                 "REGISTRY_ENTITY_NOT_FOUND", "fraud_signal", "high", doc_id, page, 0.95,
-                f"UEN {uen} given for {where} ('{name}') is not registered with ACRA ({version}).",
+                f"UEN {uen} given for {where} ('{name}') is not registered with ACRA ({version}).{also}",
                 expected="a registered UEN", observed=f"UEN {uen}",
             ))
             continue
-        if similarity(name, entity.company_name) < SCREENING_MATCH_THRESHOLD:
-            results.append(_ev(
-                "REGISTRY_NAME_MISMATCH", "fraud_signal", "high", doc_id, page, 0.9,
-                f"UEN {uen} is registered to '{entity.company_name}', but {where} names "
-                f"'{name}' ({version}).",
-                expected=entity.company_name, observed=name,
-            ))
+        first_with_name: dict[str, tuple[str, int, str, str]] = {}
+        for mention in mentions:
+            first_with_name.setdefault(mention[3], mention)
+        for doc, doc_page, doc_role, used in first_with_name.values():
+            if similarity(used, entity.company_name) < SCREENING_MATCH_THRESHOLD:
+                results.append(_ev(
+                    "REGISTRY_NAME_MISMATCH", "fraud_signal", "high", doc, doc_page, 0.9,
+                    f"UEN {uen} is registered to '{entity.company_name}', but "
+                    f"{f'the {doc_role} on {doc}' if doc != PACK_DOC else 'the applicant'} names '{used}' ({version}).",
+                    expected=entity.company_name, observed=used,
+                ))
         if not _live(entity):
             results.append(_ev(
                 "REGISTRY_ENTITY_INACTIVE", "fraud_signal", "high", doc_id, page, 0.95,
                 f"'{entity.company_name}' (UEN {uen}) is '{entity.status}' at ACRA "
-                f"({version}), so it cannot trade.",
+                f"({version}), so it cannot trade.{also}",
                 expected="LIVE COMPANY", observed=entity.status,
             ))
     return results
@@ -1894,6 +1917,54 @@ def check_sanctions(pack: ExtractedPack) -> list[Evidence]:
                 expected="no sanctions match",
                 observed=f"'{name}' ~ {listed} ({entry.list} {entry.reference})",
             ))
+    return results
+
+
+#: Severity of a FATF-listed country. A call for action is critical, which on
+#: its own puts the case in the High band and on enhanced review; increased
+#: monitoring is high, which on its own is the Medium band and standard review.
+_COUNTRY_SEVERITY: dict[str, Severity] = {"call_for_action": "critical", "increased_monitoring": "high"}
+_COUNTRY_LISTS = {
+    "call_for_action": ("FATF's list of high-risk jurisdictions subject to a call for action",
+                        "Apply enhanced due diligence and confirm why the applicant is connected with it."),
+    "increased_monitoring": ("FATF's list of jurisdictions under increased monitoring",
+                             "Take the added risk into account and confirm why the applicant is connected with it."),
+}
+
+
+def _country_mentions(pack: ExtractedPack) -> list[tuple[str | None, str, int, str]]:
+    """(country as written, doc_id, page, what it is the country of) for the
+    registered address and each tax residence the application and its forms give."""
+    mentions: list[tuple[str | None, str, int, str]] = []
+    if pack.manifest is not None:
+        mentions.append((pack.manifest.registered_address.country, PACK_DOC, 1, "registered address"))
+    for entity in pack.entity_self_certs:
+        mentions.append((entity.registered_address.country, entity.doc_id, 1, "registered address"))
+        mentions += [(row.country, entity.doc_id, row.page, "tax residence") for row in entity.tax_rows]
+    for person in pack.individual_self_certs:
+        mentions += [(row.country, person.doc_id, row.page, "tax residence") for row in person.tax_rows]
+    return mentions
+
+
+def check_high_risk_countries(pack: ExtractedPack) -> list[Evidence]:
+    """The countries the application and its forms give for the registered
+    address and for tax residence, against FATF's lists of high-risk
+    jurisdictions. One finding for each listed country in each document."""
+    lists = high_risk_countries()
+    found: dict[tuple[str, str], tuple[HighRiskCountry, int, str, list[str]]] = {}
+    for written, doc_id, page, what in _country_mentions(pack):
+        if written and (country := high_risk_country(written)):
+            found.setdefault((doc_id, country.name), (country, page, written.strip(), []))[3].append(what)
+    results = []
+    for (doc_id, _), (country, page, written, whats) in found.items():
+        listed, advice = _COUNTRY_LISTS[country.fatf_list]
+        source = "The application" if doc_id == PACK_DOC else doc_id
+        results.append(_ev(
+            "HIGH_RISK_COUNTRY", "fraud_signal", _COUNTRY_SEVERITY[country.fatf_list], doc_id, page, 1.0,
+            f"{source} gives '{written}' as the {' and '.join(dict.fromkeys(whats))}, which is on {listed} "
+            f"(FATF {lists.version}, as of {lists.as_of}). {advice}",
+            quote=written, expected="no high-risk country", observed=f"'{written}' ({country.name}, {country.fatf_list})",
+        ))
     return results
 
 
@@ -2030,26 +2101,25 @@ def check_temp_trade_sequence(pack: ExtractedPack) -> list[Evidence]:
 
 
 # ---------------------------------------------------------------------------
-# E. AGENTS AND RUNNER
+# E. RULE GROUPS AND RUNNER
 # ---------------------------------------------------------------------------
 
 CheckFn = Callable[[ExtractedPack], list[Evidence]]
 
 
 @dataclass(frozen=True)
-class Agent:
-    """A specialist that runs a group of checks and emits Evidence only.
-    Agents never score: gldb.scoring turns their fraud_signal Evidence into
-    the risk score."""
+class RuleGroup:
+    """A group of checks that emits Evidence only. Rule groups never score:
+    gldb.scoring turns their fraud_signal Evidence into the risk score."""
 
     name: str
     description: str
     checks: list[CheckFn]
 
 
-#: Agents in report order. Evidence IDs follow this order.
-AGENTS: list[Agent] = [
-    Agent(
+#: Rule groups in report order. Evidence IDs follow this order.
+RULE_GROUPS: list[RuleGroup] = [
+    RuleGroup(
         "Document Integrity",
         "Arithmetic, running balances and PDF metadata within each document.",
         [
@@ -2061,7 +2131,7 @@ AGENTS: list[Agent] = [
             check_meta_producer_mismatch,
         ],
     ),
-    Agent(
+    RuleGroup(
         "Forensics",
         "Hidden text, figures edited or pasted over the original, re-saved PDFs, and "
         "instructions aimed at AI models, found in the raw file, by comparing it with "
@@ -2074,7 +2144,7 @@ AGENTS: list[Agent] = [
             check_prompt_injection,
         ],
     ),
-    Agent(
+    RuleGroup(
         "Cross-Document",
         "Consistency of identity, amounts and quantities across invoices, purchase orders, "
         "bills of lading, bank statements, financial statements and the ACRA profile.",
@@ -2092,20 +2162,20 @@ AGENTS: list[Agent] = [
             check_acra_persons,
         ],
     ),
-    Agent(
+    RuleGroup(
         "Registry & Screening",
         "Companies and people checked against ACRA's and IRAS's own records (fetched, not uploaded) "
-        "and the sanctions list (versioned reference data).",
+        "the sanctions list and FATF's high-risk countries (versioned reference data).",
         [check_official_records, check_official_copies, check_registry_entities, check_registry_signatories,
-         check_sanctions],
+         check_sanctions, check_high_risk_countries],
     ),
-    Agent(
+    RuleGroup(
         "Timeline",
         "Dates across documents: trading before the company existed, and orders, "
         "shipments and invoices out of sequence.",
         [check_temp_before_incorporation, check_temp_trade_sequence],
     ),
-    Agent(
+    RuleGroup(
         "Compliance & Completeness",
         "Required documents, bank coverage, and FATCA/CRS form validity.",
         [
@@ -2130,12 +2200,12 @@ AGENTS: list[Agent] = [
 ]
 
 
-def _run_agent(agent: Agent, pack: ExtractedPack) -> tuple[list[Evidence], AgentReport]:
-    """Run one agent's checks. A crashing check emits SYSTEM_CHECK_ERROR
+def _run_rule_group(group: RuleGroup, pack: ExtractedPack) -> tuple[list[Evidence], RuleGroupReport]:
+    """Run one rule group's checks. A crashing check emits SYSTEM_CHECK_ERROR
     (compliance, medium, 1.0) rather than propagating the exception."""
     start = perf_counter()
     found: list[Evidence] = []
-    for check_fn in agent.checks:
+    for check_fn in group.checks:
         try:
             found.extend(check_fn(pack))
         except Exception as exc:  # noqa: BLE001
@@ -2146,28 +2216,28 @@ def _run_agent(agent: Agent, pack: ExtractedPack) -> tuple[list[Evidence], Agent
                 f"Error: {exc}",
             ))
     for ev in found:
-        ev.agent = agent.name
-    report = AgentReport(
-        name=agent.name,
-        description=agent.description,
-        checks_run=len(agent.checks),
+        ev.rule_group = group.name
+    report = RuleGroupReport(
+        name=group.name,
+        description=group.description,
+        checks_run=len(group.checks),
         findings=sum(ev.severity != "info" for ev in found),
         duration_ms=round((perf_counter() - start) * 1000),
     )
     return found, report
 
 
-def run_agents(
+def run_rule_checks(
     pack: ExtractedPack,
     extra_evidence: list[Evidence] | None = None,
-) -> tuple[list[Evidence], list[AgentReport]]:
-    """Run every agent in parallel and merge their Evidence.
+) -> tuple[list[Evidence], list[RuleGroupReport]]:
+    """Run every rule group in parallel and merge their Evidence.
 
-    Results are merged in AGENTS order (not completion order), so the output
-    is deterministic. Evidence IDs are assigned E01…En with no gaps.
+    Results are merged in RULE_GROUPS order (not completion order), so the
+    output is deterministic. Evidence IDs are assigned E01…En with no gaps.
     """
-    with ThreadPoolExecutor(max_workers=len(AGENTS)) as pool:
-        outcomes = list(pool.map(lambda agent: _run_agent(agent, pack), AGENTS))
+    with ThreadPoolExecutor(max_workers=len(RULE_GROUPS)) as pool:
+        outcomes = list(pool.map(lambda group: _run_rule_group(group, pack), RULE_GROUPS))
 
     collected = [ev for found, _ in outcomes for ev in found]
     collected.extend(extra_evidence or [])

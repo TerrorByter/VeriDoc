@@ -16,6 +16,9 @@ the record or be edited without leaving a trace.
 Rules:
 - Pure functions over AuditEvents; no I/O.
 - require() refuses any action not allowed from the current status.
+- A case on the enhanced review path (enhanced due diligence) cannot be
+  approved from "assessed": the MLRO must review it first, which is the
+  senior sign-off. Declining, escalating and asking for information stay open.
 - A case cannot be approved while a fraud flag from the latest assessment
   is undecided (open_flags); declining is always allowed.
 - The MLRO must be a different person from the analyst who escalated
@@ -71,14 +74,22 @@ def status(events: list[AuditEvent]) -> CaseStatus:
     return current
 
 
-def allowed_actions(current: CaseStatus) -> list[str]:
-    return sorted(_ALLOWED[current])
+def _awaits_mlro(current: CaseStatus, action: str, edd_required: bool) -> bool:
+    """Whether *action* is approval of an enhanced review case the MLRO has not reviewed."""
+    return edd_required and current == "assessed" and action == "approve"
 
 
-def require(current: CaseStatus, action: str) -> None:
-    """Raise TransitionError unless *action* is allowed from *current*."""
+def allowed_actions(current: CaseStatus, edd_required: bool = False) -> list[str]:
+    return sorted(a for a in _ALLOWED[current] if not _awaits_mlro(current, a, edd_required))
+
+
+def require(current: CaseStatus, action: str, edd_required: bool = False) -> None:
+    """Raise TransitionError unless *action* is allowed from *current*, for a
+    case that is on the enhanced review path if *edd_required*."""
     if action not in _ALLOWED[current]:
         raise TransitionError(f"cannot {action} a case that is {current}")
+    if _awaits_mlro(current, action, edd_required):
+        raise TransitionError("enhanced review: the MLRO must review the case before it is approved")
 
 
 def open_flags(evidence: list[Evidence], events: list[AuditEvent]) -> list[str]:

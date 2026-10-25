@@ -86,7 +86,7 @@ function FindingCard({ ev, signal, decision, editable, explained, subjects, onVi
       )}
       {ev.quote && <blockquote className="quote">{ev.quote}</blockquote>}
       <p className="finding-meta muted">
-        {where}. {ev.agent} {ev.method === "llm" ? "model check" : "rule check"}, {Math.round(ev.confidence * 100)}%
+        {where}. {ev.rule_group} {ev.method === "llm" ? "model check" : "rule check"}, {Math.round(ev.confidence * 100)}%
         confidence. Rule severity {ev.severity}.
       </p>
     </>

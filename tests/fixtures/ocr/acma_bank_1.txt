@@ -1,0 +1,150 @@
+47 Hill Street, 09-00, Singapore
+179365
+FIRST
+STATEMENT OF ACCOUNT
+CITIZENS
+firstcitizensbank@outlook.com
+BANK
+Account Number:
+111-234-567-890
+Statement Date:
+30/06/2026
+Page 1 of 1
+Period Covered:
+01/01/2026 to 30/06/2026
+Opening Balance:
+1,213,365.00
+ACMA Ltd.
+Total Credit Amount:
+6,247,650.86
+19 Jurong Port Rd, Blk 67, #25-550
+Total Debit Amount:
+6,598,867.28
+Singapore 619093
+Closing Balance:
+862,148.58
+Account Type:
+Current Account
+Tampines Branch
+Number of Transactions:
+28
+Transactions
+Date
+Description
+Credit
+Debit
+Balance
+02/01/2026
+Electronic Supplies ABC electronics Ltd.
+283,932.40
+929,432.60
+02/01/2026
+Annual Prepaid Rent Sunny Properties Ltd.
+100,000.00
+829,432.60
+15/01/2026
+Sales Revenue - EFG Company
+1,670,370.23
+2,499,802.83
+16/01/2026
+Investment Income - 123 Plastics Ltd.
+10,000.00
+2,509,802.83
+17/01/2026
+Annual Electricity Bill - SP group
+284,395.72
+2,225,407.11
+17/01/2026
+Annual Water Utility Bill - PUB
+15,928.62
+2,209,478.49
+18/01/2026
+Office Supplies Best Stationery Ltd.
+937.92
+2,208,540.57
+31/01/2026
+Payment Salaries
+200,000.00
+2,008,540.57
+05/02/2026
+Annual Insurance Premium Abolo Group
+30,000.00
+1,978,540.57
+11/02/2026
+Steel Sheets - SteelMen Pte Ltd.
+309,372.82
+1,669,167.75
+13/02/2026
+Payment Bond interest
+300,000.00
+1,369,167.75
+13/02/2026
+Bond issuance
+3,000,000.00
+4,369,167.75
+28/02/2026
+Payment Salaries
+200,000.00
+4,169,167.75
+07/03/2026
+Factory Machine - Cool Robotics Ltd.
+120,000.00
+4,049,167.75
+09/03/2026
+Annual Factory Maintenance - Tan Kah Beng
+6,580.00
+4,042,587.75
+21/03/2026
+Dividend Income
+50,000.00
+4,092,587.75
+31/03/2026
+Payment Salaries
+200,000.00
+3,892,587.75
+14/04/2026
+Forklifts Caterpillarz Inc.
+184,895.80
+3,707,691.95
+25/04/2026
+Payment Bond Principal
+3,000,000.00
+707,691.95
+29/04/2026
+Sales Revenue - Metallica Inc.
+1,497,280.63
+2,204,972.58
+30/04/2026
+Payment Salaries
+200,000.00
+2,004,972.58
+08/05/2026
+Retreat Chill Parties
+500.00
+2,004,472.58
+27/05/2026
+Payment Bank Loan Interest
+30,000.00
+1,974,472.58
+31/05/2026
+Payment Salaries
+200,000.00
+1,774,472.58
+01/06/2026
+Air Conditioner Supplies Tan & Co.
+730,824.00
+1,043,648.58
+01/06/2026
+Payment Bank Services Charge
+1,500.00
+1,042,148.58
+21/06/2026
+Interest Income
+20,000.00
+1,062,148.58
+30/06/2026
+Payment Salaries
+200,000.00
+862,148.58
+--- End of Transactions --
+862,148.58

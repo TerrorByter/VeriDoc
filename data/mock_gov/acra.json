@@ -432,6 +432,173 @@
         "investing_cashflow": "-0.085",
         "financing_cashflow": "-0.096"
       }
+    },
+    {
+      "company_name": "OAKRIDGE FABRICATION PTE. LTD.",
+      "uen": "201833377R",
+      "incorporation_date": "2018-04-17",
+      "status": "LIVE COMPANY",
+      "registered_address": "9 SIN MING LANE #03-14 SIN MING TECHHUB (573970)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "WONG MEI LING",
+          "id_number": "S7512345M",
+          "position": "CHAIRMAN",
+          "appointed": "2018-04-17",
+          "postal_code": "550210"
+        },
+        {
+          "name": "FAISAL HASSAN",
+          "id_number": "S8156789N",
+          "position": "CHIEF EXECUTIVE OFFICER",
+          "appointed": "2018-04-17",
+          "postal_code": "529602"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "WONG MEI LING",
+          "shares": 1000000
+        }
+      ],
+      "financials": {
+        "period_start": "2025-01-01",
+        "period_end": "2025-12-31",
+        "currency": "SGD",
+        "total_assets": "7.424",
+        "total_current_assets": "6.783",
+        "total_liabilities": "6.223",
+        "total_current_liabilities": "5.958",
+        "retained_earnings": "-213.947",
+        "revenue": "8.728",
+        "profit_before_tax": "-1.695",
+        "profit_after_tax": "-1.703",
+        "ebit": "-1.649",
+        "operating_cashflow": "0.408",
+        "investing_cashflow": "-0.134",
+        "financing_cashflow": "-0.151"
+      }
+    },
+    {
+      "company_name": "ABC ELECTRONICS LTD.",
+      "uen": "199804567H",
+      "incorporation_date": "1998-03-12",
+      "status": "LIVE COMPANY",
+      "registered_address": "30 PIONEER CRESCENT #02-11 (628559)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "LEONG CHEE KEONG",
+          "id_number": "S6402345D",
+          "position": "DIRECTOR",
+          "appointed": "1998-03-12",
+          "postal_code": "628559"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "LEONG CHEE KEONG",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "STEELMEN PTE LTD.",
+      "uen": "200709981R",
+      "incorporation_date": "2007-06-04",
+      "status": "LIVE COMPANY",
+      "registered_address": "12 TUAS AVENUE 10 (639142)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "CHUA HOCK SENG",
+          "id_number": "S6911234F",
+          "position": "DIRECTOR",
+          "appointed": "2007-06-04",
+          "postal_code": "639142"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "CHUA HOCK SENG",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "COOL ROBOTICS LTD.",
+      "uen": "201511222G",
+      "incorporation_date": "2015-11-19",
+      "status": "LIVE COMPANY",
+      "registered_address": "2 SCIENCE PARK DRIVE #05-02 (118222)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "RAJESH MENON",
+          "id_number": "S7412345H",
+          "position": "DIRECTOR",
+          "appointed": "2015-11-19",
+          "postal_code": "118222"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "RAJESH MENON",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "CATERPILLARZ INC.",
+      "uen": "T98FC1234C",
+      "incorporation_date": "1998-09-01",
+      "status": "LIVE COMPANY",
+      "registered_address": "10 JALAN BESAR #04-17 (208787)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "DAVID HOLLIS",
+          "id_number": "S8503456J",
+          "position": "DIRECTOR",
+          "appointed": "1998-09-01",
+          "postal_code": "208787"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "DAVID HOLLIS",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "TAN & CO.",
+      "uen": "53123456K",
+      "incorporation_date": "2009-05-21",
+      "status": "LIVE COMPANY",
+      "registered_address": "5 WOODLANDS INDUSTRIAL PARK D #01-06 (757919)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "TAN KAH WEI",
+          "id_number": "S7101234L",
+          "position": "DIRECTOR",
+          "appointed": "2009-05-21",
+          "postal_code": "757919"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "TAN KAH WEI",
+          "shares": 100000
+        }
+      ],
+      "financials": null
     }
   ]
 }

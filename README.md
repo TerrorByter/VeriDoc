@@ -55,6 +55,8 @@ The app runs without AWS. With the `.env` copied from `.env.example`, every AWS 
    Restart the backend after editing `.env`.
 4. **Check the connection** with `aws sts get-caller-identity --profile <name>`, then the live tests below.
 
+**Where the data is processed.** Textract and the prompt screen's guardrail (classic tier, no cross-Region profile) run in ap-southeast-1. The Claude models do not: every default model ID starts with `global.`, a cross-Region inference profile, so a request is sent from Singapore but may be processed in any AWS commercial Region. That is acceptable for the synthetic demo data, not for a real applicant's documents. The only Claude model Bedrock offers in ap-southeast-1 itself is `anthropic.claude-sonnet-5`, which AWS has not yet enabled for this project's account. Once it is, using it for every model keeps all processing in Singapore; it rejects the temperature and forced tool choice `llm_client.py` sends today, so that needs a code change too.
+
 **Your session expires.** `aws login` refreshes your credentials every 15 minutes, but one login lasts 12 hours at most. After that, a case that needs AWS stops with "AWS call failed: Your session has expired or credentials have changed. Please reauthenticate using 'aws login'. Start a new case". Run `aws login --profile <name>` again and start a new case; if the backend still reports the old error, restart it. AWS calls are billed to the account you signed in to.
 
 ### 5. Run tests

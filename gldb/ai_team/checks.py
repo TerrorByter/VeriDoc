@@ -17,7 +17,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Literal
 
-from gldb.checks import incorporation, matching_po
+from gldb.checks import incorporation, is_purchase, matching_po
 from gldb.config import (
     GENERIC_PAYERS,
     MATCH_WINDOW_DAYS,
@@ -94,15 +94,15 @@ def names(number: str) -> re.Pattern[str]:
 def trade_dates(invoice: Invoice, pack: ExtractedPack, incorporated: date | None) -> TradeDates:
     """*invoice*'s trade: its matching purchase order, its earliest shipment
     (the rules check every bill of lading that references it, and a breach by
-    any is one by the earliest) and the earliest credit whose description
-    names it."""
+    any is one by the earliest) and the earliest payment whose description
+    names it: a credit for a sale, a debit for a purchase."""
     po = matching_po(invoice, pack)
     shipped = min((b.shipped_date for b in pack.bills_of_lading if b.invoice_reference == invoice.invoice_number),
                   default=None)
-    named = names(invoice.invoice_number)
-    credits = [txn.date for _, _, txn in bank_rows(pack) if txn.credit is not None and named.search(txn.description)]
+    named, kind = names(invoice.invoice_number), "debit" if is_purchase(invoice.buyer_name, pack) else "credit"
+    paid = [txn.date for _, _, txn in bank_rows(pack) if getattr(txn, kind) is not None and named.search(txn.description)]
     return TradeDates(purchase_order=po.po_date if po else None, shipped=shipped,
-                      invoice=invoice.invoice_date, payment=min(credits, default=None), incorporated=incorporated)
+                      invoice=invoice.invoice_date, payment=min(paid, default=None), incorporated=incorporated)
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +172,10 @@ class Payment:
 
 def payments(invoice: Invoice, pack: ExtractedPack) -> list[Payment]:
     """Every credit naming *invoice*, in bank order, with its payer read from
-    the description and compared with the invoice's buyer."""
+    the description and compared with the invoice's buyer. None for a
+    purchase: the applicant is its buyer and pays it by a debit."""
+    if is_purchase(invoice.buyer_name, pack):
+        return []
     named, reader = names(invoice.invoice_number), _payer_reader(invoice.invoice_number)
     found = []
     for row_id, _, txn in bank_rows(pack):
@@ -198,6 +201,10 @@ def payment_context(pack: ExtractedPack) -> str:
     an agent can cite (a result must be searched for to be cited)."""
     lines = []
     for invoice in pack.invoices:
+        if is_purchase(invoice.buyer_name, pack):
+            lines.append(f"- {invoice.invoice_number}, a purchase from {invoice.seller_name}: "
+                         "the applicant pays it, by a debit; who paid is not in question")
+            continue
         head = f"- {invoice.invoice_number}, buyer {invoice.buyer_name or 'not named'}: "
         credits = [f"{p.row_id} {p.transaction.date} credit {p.transaction.credit} "
                    + (f"from {p.payer} ({_RELATION_TEXT[p.relation]})" if p.payer
@@ -236,7 +243,7 @@ def resolved_findings(pack: ExtractedPack, evidence: list[Evidence]) -> dict[str
 
 
 def _third_party_payment(lead: Lead, pack: ExtractedPack, evidence: list[Evidence]) -> Outcome:
-    """An invoice paid by someone other than its buyer. Every row of the lead
+    """A sale paid by someone other than its buyer. Every row of the lead
     is a credit naming the invoice, and every credit naming it has its payer
     read reliably: the case data decides, not the agent's choice of rows.
     Verified if any such credit is paid by someone else; contradicted only if
@@ -246,6 +253,8 @@ def _third_party_payment(lead: Lead, pack: ExtractedPack, evidence: list[Evidenc
         return _unverified(f"invoice {lead.invoice_number} is not in the pack")
     if not invoice.buyer_name.strip():
         return _unverified(f"{invoice.invoice_number} names no buyer")
+    if is_purchase(invoice.buyer_name, pack):
+        return _unverified(f"{invoice.invoice_number} is a purchase: the applicant pays it")
     rows = {row_id: txn for row_id, _, txn in bank_rows(pack)}
     named = names(invoice.invoice_number)
     facts = {"invoice": invoice.invoice_number, "buyer": invoice.buyer_name}

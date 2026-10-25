@@ -14,6 +14,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
+from gldb.ai_team.checks import check_pattern, payment_context, payments, trade_dates
 from gldb.checks import (
     check_temp_trade_sequence,
     check_xdoc_identity,
@@ -23,7 +24,7 @@ from gldb.checks import (
     matching_po,
 )
 from gldb.reconciliation import build_chains
-from gldb.schemas import BankStatement, Invoice, LineItem, PurchaseOrder, Transaction
+from gldb.schemas import BankStatement, Invoice, Lead, LineItem, PurchaseOrder, Transaction
 from tests.acma_records import acra, pack
 
 D = Decimal
@@ -234,3 +235,51 @@ def test_a_sales_chain_still_ends_at_the_credit() -> None:
     case = _case(invoices=[_sale()], statement=_statement((date(2026, 2, 12), "109.00", None)))
     step = _payment(case)
     assert step.counterpart is not None and step.counterpart.label == "Bank credit on 2026-02-12"
+
+
+# ---------------------------------------------------------------------------
+# The AI team's code checks: who paid is a question about sales
+# ---------------------------------------------------------------------------
+
+def _named(*rows: tuple[date, str | None, str | None, str]) -> BankStatement:
+    """A statement of (date, credit, debit, description) rows."""
+    statement = _statement(*((on, c, d) for on, c, d, _ in rows))
+    txns = [t.model_copy(update={"description": text}) for t, (*_, text) in zip(statement.transactions, rows)]
+    return statement.model_copy(update={"transactions": txns})
+
+
+def _tpp_lead(invoice: str, rows: list[str]) -> Lead:
+    test = {"cites": ["R01"], "expected": "e", "observed": "o"}
+    return Lead.model_validate({"agent": "transaction", "kind": "pattern", "pattern": "third_party_payment",
+                                "hypothesis": "h", "tests": [test], "investigation_status": "supported",
+                                "invoice_number": invoice, "transaction_ids": rows})
+
+
+def test_the_payment_context_says_a_purchase_is_paid_by_the_applicant() -> None:
+    case = _case(invoices=[_invoice(), _sale()],
+                 statement=_named((date(2026, 2, 12), None, "109.00", "GIRO DR STEELMEN SM-0001")))
+    purchase, sale = payment_context(case).splitlines()
+    assert purchase == f"- SM-0001, a purchase from {SUPPLIER}: the applicant pays it, by a debit; who paid is not in question"
+    assert sale == "- INV-1001, buyer EFG Company: no credit names it"
+
+
+def test_a_third_party_payment_lead_on_a_purchase_is_unverified() -> None:
+    # A credit naming the supplier's invoice (a refund, say) is not a third party paying the applicant's bill
+    case = _case(invoices=[_invoice()], statement=_named((date(2026, 2, 12), "109.00", None, "GIRO CR HARBOURLINE SM-0001")))
+    assert payments(_invoice(), case) == []
+    outcome = check_pattern(_tpp_lead("SM-0001", ["T01"]), case, [])
+    assert outcome.status == "unverified" and "SM-0001 is a purchase" in outcome.reason
+
+
+def test_a_purchases_payment_date_is_the_debit_naming_it() -> None:
+    case = _case(invoices=[_invoice()], statement=_named(
+        (date(2026, 2, 5), "109.00", None, "GIRO CR STEELMEN SM-0001"),
+        (date(2026, 2, 12), None, "109.00", "GIRO DR STEELMEN SM-0001")))
+    assert trade_dates(_invoice(), case, None).payment == date(2026, 2, 12)
+
+
+def test_a_sales_payment_date_is_still_the_credit_naming_it() -> None:
+    case = _case(invoices=[_sale()], statement=_named(
+        (date(2026, 2, 5), None, "109.00", "GIRO DR EFG INV-1001"),
+        (date(2026, 2, 12), "109.00", None, "GIRO CR EFG COMPANY INV-1001")))
+    assert trade_dates(_sale(), case, None).payment == date(2026, 2, 12)

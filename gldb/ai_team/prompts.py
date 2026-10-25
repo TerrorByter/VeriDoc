@@ -35,7 +35,7 @@ _CONTEXT = (
 )
 
 PATTERN_DEFINITIONS: dict[str, str] = {
-    "third_party_payment": "an invoice is paid by someone other than its buyer.",
+    "third_party_payment": "a sale (an invoice the applicant issues) is paid by someone other than its buyer.",
     "round_trip": "money paid out comes back from the same counterparty within days, presented as income.",
     "split_payment": "one invoice is settled by several smaller credits.",
     "related_party": "a counterparty shares an officer with the applicant.",
@@ -61,8 +61,10 @@ _DOMAINS: dict[SpecialistName, str] = {
 
 #: How a specialist goes about its patterns, where it needs more than the definitions
 _METHODS: dict[SpecialistName, str] = {
-    "transaction": "The case index lists, for each invoice, the credits code read from the bank statements and "
-                   "who paid: take them as given and spend your steps on why, not on finding them. Where the "
+    "transaction": "The applicant both sells and buys: an invoice addressed to it is a supplier's, paid by a "
+                   "debit, and only its sales raise the question of who paid. The case index lists, for each sale, "
+                   "the credits code read from the bank statements and who paid: take them as given and spend "
+                   "your steps on why, not on finding them. Where the "
                    "payer is not the buyer, search the statements by the invoice number (search_bank_transactions "
                    "text) to cite the result, then look at what the documents say about the payer and whether "
                    "the payment makes commercial sense. Look for several credits that add up to an invoice's "

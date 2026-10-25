@@ -31,6 +31,7 @@ from typing import Any, TypeVar, get_args
 from pydantic import ValidationError
 
 from gldb.ai_team.checks import bank_rows, counterparties, counterparty_id, payment_context
+from gldb import official
 from gldb.ai_team.verify import PATTERNS, check_lead
 from gldb.checks import FORM_DOC_TYPES, PACK_DOC, incorporation
 from gldb.config import AGENT_MAX_RESULT_CHARS, AGENT_TOKEN_BUDGET, SCREENING_MATCH_THRESHOLD
@@ -38,7 +39,6 @@ from gldb.intake import model_view
 from gldb.llm_client import tool_spec
 from gldb.privacy import mask_id
 from gldb.reconciliation import build_chains
-from gldb.reference import registry
 from gldb.routing import route
 from gldb.schemas import (
     AgentName,
@@ -351,23 +351,27 @@ def _document_fields(case: CaseData, args: Args, agent: AgentName, ledger: Ledge
 
 def _registry_lookup(case: CaseData, args: Args, agent: AgentName, ledger: Ledger) -> Any:
     uen, name = args.get("uen"), args.get("name")
-    if uen is None and name is None:
-        raise ToolError("give uen or name")
-    entities = registry().entities
-    if uen is not None:
-        entity = entities.get(uen)
-    else:
-        best, uen = max(((similarity(name, e.name), u) for u, e in entities.items()), default=(0.0, ""))
-        entity = entities.get(uen) if best >= SCREENING_MATCH_THRESHOLD else None
+    try:
+        if uen is not None:
+            entity = official.company(uen)
+        elif name is not None:
+            best, entity = max(((similarity(name, c.company_name), c) for c in official.search(name)),
+                               key=lambda match: match[0], default=(0.0, None))
+            entity = entity if best >= SCREENING_MATCH_THRESHOLD else None
+        else:
+            raise ToolError("give uen or name")
+    except official.OfficialRecordsError as exc:
+        raise ToolError(str(exc)) from exc
     if entity is None:
         return {"found": False}
-    return {"uen": uen, "name": entity.name, "status": entity.status, "incorporated": entity.incorporated,
-            "officers": [o.model_dump() for o in entity.officers]}
+    return {"uen": entity.uen, "name": entity.company_name, "status": entity.status,
+            "incorporated": entity.incorporation_date,
+            "officers": [{"name": o.name, "role": o.position} for o in entity.officers]}
 
 
 def _sanctions_search(case: CaseData, args: Args, agent: AgentName, ledger: Ledger) -> Any:
-    return [{"name": e.name, "list": e.list, "reference": e.reference, "similarity": round(s, 2)}
-            for e, s in screen(args["name"])]
+    return [{"name": e.name, "list": e.list, "reference": e.reference, "similarity": round(s, 2), "matched": m}
+            for e, s, m in screen(args["name"])]
 
 
 def _timeline(case: CaseData, args: Args, agent: AgentName, ledger: Ledger) -> Any:
@@ -377,7 +381,7 @@ def _timeline(case: CaseData, args: Args, agent: AgentName, ledger: Ledger) -> A
 
 
 def _incorporation(case: CaseData, args: Args, agent: AgentName, ledger: Ledger) -> Any:
-    on, source = incorporation(_require(case.pack.manifest, "no application on file"))
+    on, source = _require(incorporation(case.pack), "neither ACRA nor the application gives an incorporation date")
     return {"date": on, "source": source}
 
 
@@ -485,7 +489,7 @@ TOOLS: dict[str, Tool] = {
         "the UEN where the document gives one), each with its document id.",
         _schema(), _parties),
     "registry_lookup": Tool(
-        "Look a company up in the company register by UEN or by name: status, incorporation date, officers.",
+        "Look a company up in ACRA's register by UEN or by name: status, incorporation date, officers.",
         _schema({"uen": _string("Company UEN"), "name": _string("Company name (closest match)")}),
         _registry_lookup),
     "sanctions_search": Tool(
@@ -495,7 +499,7 @@ TOOLS: dict[str, Tool] = {
         "The case's dated facts in order, each with its document and page; optionally one invoice's trade.",
         _schema({"ref": _string("Invoice number to show only that trade")}), _timeline),
     "get_incorporation": Tool(
-        "The applicant's incorporation date and where it comes from (the register, else the application).",
+        "The applicant's incorporation date and where it comes from (ACRA, else the application).",
         _schema(), _incorporation),
     "record_lead": Tool(
         "Record what you tested, for the analyst: a triage of risky findings, or one of your patterns. Give the "

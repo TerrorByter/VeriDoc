@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import tempfile
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -21,6 +22,7 @@ from pathlib import Path
 import pytest
 
 from gldb.data_factory import ENTITY_TEMPLATE, INDIVIDUAL_TEMPLATE, generate_packs
+from gldb.extract_stub import parse_entity_self_cert
 from gldb.intake import (
     IntakeError,
     classify,
@@ -200,6 +202,37 @@ def test_classify_clean_pack(packs):
     # A Notice of Assessment for each guarantor
     for fname in ("notice_of_assessment_1.pdf", "notice_of_assessment_2.pdf"):
         assert classify(read_text(clean / fname)) == "notice_of_assessment", fname
+
+
+@pytest.mark.parametrize("first_page, expected", [
+    # Real IRAS notices print the title in mixed case
+    ("Income Tax – Notice of Assessment (Original)\nYEAR OF ASSESSMENT 2025", "notice_of_assessment"),
+    ("Statement of Account\nAccount Number:", "bank_statement"),
+    # An ACRA Corporate Compliance and Financial Profile is not a financial statements summary
+    ("Corporate Compliance and Financial Profile of\nACMA LTD (196500233E)\nName of Company", "acra_profile"),
+    ("A letter about nothing in particular", "unknown"),
+])
+def test_classify_ignores_case_and_knows_the_acra_profile(first_page, expected):
+    assert classify([first_page]) == expected
+
+
+# ---------------------------------------------------------------------------
+# Part 1 — entity form template (pack-dependent)
+# ---------------------------------------------------------------------------
+
+
+@needs_templates
+def test_entity_form_matches_its_template_by_fields_not_filename(tmp_path):
+    """A GLDB form uploaded as "ACMA ENTITY.pdf" is still the November 2025 template."""
+    renamed = tmp_path / "ACMA ENTITY.pdf"
+    shutil.copy(ENTITY_TEMPLATE, renamed)
+    assert parse_entity_self_cert("ACMA ENTITY", renamed).template_id == "gldb_fatca_crs_entity_2025-11"
+
+
+@needs_templates
+def test_a_form_with_other_fields_matches_no_template():
+    """The individual form named like the entity form is not the entity template."""
+    assert parse_entity_self_cert("fatca_crs_entity", INDIVIDUAL_TEMPLATE).template_id is None
 
 
 # ---------------------------------------------------------------------------

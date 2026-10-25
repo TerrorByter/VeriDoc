@@ -61,7 +61,7 @@ Tests do not call AWS by default. To run the live AWS smoke tests (one Bedrock c
 RUN_LIVE=1 pytest tests/test_live_aws.py -v
 ```
 
-To score the extractor against the ground truth of every pack in `data/packs/`:
+To score the pipeline against the ground truth of every demo pack in `data/packs/`:
 
 ```bash
 python -m gldb.evaluate                        # deterministic parser
@@ -80,9 +80,31 @@ python -m gldb.agent_eval [--supervisor M] [--specialist M] [--save]
 ### 6. Run the app
 
 ```bash
+uvicorn mock_gov.app:app --port 8001   # mock ACRA and IRAS records on :8001
 uvicorn gldb.api:app --reload          # backend on :8000
 cd frontend && npm install && npm run dev   # UI on :5173 (proxies /api)
 ```
+
+The pipeline fetches each case's ACRA record and the guarantors' Notices of
+Assessment from the mock service, as a bank would from ACRA and Myinfo. Without
+it running, a case is marked incomplete ("ACRA and IRAS records could not be
+fetched"). Its data is `data/mock_gov/acra.json` and `iras.json`, edited by hand
+or rebuilt for the demo companies by `python -m gldb.demo_packs`.
+
+Names are screened against the individuals and entities designated on the UN
+lists that MAS names (DPRK, Iran, Libya, the Congo, Somalia, Sudan, South Sudan,
+Yemen, counter-terrorism), kept in `data/reference/designations.json`. Update it
+from MAS's page whenever you like, or leave a watcher running:
+
+```bash
+python -m gldb.sanctions_sync             # check MAS and the UN once; replaces the file if a designation changed
+python -m gldb.sanctions_sync --every 24  # check every 24 hours until stopped
+```
+
+A sync that cannot read MAS's page or any list leaves the file as it was, and
+keeps the list it replaces in `data/reference/history/`. A running backend picks
+the new file up without a restart. The bank's own hand-kept names are in
+`data/reference/sanctions.json` (the fictional demo names) and are screened too.
 
 The UI has four screens: **Cases** (every case, newest first), **New case**
 (demo packs or an upload), a **live run** that shows each pipeline stage as it
@@ -98,9 +120,15 @@ the browser polls `GET /api/cases/{id}/progress`.
 gldb/               Core package
   config.py         Constants and env settings
   schemas.py        All Pydantic models (Evidence, CaseResult, …)
-  data_factory.py   Generates synthetic PDF document packs
-  intake.py         File validation, hashing, metadata, text extraction, classification
-  extract_stub.py   Deterministic parser for generated document layout
+  demo_packs.py     Builds the demo packs from the team's sample, and the demo companies' ACRA/IRAS records
+  data_factory.py   Generates the text-only test packs (tests/fixtures/packs), the only ones with trade documents
+  official.py       Fetches a case's ACRA and IRAS records (the mock service in the prototype)
+  sanctions_sync.py Updates the UN designations from MAS's page: its lists, each UN page, each XML list
+  reference.py      The lists names are screened against: the designations and the bank's own watchlist
+  screening.py      Deterministic name screening (names and aliases) against them
+  intake.py         File validation (PDF and .xlsx), hashing, metadata, text extraction, classification
+  workbook.py       Read-only .xlsx reader (standard library): sheets, cells, file properties
+  extract_stub.py   Deterministic parsers: the generated layout, AcroForms, ACRA profile, IRAS notice, financial workbook
   llm_client.py     The only AWS Bedrock wrapper (Converse API; extraction at temperature 0, agent turns send none)
   extract_llm.py    LLM-based field extraction
   extract.py        Dispatcher: routes to stub or LLM extractor
@@ -119,10 +147,14 @@ gldb/               Core package
   api.py            FastAPI app used by the frontend
   jobs.py           Progress of background pipeline runs, for the live run screen
   ocr.py            Textract OCR for scanned PDFs
+  viewer.py         Evidence viewer: a page (or workbook sheet) as an image, and where a quote sits on it
+mock_gov/           Mock ACRA and IRAS records service (stands in for the ACRA and Myinfo APIs)
 frontend/           React + TypeScript (Vite) UI
 data/
-  packs/clean/      Synthetic clean document packs
-  packs/tampered/   Synthetic tampered document packs
+  packs/            Demo packs in the format of the team's sample (one folder per case)
+  mock_gov/         The mock service's ACRA and IRAS records
+  reference/        designations.json (UN designations, from the sync; history/ keeps replaced ones) and sanctions.json (the bank's own names)
+  templates/sample/ The team's sample documents the demo packs are edited from
   uploads/          Runtime uploads (gitignored)
   cases/            Processed case outputs (gitignored)
 logs/

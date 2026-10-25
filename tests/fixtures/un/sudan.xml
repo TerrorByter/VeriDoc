@@ -1,0 +1,168 @@
+<?xml version='1.0' encoding='utf-8'?>
+<CONSOLIDATED_LIST xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://www.un.org/sc/resources/sc-sanctions.xsd" dateGenerated="2026-10-24T23:00:07.335Z">
+  <INDIVIDUALS>
+    <INDIVIDUAL>
+      <DATAID>690788</DATAID>
+      <VERSIONNUM>1</VERSIONNUM>
+      <FIRST_NAME>JIBRIL</FIRST_NAME>
+      <SECOND_NAME>ABDULKARIM</SECOND_NAME>
+      <THIRD_NAME>IBRAHIM</THIRD_NAME>
+      <FOURTH_NAME>MAYU</FOURTH_NAME>
+      <UN_LIST_TYPE>Sudan</UN_LIST_TYPE>
+      <REFERENCE_NUMBER>SDi.004</REFERENCE_NUMBER>
+      <LISTED_ON>2006-04-25</LISTED_ON>
+      <COMMENTS1>Photo available for inclusion in the INTERPOL-UN Security Council Special Notice.  INTERPOL-UN Security Council Special Notice:https://www.interpol.int/en/How-we-work/Notices/View-UN-Notices-Individuals</COMMENTS1>
+      <HAS_INTERPOL_LINK>YES</HAS_INTERPOL_LINK>
+      <INTERPOL_LINK>https://www.interpol.int/en/How-we-work/Notices/View-UN-Notices-Individuals#2014-33546</INTERPOL_LINK>
+      <DESIGNATION>
+        <VALUE>National Movement for Reform and Development (NMRD) Field
+Commander</VALUE>
+      </DESIGNATION>
+      <NATIONALITY>
+        <VALUE>Sudan</VALUE>
+        <VALUE>South Sudan</VALUE>
+      </NATIONALITY>
+      <LIST_TYPE>
+        <VALUE>UN List</VALUE>
+      </LIST_TYPE>
+      <LAST_DAY_UPDATED>
+        <VALUE>2018-03-14</VALUE>
+      </LAST_DAY_UPDATED>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Good</QUALITY>
+        <ALIAS_NAME>General Gibril Abdul Kareem Barey</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Good</QUALITY>
+        <ALIAS_NAME>“Tek”</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Good</QUALITY>
+        <ALIAS_NAME>Gabril Abdul Kareem Badri</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ADDRESS>
+        <CITY>Tine</CITY>
+        <COUNTRY>Sudan</COUNTRY>
+        <NOTE>Resides in Tine, on the Sudanese side of the border with Chad</NOTE>
+      </INDIVIDUAL_ADDRESS>
+      <INDIVIDUAL_DATE_OF_BIRTH>
+        <TYPE_OF_DATE>EXACT</TYPE_OF_DATE>
+        <DATE>1967-01-01</DATE>
+      </INDIVIDUAL_DATE_OF_BIRTH>
+      <INDIVIDUAL_PLACE_OF_BIRTH>
+        <CITY>El-Fasher</CITY>
+        <STATE_PROVINCE>North Darfur</STATE_PROVINCE>
+        <NOTE>Place of Birth: Nile District, El-Fasher, El- Fasher, North Darfur</NOTE>
+      </INDIVIDUAL_PLACE_OF_BIRTH>
+      <INDIVIDUAL_DOCUMENT>
+        <TYPE_OF_DOCUMENT>National Identification Number</TYPE_OF_DOCUMENT>
+        <NUMBER>192-3238459-9</NUMBER>
+      </INDIVIDUAL_DOCUMENT>
+      <INDIVIDUAL_DOCUMENT>
+        <TYPE_OF_DOCUMENT>National Identification Number</TYPE_OF_DOCUMENT>
+        <TYPE_OF_DOCUMENT2>Certificate of nationality acquired through birth</TYPE_OF_DOCUMENT2>
+        <NUMBER>302581</NUMBER>
+      </INDIVIDUAL_DOCUMENT>
+      <SORT_KEY />
+      <SORT_KEY_LAST_MOD />
+    </INDIVIDUAL>
+    <INDIVIDUAL>
+      <DATAID>6908458</DATAID>
+      <VERSIONNUM>1</VERSIONNUM>
+      <FIRST_NAME>SIMON</FIRST_NAME>
+      <SECOND_NAME>GATWECH</SECOND_NAME>
+      <THIRD_NAME>DUAL</THIRD_NAME>
+      <UN_LIST_TYPE>SouthSudan</UN_LIST_TYPE>
+      <REFERENCE_NUMBER>SSi.002</REFERENCE_NUMBER>
+      <LISTED_ON>2015-07-01-04:00</LISTED_ON>
+      <COMMENTS1>Is the SPLM-IO Chief of General Staff and was previously the commander of
+opposition forces in Jonglei State. His forces conducted an early February 2015 attack
+in Jonglei State, and as of March 2015, he had tried to destroy the peace in Jonglei
+State through attacks on the civilian population. Photograph available for inclusion in the INTERPOL-UN Security Council Special Notice.  INTERPOL-UN Security Council Special Notice:https://www.interpol.int/en/How-we-work/Notices/View-UN-Notices-Individuals</COMMENTS1>
+      <HAS_INTERPOL_LINK>YES</HAS_INTERPOL_LINK>
+      <INTERPOL_LINK>https://www.interpol.int/en/How-we-work/Notices/View-UN-Notices-Individuals#2015-44417</INTERPOL_LINK>
+      <TITLE>
+        <VALUE>Major General</VALUE>
+      </TITLE>
+      <DESIGNATION>
+        <VALUE>Chief of General Staff, SPLA in Opposition</VALUE>
+      </DESIGNATION>
+      <LIST_TYPE>
+        <VALUE>UN List</VALUE>
+      </LIST_TYPE>
+      <LAST_DAY_UPDATED>
+        <VALUE>2016-11-03</VALUE>
+      </LAST_DAY_UPDATED>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Good</QUALITY>
+        <ALIAS_NAME>Simon Gatwich Dual</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Good</QUALITY>
+        <ALIAS_NAME>Simon Getwech Dual</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Good</QUALITY>
+        <ALIAS_NAME>Simon Gatwec Duel</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Good</QUALITY>
+        <ALIAS_NAME>Simon Gatweach</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Good</QUALITY>
+        <ALIAS_NAME>Simon Gatwick</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Good</QUALITY>
+        <ALIAS_NAME>Simon Gatwech</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Good</QUALITY>
+        <ALIAS_NAME>Simon Garwich</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Low</QUALITY>
+        <ALIAS_NAME>General Gaduel</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Low</QUALITY>
+        <ALIAS_NAME>Dhual</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ADDRESS>
+        <STATE_PROVINCE>Jonglei State</STATE_PROVINCE>
+        <COUNTRY>Sudan</COUNTRY>
+      </INDIVIDUAL_ADDRESS>
+      <INDIVIDUAL_ADDRESS>
+        <STATE_PROVINCE>Jonglei State</STATE_PROVINCE>
+        <COUNTRY>South Sudan</COUNTRY>
+      </INDIVIDUAL_ADDRESS>
+      <INDIVIDUAL_DATE_OF_BIRTH>
+        <TYPE_OF_DATE>EXACT</TYPE_OF_DATE>
+        <YEAR>1953</YEAR>
+      </INDIVIDUAL_DATE_OF_BIRTH>
+      <INDIVIDUAL_PLACE_OF_BIRTH>
+        <CITY>Akobo, Jonglei State</CITY>
+        <COUNTRY>Sudan</COUNTRY>
+      </INDIVIDUAL_PLACE_OF_BIRTH>
+      <INDIVIDUAL_PLACE_OF_BIRTH>
+        <CITY>Akobo, Jonglei State</CITY>
+        <COUNTRY>South Sudan</COUNTRY>
+      </INDIVIDUAL_PLACE_OF_BIRTH>
+      <INDIVIDUAL_PLACE_OF_BIRTH>
+        <CITY>Uror County</CITY>
+        <STATE_PROVINCE>Jonglei State</STATE_PROVINCE>
+        <COUNTRY>Sudan</COUNTRY>
+      </INDIVIDUAL_PLACE_OF_BIRTH>
+      <INDIVIDUAL_PLACE_OF_BIRTH>
+        <CITY>Uror County</CITY>
+        <STATE_PROVINCE>Jonglei State</STATE_PROVINCE>
+        <COUNTRY>South Sudan</COUNTRY>
+      </INDIVIDUAL_PLACE_OF_BIRTH>
+      <INDIVIDUAL_DOCUMENT />
+      <SORT_KEY />
+      <SORT_KEY_LAST_MOD />
+    </INDIVIDUAL>
+  </INDIVIDUALS>
+  <ENTITIES />
+</CONSOLIDATED_LIST>

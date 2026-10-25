@@ -30,7 +30,7 @@ from gldb.config import (
 )
 from gldb.ai_team.verify import PATTERN_SUBJECTS
 from gldb.ordering import TradeDates, undetermined, violations
-from gldb.reference import registry
+from gldb import official
 from gldb.schemas import BankStatement, EvidenceStatus, Evidence, ExtractedPack, Invoice, Lead, Pattern, Transaction
 from gldb.screening import screening_key, similarity
 
@@ -286,7 +286,7 @@ def _sequence_anomaly(lead: Lead, pack: ExtractedPack, evidence: list[Evidence])
     invoice = _invoice(lead, pack)
     if invoice is None:
         return _unverified(f"invoice {lead.invoice_number} is not in the pack")
-    incorporated = incorporation(pack.manifest)[0] if pack.manifest else None
+    incorporated = known[0] if (known := incorporation(pack)) else None
     dates = trade_dates(invoice, pack, incorporated)
     facts = {k: str(v) for k, v in vars(dates).items() if v is not None}
     if found := violations(dates):
@@ -310,22 +310,20 @@ def _trade_documents(invoice: Invoice, pack: ExtractedPack) -> set[str]:
 
 
 def _applicant_people(pack: ExtractedPack) -> dict[str, str]:
-    """The applicant's people by name: its register officers, guarantors and signatories."""
-    manifest = pack.manifest
-    if manifest is None:
-        return {}
-    entity = registry().entities.get(manifest.uen)
-    people = {o.name: o.role.lower() for o in (entity.officers if entity else [])}
-    for name in manifest.authorised_signatories:
-        people.setdefault(name, "signatory")
-    for guarantor in manifest.guarantors:
-        people.setdefault(guarantor.name, "guarantor")
+    """The applicant's people by name: its ACRA officers, guarantors and signatories."""
+    entity = pack.official.applicant() if pack.official else None
+    people = {o.name: o.position.lower() for o in (entity.officers if entity else [])}
+    if pack.manifest is not None:
+        for name in pack.manifest.authorised_signatories:
+            people.setdefault(name, "signatory")
+        for guarantor in pack.manifest.guarantors:
+            people.setdefault(guarantor.name, "guarantor")
     return people
 
 
 def _related_party(lead: Lead, pack: ExtractedPack, evidence: list[Evidence]) -> Outcome:
     """A counterparty sharing an officer with the applicant: the counterparty
-    resolved to exactly one register entry, its officers compared with the
+    resolved to exactly one ACRA record, its officers compared with the
     applicant's people."""
     name = counterparty_name(pack, lead.counterparty or "")
     if name is None:
@@ -333,22 +331,26 @@ def _related_party(lead: Lead, pack: ExtractedPack, evidence: list[Evidence]) ->
     people = _applicant_people(pack)
     if not people:
         return _unverified("no application on file", counterparty=name)
-    matches = [(uen, e) for uen, e in registry().entities.items() if similarity(name, e.name) >= SCREENING_MATCH_THRESHOLD]
+    try:
+        candidates = official.search(name)
+    except official.OfficialRecordsError as exc:
+        return _unverified(f"ACRA could not be searched: {exc}", counterparty=name)
+    matches = [c for c in candidates if similarity(name, c.company_name) >= SCREENING_MATCH_THRESHOLD]
     if not matches:
         return _unverified(f"{name} is not in the company register", counterparty=name)
     if len(matches) > 1:
         return _unverified(f"{name} matches more than one register entry", counterparty=name)
-    uen, entity = matches[0]
-    facts = {"counterparty": name, "register_uen": uen}
+    entity = matches[0]
+    facts = {"counterparty": name, "register_uen": entity.uen}
     shared = next(((o.name, people[p]) for o in entity.officers for p in people
                    if similarity(o.name, p) >= SCREENING_MATCH_THRESHOLD), None)
     if shared is None:
         # "None in common" needs both lists: an applicant missing from the register, or an entity with no officers, is not that
-        if not entity.officers or registry().entities.get(pack.manifest.uen if pack.manifest else "") is None:
+        if not entity.officers or pack.official is None or pack.official.applicant() is None:
             return _unverified("the register does not list the officers of both sides", **facts)
-        return Outcome("contradicted", f"no officer of {entity.name} is among the applicant's people", facts)
+        return Outcome("contradicted", f"no officer of {entity.company_name} is among the applicant's people", facts)
     officer, role = shared
-    return Outcome("verified", f"{officer} is an officer of {entity.name} and the applicant's {role}",
+    return Outcome("verified", f"{officer} is an officer of {entity.company_name} and the applicant's {role}",
                    {**facts, "shared_officer": officer, "applicant_role": role})
 
 

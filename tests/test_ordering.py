@@ -17,7 +17,7 @@ from gldb.intake import load_manifest
 from gldb.ordering import TradeDates, Violation, undetermined, violations
 from gldb.pipeline import assess
 
-PACKS = Path(__file__).parent.parent / "data" / "packs"
+PACKS = Path(__file__).parent / "fixtures" / "packs"
 PO, SHIP, INV, PAY = date(2026, 6, 1), date(2026, 6, 7), date(2026, 6, 10), date(2026, 6, 18)
 
 

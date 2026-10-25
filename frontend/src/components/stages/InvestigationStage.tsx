@@ -10,7 +10,7 @@ import { Timeline } from "./investigation/Timeline";
 
 type View = "queue" | "chains" | "timeline";
 
-/** The AI team's kept leads, beside the rule tasks; each opens stage 5 for its trace. */
+/** The AI team's kept leads, beside the rule tasks; each opens stage 6 for its trace. */
 function LeadsToReview({ kase }: StageProps) {
   const team = kase.ai_team;
   if (!team) return null;

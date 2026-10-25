@@ -8,6 +8,7 @@ uploads and the audit log are redirected to a temp directory.
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +18,10 @@ from fastapi.testclient import TestClient
 
 from gldb import api, pipeline
 from gldb.schemas import AgentTeam, GateDecision, Lead, LeadTest, ShadowReason, ShadowScore
+from tests.acra_profiles import profile_pdf
+from tests.workbooks import INCOME, STATEMENTS, workbook
 
-PACKS = Path(__file__).parent.parent / "data" / "packs"
+PACKS = Path(__file__).parent / "fixtures" / "packs"
 
 
 @pytest.fixture(autouse=True)
@@ -31,6 +34,7 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
     for module in (api, pipeline):
         monkeypatch.setattr(module, "CASES_DIR", str(tmp_path / "cases"))
     monkeypatch.setattr(api, "UPLOADS_DIR", str(tmp_path / "uploads"))
+    monkeypatch.setattr(api, "PACKS_DIR", str(PACKS))  # the text-only fixture packs, with trade documents
     monkeypatch.setenv("AUDIT_LOG_PATH", str(tmp_path / "audit.jsonl"))
     monkeypatch.setenv("EVAL_REPORT_PATH", str(tmp_path / "evaluation.json"))
     monkeypatch.setenv("AGENT_EVAL_PATH", str(tmp_path / "agent_eval.json"))
@@ -51,7 +55,7 @@ def _case(client: TestClient, pack: str = "tampered") -> dict[str, Any]:
 
 
 def test_list_packs(client: TestClient) -> None:
-    assert {"clean", "tampered", "incomplete"} <= set(client.get("/api/packs").json())
+    assert {"clean", "tampered", "incomplete"} <= {p["name"] for p in client.get("/api/packs").json()}
 
 
 def test_tampered_pack_is_high_and_pack_is_not_exposed(client: TestClient) -> None:
@@ -137,6 +141,23 @@ def test_upload_runs_pipeline_with_uploaded_manifest(client: TestClient) -> None
 def test_upload_rejects_non_pdf(client: TestClient) -> None:
     response = client.post("/api/cases", files=[("files", ("evil.exe", b"MZ"))])
     assert response.status_code == 422
+
+
+def test_a_workbook_is_assessed_against_the_acra_profile_and_shown(client: TestClient, tmp_path: Path) -> None:
+    """Financial statements arrive as a workbook: the figure that differs from
+    ACRA's is found, and its row can be viewed and highlighted."""
+    income = [["Total Revenue", Decimal("9.935")] if row and row[0] == "Total Revenue" else row for row in INCOME]
+    book = workbook(tmp_path, {**STATEMENTS, "Income Statement": income})
+    acra = profile_pdf(tmp_path)
+    case = _finished(client, client.post("/api/cases", files=[("files", (p.name, p.read_bytes())) for p in (book, acra)]))
+    cid = case["case_id"]
+    (finding,) = [e for e in case["evidence"] if e["check_id"] == "FS_ACRA_MISMATCH"]
+    assert (finding["document"], finding["page"], finding["quote"]) == ("Submitted financials", 1, "Total Revenue 9.935")
+    page = client.get(f"/api/cases/{cid}/documents/Submitted financials/pages/1")
+    assert page.status_code == 200 and page.headers["content-type"] == "image/png"
+    assert client.get(f"/api/cases/{cid}/documents/Submitted financials/pages/4").status_code == 404
+    loc = client.get(f"/api/cases/{cid}/evidence/{finding['evidence_id']}/location").json()
+    assert (loc["doc_id"], loc["page_count"], len(loc["boxes"])) == ("Submitted financials", 3, 1)
 
 
 def _flags(case: dict[str, Any]) -> list[str]:
@@ -412,3 +433,14 @@ def test_old_result_with_review_still_loads(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json()["ai_team"] is None
     assert "semantic_review" not in [s["stage_id"] for s in response.json()["stages"]]
+
+
+def test_case_view_carries_the_official_records_with_ids_masked(client: TestClient) -> None:
+    kase = _case(client, "clean")
+    records = kase["official"]
+    assert records["error"] is None and records["applicant_uen"] == "202301234K"
+    applicant = records["companies"]["202301234K"]
+    assert applicant["company_name"] == "Lumen Harbour Trading Pte. Ltd." and applicant["status"] == "LIVE COMPANY"
+    assert [o["id_number"] for o in applicant["officers"]] == ["S****567D", "G****321L"]
+    assert sorted(records["no_notice"]) == ["G****321L", "S****567D"]  # their notices were uploaded instead
+    assert "S1234567D" not in json.dumps(kase) and "G7654321L" not in json.dumps(kase)

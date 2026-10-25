@@ -15,7 +15,7 @@ import pytest
 from gldb import llm_client, ocr, usage
 from gldb.config import MODEL_USD_PER_M_TOKENS
 
-PACKS = Path(__file__).parent.parent / "data" / "packs"
+PACKS = Path(__file__).parent / "fixtures" / "packs"
 SONNET = "global.anthropic.claude-sonnet-4-6"
 
 

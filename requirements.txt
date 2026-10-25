@@ -1,6 +1,7 @@
 pydantic>=2
 pdfplumber
 pypdf
+pypdfium2
 reportlab
 pillow
 fastapi

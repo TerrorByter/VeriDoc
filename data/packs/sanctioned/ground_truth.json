@@ -1,5 +1,7 @@
 {
   "pack": "sanctioned",
+  "company": "EASTGATE HOLDINGS PTE. LTD.",
+  "note": "Eastgate's shareholder at ACRA is on the sanctions list.",
   "expected_band": "Medium",
   "expected_path": "enhanced_review",
   "expected_readiness": "Complete",
@@ -12,19 +14,12 @@
   "expected_triage": [],
   "tampers": [
     {
-      "doc": "invoice_INV-1002",
-      "type": "sanctioned_counterparty",
+      "doc": "pack",
+      "type": "sanctioned_shareholder",
       "check_ids": [
         "SANCTIONS_MATCH"
       ],
-      "detail": "buyer 'Kestrel Marine Supplies Pte. Ltd.' resembles a sanctions list entry"
-    }
-  ],
-  "benign": [
-    {
-      "doc": "invoice_INV-1001",
-      "type": "rounding",
-      "detail": "paid 32,699.50 vs invoiced 32,700.00"
+      "detail": "shareholder VIKTOR ALDANE is on the sanctions list"
     }
   ]
 }

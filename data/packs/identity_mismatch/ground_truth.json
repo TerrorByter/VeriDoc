@@ -1,0 +1,48 @@
+{
+  "pack": "identity_mismatch",
+  "company": "DUSKFIELD TRADING PTE. LTD.",
+  "note": "Duskfield's forms disagree with ACRA: a signatory who is no officer, another office, a guarantor's name.",
+  "expected_band": "High",
+  "expected_path": "enhanced_review",
+  "expected_readiness": "Incomplete",
+  "expected_check_ids": [
+    "XDOC_ACRA_ENTITY",
+    "XDOC_ACRA_PERSON",
+    "XDOC_ACRA_SIGNATORY"
+  ],
+  "expected_check_ids_ocr": [],
+  "expected_compliance_check_ids": [
+    "FORM_ENT_ADDRESS_MATCH",
+    "FORM_ENT_SIGNATORY"
+  ],
+  "expected_leads": [],
+  "expected_triage": [],
+  "tampers": [
+    {
+      "doc": "fatca_crs_entity",
+      "type": "signatory_not_officer",
+      "check_ids": [
+        "XDOC_ACRA_SIGNATORY",
+        "FORM_ENT_SIGNATORY"
+      ],
+      "detail": "signed by DAVID CHUA, who is no officer at ACRA nor a signatory in the application"
+    },
+    {
+      "doc": "fatca_crs_entity",
+      "type": "office_moved",
+      "check_ids": [
+        "XDOC_ACRA_ENTITY",
+        "FORM_ENT_ADDRESS_MATCH"
+      ],
+      "detail": "registered office postal code 068811, ACRA has 079903"
+    },
+    {
+      "doc": "fatca_crs_individual",
+      "type": "name_changed",
+      "check_ids": [
+        "XDOC_ACRA_PERSON"
+      ],
+      "detail": "the chairman's NRIC under the name KOH WEI JUN"
+    }
+  ]
+}

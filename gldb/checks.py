@@ -29,12 +29,21 @@ from time import perf_counter
 from typing import Callable
 
 from gldb.config import (
+    ACRA_FIGURES_UNIT,
     BANK_RECENCY_DAYS,
+    BANK_REVENUE_MIN_DAYS,
+    BANK_REVENUE_RATIO_MAX,
+    BANK_REVENUE_RATIO_MIN,
     CHECKLIST,
+    DEBT_INFLOW_WORDS,
+    DEBT_INTEREST_WORDS,
+    DEBT_NAME_WORDS,
+    DEBT_REPAYMENT_WORDS,
     HIDDEN_QUOTE_MAX_CHARS,
     GST_RATE,
     MATCH_WINDOW_DAYS,
     META_MOD_GAP_HOURS,
+    NON_SALES_CREDIT_WORDS,
     REQUIRED_BANK_MONTHS,
     SCREENING_MATCH_THRESHOLD,
     START_UP_MAX_MONTHS,
@@ -50,22 +59,28 @@ from gldb.forensics import (
 from gldb.intake import read_text
 from gldb.ordering import TradeDates, breaks, violations
 from gldb.privacy import mask_id
-from gldb.reference import registry, watchlist
+from gldb.reference import watchlist
 from gldb.screening import screen, screening_key, similarity
 from gldb.schemas import (
+    IRAS_DOC,
+    AcraProfile,
     AgentReport,
     ApplicationManifest,
+    BankStatement,
     DocMeta,
     EntitySelfCert,
     Evidence,
     EvidenceCategory,
     ExtractedPack,
+    FinancialStatementSummary,
     Guarantor,
     Invoice,
+    NoticeOfAssessment,
     PurchaseOrder,
     Severity,
     TimelineEvent,
 )
+from gldb.workbook import is_workbook
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -301,15 +316,43 @@ def check_fs_balance(pack: ExtractedPack) -> list[Evidence]:
 
 # 5. XDOC_IDENTITY -------------------------------------------------------
 
+def acra_record(pack: ExtractedPack) -> AcraProfile | None:
+    """The ACRA record of the applicant the documents are held to: the one
+    fetched from ACRA, else (records not fetched) the profile the applicant
+    uploaded."""
+    fetched = pack.official.applicant() if pack.official else None
+    return fetched or next(iter(pack.acra_profiles), None)
+
+
+def notices(pack: ExtractedPack) -> list[NoticeOfAssessment]:
+    """Every Notice of Assessment the case holds: fetched from IRAS, and uploaded."""
+    return [*(pack.official.notices if pack.official else []), *pack.notices_of_assessment]
+
+
+def _reference_identity(pack: ExtractedPack) -> tuple[str, str, str] | None:
+    """(UEN, name, where it is stated) of the company the pack's other
+    documents are held to: the ACRA profile, else the first financial
+    statements that state an identity. None if the pack states none."""
+    profile = acra_record(pack)
+    if profile is not None:
+        return profile.uen, profile.company_name, "ACRA profile"
+    for fs in pack.financial_statements:
+        if fs.uen and fs.company_name:
+            return fs.uen, fs.company_name, "FS"
+    return None
+
+
 def check_xdoc_identity(pack: ExtractedPack) -> list[Evidence]:
-    """Cross-document identity checks using the FS summary as reference."""
+    """Cross-document identity checks against the company's registered
+    identity: the ACRA profile if the pack has one, else the financial
+    statements that state an identity."""
     results: list[Evidence] = []
-    if not pack.financial_statements:
+    reference = _reference_identity(pack)
+    if reference is None:
         return results
 
-    fs = pack.financial_statements[0]
-    ref_uen = fs.uen
-    ref_name_norm = normalise_name(fs.company_name)
+    ref_uen, ref_name, source = reference
+    ref_name_norm = normalise_name(ref_name)
 
     # UEN check on invoices (high, 1.0)
     for inv in pack.invoices:
@@ -317,7 +360,7 @@ def check_xdoc_identity(pack: ExtractedPack) -> list[Evidence]:
             results.append(_ev(
                 "XDOC_IDENTITY", "fraud_signal", "high", inv.doc_id, inv.page, 1.0,
                 f"Invoice seller UEN '{inv.seller_uen}' does not match the "
-                f"FS UEN '{ref_uen}'.",
+                f"{source} UEN '{ref_uen}'.",
                 expected=ref_uen,
                 observed=inv.seller_uen,
             ))
@@ -329,8 +372,8 @@ def check_xdoc_identity(pack: ExtractedPack) -> list[Evidence]:
             results.append(_ev(
                 "XDOC_IDENTITY", "fraud_signal", "medium", inv.doc_id, inv.page, 0.9,
                 f"Invoice seller name '{inv.seller_name}' (normalised: "
-                f"'{inv_name_norm}') does not match FS company name "
-                f"'{fs.company_name}' (normalised: '{ref_name_norm}').",
+                f"'{inv_name_norm}') does not match {source} company name "
+                f"'{ref_name}' (normalised: '{ref_name_norm}').",
                 expected=ref_name_norm,
                 observed=inv_name_norm,
             ))
@@ -342,8 +385,8 @@ def check_xdoc_identity(pack: ExtractedPack) -> list[Evidence]:
             results.append(_ev(
                 "XDOC_IDENTITY", "fraud_signal", "medium", stmt.doc_id, stmt.page, 0.9,
                 f"Bank account holder '{stmt.account_holder}' (normalised: "
-                f"'{holder_norm}') does not match FS company name "
-                f"'{fs.company_name}' (normalised: '{ref_name_norm}').",
+                f"'{holder_norm}') does not match {source} company name "
+                f"'{ref_name}' (normalised: '{ref_name_norm}').",
                 expected=ref_name_norm,
                 observed=holder_norm,
             ))
@@ -354,7 +397,7 @@ def check_xdoc_identity(pack: ExtractedPack) -> list[Evidence]:
             results.append(_ev(
                 "XDOC_IDENTITY", "fraud_signal", "high", po.doc_id, po.page, 1.0,
                 f"Purchase order seller UEN '{po.seller_uen}' does not match the "
-                f"FS UEN '{ref_uen}'.",
+                f"{source} UEN '{ref_uen}'.",
                 expected=ref_uen,
                 observed=po.seller_uen,
             ))
@@ -362,8 +405,8 @@ def check_xdoc_identity(pack: ExtractedPack) -> list[Evidence]:
         if po_name_norm != ref_name_norm:
             results.append(_ev(
                 "XDOC_IDENTITY", "fraud_signal", "medium", po.doc_id, po.page, 0.9,
-                f"Purchase order seller name '{po.seller_name}' does not match FS "
-                f"company name '{fs.company_name}'.",
+                f"Purchase order seller name '{po.seller_name}' does not match "
+                f"{source} company name '{ref_name}'.",
                 expected=ref_name_norm,
                 observed=po_name_norm,
             ))
@@ -537,13 +580,288 @@ def check_xdoc_bl_invoice(pack: ExtractedPack) -> list[Evidence]:
     return results
 
 
+# FS_ACRA_MISMATCH ------------------------------------------------------
+
+#: Figures a financial statement and an ACRA profile both state, by the name
+#: both models give them, with how an analyst reads them
+_ACRA_COMPARED = {
+    "total_assets": "Total assets",
+    "total_current_assets": "Total current assets",
+    "total_liabilities": "Total liabilities",
+    "total_current_liabilities": "Total current liabilities",
+    "retained_earnings": "Retained earnings",
+    "revenue": "Revenue",
+    "profit_before_tax": "Profit before tax",
+    "profit_after_tax": "Profit after tax",
+    "ebit": "EBIT",
+    "operating_cashflow": "Operating cash flow",
+    "investing_cashflow": "Investing cash flow",
+    "financing_cashflow": "Financing cash flow",
+}
+
+
+def check_fs_acra(pack: ExtractedPack) -> list[Evidence]:
+    """The submitted financial statements state the figures ACRA holds for the
+    same year. ACRA prints its figures rounded (to a thousandth of its unit),
+    so a figure agrees if it rounds to what ACRA prints. Statements for a
+    different year than ACRA's latest are noted, not compared."""
+    profile = acra_record(pack)
+    filed = profile.financials if profile else None
+    if filed is None:
+        return []
+    results: list[Evidence] = []
+    for fs in pack.financial_statements:
+        if fs.financial_year_end != filed.period_end:
+            results.append(_ev(
+                "FS_ACRA_MISMATCH", "fraud_signal", "info", fs.doc_id, fs.page, 1.0,
+                f"The financial statements are for the year ended {fs.financial_year_end}; the ACRA "
+                f"profile's latest filed period ends {filed.period_end}. Their figures were not compared.",
+            ))
+            continue
+        for field, label in _ACRA_COMPARED.items():
+            printed, submitted = getattr(filed, field), getattr(fs, field)
+            if printed is None or submitted is None:
+                continue
+            expected = printed * ACRA_FIGURES_UNIT
+            rounding = max(Decimal(10) ** printed.as_tuple().exponent / 2 * ACRA_FIGURES_UNIT, TOLERANCE_SGD)
+            if abs(submitted - expected) > rounding:
+                results.append(_ev(
+                    "FS_ACRA_MISMATCH", "fraud_signal", "high", fs.doc_id, fs.figure_pages.get(field, fs.page), 0.9,
+                    f"{label} in the submitted financial statements (SGD {submitted:,.2f}) differs from the "
+                    f"ACRA profile (SGD {expected:,.2f}) for the year ended {fs.financial_year_end}.",
+                    quote=fs.source_quotes.get(field),
+                    expected=f"SGD {expected:,.2f}",
+                    observed=f"SGD {submitted:,.2f}",
+                ))
+    return results
+
+
+# XDOC_BANK_CASH / XDOC_BANK_DEBT / XDOC_BANK_REVENUE --------------------
+
+def _mentions(description: str, words: tuple[str, ...]) -> bool:
+    return any(word in description.casefold() for word in words)
+
+
+def _opens_after(pack: ExtractedPack, fs: FinancialStatementSummary) -> list[BankStatement]:
+    """The bank statements from the one that opens the day after the balance
+    sheet date, in date order; none if no statement does."""
+    following = sorted(pack.bank_statements, key=lambda s: s.period_start)
+    if following and following[0].period_start == fs.financial_year_end + timedelta(days=1):
+        return following
+    return []
+
+
+def check_xdoc_bank_cash(pack: ExtractedPack) -> list[Evidence]:
+    """The account the first statement shows is part of the company's cash, so
+    it cannot open with more than the balance sheet declares the day before.
+    (It may hold less: the company may bank elsewhere.)"""
+    results: list[Evidence] = []
+    for fs in pack.financial_statements:
+        if fs.cash is None:
+            continue
+        for stmt in _opens_after(pack, fs)[:1]:
+            if stmt.opening_balance > fs.cash + TOLERANCE_SGD:
+                results.append(_ev(
+                    "XDOC_BANK_CASH", "fraud_signal", "high", stmt.doc_id, stmt.page, 0.9,
+                    f"The bank statement opens on {stmt.period_start} with SGD {stmt.opening_balance:,.2f}, "
+                    f"more than the SGD {fs.cash:,.2f} of cash the balance sheet declares at "
+                    f"{fs.financial_year_end}. A bank account is part of the company's cash.",
+                    quote=stmt.source_quotes.get("Opening Balance"),
+                    expected=f"at most SGD {fs.cash:,.2f}",
+                    observed=f"SGD {stmt.opening_balance:,.2f}",
+                ))
+    return results
+
+
+def check_xdoc_bank_debt(pack: ExtractedPack) -> list[Evidence]:
+    """Debt service in the bank statements is supported by debt: the
+    borrowings on the balance sheet, plus money borrowed in the statements.
+    Principal repaid cannot exceed the debt then outstanding, and interest on
+    a loan or bond needs some debt outstanding."""
+    results: list[Evidence] = []
+    for fs in pack.financial_statements:
+        statements = _opens_after(pack, fs)
+        if fs.borrowings is None or not statements:
+            continue
+        debt = fs.borrowings
+        rows = sorted(
+            ((t.date, t.debit is not None, n, i, stmt, t)
+             for n, stmt in enumerate(statements) for i, t in enumerate(stmt.transactions)),
+            key=lambda row: row[:4],  # borrowed before repaid on the same day
+        )
+        for _, _, _, _, stmt, txn in rows:
+            quote = stmt.source_quotes.get(txn.description, txn.description)
+            if txn.credit and _mentions(txn.description, DEBT_INFLOW_WORDS):
+                debt += txn.credit
+            elif txn.debit and _mentions(txn.description, DEBT_REPAYMENT_WORDS):
+                if txn.debit > debt + TOLERANCE_SGD:
+                    results.append(_ev(
+                        "XDOC_BANK_DEBT", "fraud_signal", "high", stmt.doc_id, stmt.page, 0.85,
+                        f"'{txn.description}' on {txn.date} repays SGD {txn.debit:,.2f}, but only "
+                        f"SGD {max(debt, Decimal(0)):,.2f} of debt was outstanding: the balance sheet at "
+                        f"{fs.financial_year_end} declares SGD {fs.borrowings:,.2f} and the statements show "
+                        "no more borrowed before this date.",
+                        quote=quote,
+                        expected=f"at most SGD {max(debt, Decimal(0)):,.2f}",
+                        observed=f"SGD {txn.debit:,.2f}",
+                    ))
+                debt = max(debt - txn.debit, Decimal(0))
+            elif (txn.debit and _mentions(txn.description, DEBT_INTEREST_WORDS)
+                  and _mentions(txn.description, DEBT_NAME_WORDS) and debt <= TOLERANCE_SGD):
+                results.append(_ev(
+                    "XDOC_BANK_DEBT", "fraud_signal", "medium", stmt.doc_id, stmt.page, 0.8,
+                    f"'{txn.description}' on {txn.date} pays interest on debt, but none was outstanding: "
+                    f"the balance sheet at {fs.financial_year_end} declares SGD {fs.borrowings:,.2f} of "
+                    "borrowings and the statements show none borrowed before this date.",
+                    quote=quote,
+                    observed=f"SGD {txn.debit:,.2f} interest",
+                ))
+    return results
+
+
+def check_xdoc_bank_revenue(pack: ExtractedPack) -> list[Evidence]:
+    """Sales receipts in the bank statements that follow the balance sheet
+    date, annualised, are in line with the revenue the financial statements
+    report. A wide gap either way means revenue is overstated, or money
+    reaches the account that is not sales."""
+    results: list[Evidence] = []
+    for fs in pack.financial_statements:
+        statements = _opens_after(pack, fs)
+        days = sum((s.period_end - s.period_start).days + 1 for s in statements)
+        if fs.revenue <= 0 or days < BANK_REVENUE_MIN_DAYS:
+            continue
+        receipts = sum(
+            (t.credit for s in statements for t in s.transactions
+             if t.credit and not _mentions(t.description, NON_SALES_CREDIT_WORDS)),
+            Decimal(0),
+        )
+        annualised = receipts * 365 / days
+        ratio = annualised / fs.revenue
+        if not BANK_REVENUE_RATIO_MIN <= ratio <= BANK_REVENUE_RATIO_MAX:
+            results.append(_ev(
+                "XDOC_BANK_REVENUE", "fraud_signal", "medium", fs.doc_id, fs.figure_pages.get("revenue", fs.page), 0.6,
+                f"Sales receipts in the bank statements (SGD {receipts:,.2f} over {days} days, "
+                f"SGD {annualised:,.2f} a year) are {ratio:.2f} times the SGD {fs.revenue:,.2f} of revenue "
+                f"the financial statements report, outside {BANK_REVENUE_RATIO_MIN} to {BANK_REVENUE_RATIO_MAX}.",
+                quote=fs.source_quotes.get("revenue"),
+                expected=f"{BANK_REVENUE_RATIO_MIN} to {BANK_REVENUE_RATIO_MAX} times revenue",
+                observed=f"{ratio:.2f} times revenue",
+            ))
+    return results
+
+
+# XDOC_ACRA_ENTITY / XDOC_ACRA_SIGNATORY ---------------------------------
+
+def check_acra_entity(pack: ExtractedPack) -> list[Evidence]:
+    """The entity self-certification states the company ACRA's profile
+    describes: the legal name, the UEN (as the Singapore tax number) and the
+    registered address (by postal code)."""
+    profile = acra_record(pack)
+    if profile is None:
+        return []
+    postal = re.findall(r"\b\d{6}\b", profile.registered_address)
+    results: list[Evidence] = []
+    for cert in pack.entity_self_certs:
+        if cert.legal_name and normalise_name(cert.legal_name) != normalise_name(profile.company_name):
+            results.append(_ev(
+                "XDOC_ACRA_ENTITY", "fraud_signal", "high", cert.doc_id, 1, 0.9,
+                f"The legal name on {cert.doc_id} ('{cert.legal_name}') is not the name in the ACRA profile "
+                f"('{profile.company_name}').",
+                quote=cert.legal_name, expected=profile.company_name, observed=cert.legal_name,
+            ))
+        for row in cert.tax_rows:
+            if (row.country or "").strip().upper() == "SINGAPORE" and row.tin and row.tin.strip() != profile.uen:
+                results.append(_ev(
+                    "XDOC_ACRA_ENTITY", "fraud_signal", "high", cert.doc_id, row.page, 0.9,
+                    f"Tax row {row.row} on {cert.doc_id} gives Singapore tax number '{row.tin}', but the ACRA "
+                    f"profile's UEN is '{profile.uen}'. The UEN is generally the Singapore tax reference of an entity.",
+                    quote=row.tin, expected=profile.uen, observed=row.tin,
+                ))
+        form_postal = cert.registered_address.postal_code
+        if postal and form_postal and form_postal.strip() != postal[-1]:
+            results.append(_ev(
+                "XDOC_ACRA_ENTITY", "fraud_signal", "medium", cert.doc_id, 1, 0.8,
+                f"The registered address on {cert.doc_id} has postal code {form_postal}, but the ACRA profile's "
+                f"registered office ('{profile.registered_address}') has {postal[-1]}.",
+                quote=form_postal, expected=postal[-1], observed=form_postal,
+            ))
+    return results
+
+
+#: Titles a Notice of Assessment prints before a name
+_TITLES = frozenset({"MR", "MRS", "MS", "MDM", "MISS", "DR", "PROF"})
+
+
+def _person_key(name: str) -> str:
+    """A name to compare people by: no title, case, punctuation or extra spacing."""
+    words = normalise_name(name).split()
+    return " ".join(words[1:] if words and words[0] in _TITLES else words)
+
+
+def check_acra_persons(pack: ExtractedPack) -> list[Evidence]:
+    """A person on a Notice of Assessment or an individual form who is an
+    officer in the ACRA profile (found by NRIC/FIN) is the same person: the
+    name and the address (by postal code) agree. A notice fetched from IRAS
+    is reported against the application as a whole: it is no uploaded document."""
+    profile = acra_record(pack)
+    if profile is None:
+        return []
+    officers = {_id_key(o.id_number): o for o in profile.officers}
+    people = [(n.doc_id, n.name, n.id_number, n.postal_code) for n in notices(pack)] + [
+        (c.doc_id, c.full_name, c.declaration_id_number, c.residential_address.postal_code)
+        for c in pack.individual_self_certs
+    ]
+    results: list[Evidence] = []
+    for doc_id, name, id_number, postal in people:
+        officer = officers.get(_id_key(id_number or ""))
+        if officer is None:
+            continue
+        who = f"{doc_id} gives {mask_id(id_number.strip()) if id_number else None}"
+        anchor = PACK_DOC if doc_id == IRAS_DOC else doc_id
+        if name and _person_key(name) != _person_key(officer.name):
+            results.append(_ev(
+                "XDOC_ACRA_PERSON", "fraud_signal", "high", anchor, 1, 0.9,
+                f"{who} to '{name}', but the ACRA profile lists that ID for '{officer.name}'.",
+                quote=name, expected=officer.name, observed=name,
+            ))
+        if postal and officer.postal_code and postal.strip() != officer.postal_code:
+            results.append(_ev(
+                "XDOC_ACRA_PERSON", "fraud_signal", "medium", anchor, 1, 0.8,
+                f"{who} an address with postal code {postal}, but the ACRA profile gives "
+                f"'{officer.name}' postal code {officer.postal_code}.",
+                quote=postal, expected=officer.postal_code, observed=postal.strip(),
+            ))
+    return results
+
+
+def check_acra_signatories(pack: ExtractedPack) -> list[Evidence]:
+    """Each person who signs the entity self-certification is an officer
+    listed in the ACRA profile."""
+    profile = acra_record(pack)
+    if profile is None:
+        return []
+    listed = ", ".join(o.name for o in profile.officers) or "no officers listed"
+    return [
+        _ev(
+            "XDOC_ACRA_SIGNATORY", "fraud_signal", "medium", cert.doc_id, sig.page, 0.8,
+            f"Signatory '{sig.name}'{f' ({sig.designation})' if sig.designation else ''} on {cert.doc_id} is not "
+            "an officer in the ACRA profile.",
+            quote=sig.name, expected=listed, observed=sig.name,
+        )
+        for cert in pack.entity_self_certs
+        for sig in cert.signatories
+        if sig.name and all(similarity(sig.name, o.name) < SCREENING_MATCH_THRESHOLD for o in profile.officers)
+    ]
+
+
 # 7. META_MOD_AFTER_CREATE -----------------------------------------------
 
 def check_meta_mod_after_create(pack: ExtractedPack) -> list[Evidence]:
-    """Flag docs where mod_date - creation_date > META_MOD_GAP_HOURS."""
+    """Flag PDFs where mod_date - creation_date > META_MOD_GAP_HOURS. A
+    workbook is edited after it is created as a matter of course."""
     results: list[Evidence] = []
     for doc in pack.docs:
-        if doc.doc_type in FORM_DOC_TYPES:
+        if doc.doc_type in FORM_DOC_TYPES or is_workbook(doc.filename):
             continue
         if doc.creation_date is None or doc.mod_date is None:
             continue
@@ -575,7 +893,7 @@ def check_meta_producer_mismatch(pack: ExtractedPack) -> list[Evidence]:
     results: list[Evidence] = []
     by_type: dict[str, list[DocMeta]] = {}
     for d in pack.docs:
-        if d.doc_type not in FORM_DOC_TYPES and d.producer:
+        if d.doc_type not in FORM_DOC_TYPES and d.producer and not is_workbook(d.filename):
             by_type.setdefault(d.doc_type, []).append(d)
 
     for docs in by_type.values():
@@ -602,8 +920,9 @@ def check_meta_producer_mismatch(pack: ExtractedPack) -> list[Evidence]:
 # 9. BANK_COVERAGE -------------------------------------------------------
 
 def check_bank_coverage(pack: ExtractedPack) -> list[Evidence]:
-    """Statements must cover REQUIRED_BANK_MONTHS consecutive months;
-    latest must not be stale relative to application_date."""
+    """Statements must cover REQUIRED_BANK_MONTHS consecutive months (one
+    statement may span several); the one ending last must not be stale
+    relative to application_date."""
     results: list[Evidence] = []
     if not pack.bank_statements:
         results.append(_ev(
@@ -615,13 +934,15 @@ def check_bank_coverage(pack: ExtractedPack) -> list[Evidence]:
         ))
         return results
 
-    stmts = sorted(pack.bank_statements, key=lambda s: s.period_start)
-    latest = stmts[-1]
+    latest = max(pack.bank_statements, key=lambda s: s.period_end)
 
-    # Build set of (year, month) present
+    # Build set of (year, month) present: every month a statement spans
     present: set[tuple[int, int]] = set()
-    for s in stmts:
-        present.add((s.period_start.year, s.period_start.month))
+    for s in pack.bank_statements:
+        y, m = s.period_start.year, s.period_start.month
+        while (y, m) <= (s.period_end.year, s.period_end.month):
+            present.add((y, m))
+            y, m = (y + 1, 1) if m == 12 else (y, m + 1)
 
     # Required months: REQUIRED_BANK_MONTHS ending with latest month
     latest_ym = (latest.period_end.year, latest.period_end.month)
@@ -717,11 +1038,12 @@ def _id_key(id_number: str) -> str:
 
 
 def guarantors_without_noa(pack: ExtractedPack) -> list[Guarantor]:
-    """The application's guarantors with no Notice of Assessment in the pack,
-    matched on NRIC/FIN (case and spaces ignored). None without application data."""
+    """The application's guarantors with no Notice of Assessment, fetched from
+    IRAS or uploaded, matched on NRIC/FIN (case and spaces ignored). None
+    without application data."""
     if pack.manifest is None:
         return []
-    covered = {_id_key(n.id_number) for n in pack.notices_of_assessment}
+    covered = {_id_key(n.id_number) for n in notices(pack)}
     return [g for g in pack.manifest.guarantors if _id_key(g.id_number) not in covered]
 
 
@@ -738,9 +1060,10 @@ def _cert_ev(
     expected: str | None = None,
     observed: str | None = None,
     quote: str | None = None,
+    page: int = 1,
 ) -> Evidence:
     return _ev(
-        check_id, "compliance", severity, cert.doc_id, 1, 1.0,
+        check_id, "compliance", severity, cert.doc_id, page, 1.0,
         explanation,
         expected=expected,
         observed=observed,
@@ -1230,7 +1553,7 @@ def check_form_ent_signatory(pack: ExtractedPack) -> list[Evidence]:
                     f"the list of authorised signatories from the application: "
                     f"{manifest.authorised_signatories}.",
                     expected=f"signatory in {manifest.authorised_signatories}",
-                    observed=sig.name,
+                    observed=sig.name, page=sig.page,
                 ))
     return results
 
@@ -1240,11 +1563,12 @@ def check_form_ent_signatory(pack: ExtractedPack) -> list[Evidence]:
 # ---------------------------------------------------------------------------
 
 def _forensic_docs(pack: ExtractedPack):
-    """(doc_id, path) for files we can inspect. Official form templates are
-    skipped: they legitimately use white headings and mixed fonts."""
+    """(doc_id, path) for PDFs we can inspect. Official form templates are
+    skipped: they legitimately use white headings and mixed fonts. Workbooks
+    are skipped: they are not PDFs."""
     for doc in pack.docs:
         path = pack.paths.get(doc.doc_id)
-        if path is not None and doc.doc_type not in FORM_DOC_TYPES:
+        if path is not None and doc.doc_type not in FORM_DOC_TYPES and not is_workbook(path):
             yield doc.doc_id, path
 
 
@@ -1344,10 +1668,11 @@ def check_prompt_injection(pack: ExtractedPack) -> list[Evidence]:
 
 
 # ---------------------------------------------------------------------------
-# G. REGISTRY & SCREENING (versioned reference data, see gldb.reference)
+# G. REGISTRY & SCREENING (ACRA's records, fetched by gldb.official; the
+# versioned sanctions list, see gldb.reference)
 # ---------------------------------------------------------------------------
 
-def _registered_entities(pack: ExtractedPack) -> list[tuple[str, int, str, str, str]]:
+def registered_entities(pack: ExtractedPack) -> list[tuple[str, int, str, str, str]]:
     """(doc_id, page, role, UEN, name) for every company identified by UEN."""
     found = []
     if pack.manifest is not None:
@@ -1355,48 +1680,160 @@ def _registered_entities(pack: ExtractedPack) -> list[tuple[str, int, str, str, 
                       pack.manifest.company_name))
     found += [(i.doc_id, i.page, "seller", i.seller_uen, i.seller_name) for i in pack.invoices]
     found += [(p.doc_id, p.page, "seller", p.seller_uen, p.seller_name) for p in pack.purchase_orders]
-    found += [(f.doc_id, f.page, "company", f.uen, f.company_name) for f in pack.financial_statements]
+    found += [(f.doc_id, f.page, "company", f.uen, f.company_name)
+              for f in pack.financial_statements if f.uen and f.company_name]
     return found
 
 
+def _live(record: AcraProfile) -> bool:
+    return record.status.strip().upper().startswith("LIVE")
+
+
+def check_official_records(pack: ExtractedPack) -> list[Evidence]:
+    """The case was checked against ACRA's and IRAS's own records. Info when
+    the records stage is switched off; an open item when the service did not
+    answer, as nothing was checked against ACRA or IRAS."""
+    if pack.official is None:
+        return [_ev(
+            "OFFICIAL_RECORDS_UNAVAILABLE", "completeness", "info", PACK_DOC, 1, 1.0,
+            "ACRA and IRAS records were not fetched (OFFICIAL_RECORDS_ENABLED is off); the documents are held "
+            "to an uploaded ACRA profile and uploaded notices only.",
+        )]
+    if pack.official.error is None:
+        return []
+    return [_ev(
+        "OFFICIAL_RECORDS_UNAVAILABLE", "completeness", "medium", PACK_DOC, 1, 1.0,
+        f"ACRA and IRAS records could not be fetched: {pack.official.error}. Nothing was checked against "
+        "them; run the case again once the service answers.",
+        expected="ACRA and IRAS records fetched", observed="service unavailable",
+    )]
+
+
+#: What an uploaded ACRA profile states that ACRA's record states too
+_PROFILE_FIELDS = ("company_name", "uen", "incorporation_date", "status", "registered_address")
+#: The tax computation an uploaded notice states that IRAS's record states too
+_NOTICE_FIGURES = ("income", "deductions", "chargeable_income", "tax_payable")
+
+
+def _text_key(value: object) -> str:
+    return " ".join(str(value).upper().split())
+
+
+def _altered(doc_id: str, page: int, record: str, field: str, original: object, copy: object) -> Evidence:
+    return _ev(
+        "XDOC_OFFICIAL_RECORD", "fraud_signal", "high", doc_id, page, 0.95,
+        f"The {field.replace('_', ' ')} on {doc_id} is '{copy}', but {record} has '{original}'. The uploaded "
+        "copy of an official record differs from the record itself.",
+        quote=str(copy), expected=str(original), observed=str(copy),
+    )
+
+
+def check_official_copies(pack: ExtractedPack) -> list[Evidence]:
+    """An ACRA profile or Notice of Assessment the applicant uploaded states
+    what ACRA's or IRAS's own record states: a copy that differs was altered.
+    A notice for another year than IRAS's latest is noted, not compared."""
+    if pack.official is None or pack.official.error is not None:
+        return []
+    results: list[Evidence] = []
+    version = _acra_version(pack)
+    for copy in pack.acra_profiles:
+        original = pack.official.companies.get(copy.uen) or pack.official.applicant()
+        if original is None:
+            continue
+        where = f"ACRA's record ({version})"
+        results += [_altered(copy.doc_id, copy.page, where, f, getattr(original, f), getattr(copy, f))
+                    for f in _PROFILE_FIELDS if _text_key(getattr(copy, f)) != _text_key(getattr(original, f))]
+        listed = {_id_key(o.id_number) for o in original.officers}
+        results += [
+            _ev("XDOC_OFFICIAL_RECORD", "fraud_signal", "high", copy.doc_id, copy.page, 0.95,
+                f"{copy.doc_id} lists '{o.name}' ({o.position}, {mask_id(o.id_number)}) as an officer; {where} does not.",
+                quote=o.name, expected=", ".join(x.name for x in original.officers) or "no officers",
+                observed=o.name)
+            for o in copy.officers if _id_key(o.id_number) not in listed
+        ]
+        if copy.financials and original.financials:
+            results += [
+                _altered(copy.doc_id, copy.page, where, f, getattr(original.financials, f), getattr(copy.financials, f))
+                for f in type(copy.financials).model_fields
+                if getattr(copy.financials, f) != getattr(original.financials, f)
+            ]
+    held = {_id_key(n.id_number): n for n in pack.official.notices}
+    for uploaded in pack.notices_of_assessment:
+        notice = held.get(_id_key(uploaded.id_number))
+        if notice is None:
+            continue
+        where = f"IRAS's record ({pack.official.versions.get('iras', 'IRAS')})"
+        if uploaded.year_of_assessment != notice.year_of_assessment:
+            results.append(_ev(
+                "XDOC_OFFICIAL_RECORD", "fraud_signal", "info", uploaded.doc_id, uploaded.page, 1.0,
+                f"{uploaded.doc_id} is the notice for Year of Assessment {uploaded.year_of_assessment}; {where} "
+                f"is for {notice.year_of_assessment}, so the two were not compared.",
+            ))
+            continue
+        if _person_key(uploaded.name) != _person_key(notice.name):
+            results.append(_altered(uploaded.doc_id, uploaded.page, where, "name", notice.name, uploaded.name))
+        results += [
+            _altered(uploaded.doc_id, uploaded.page, where, f, getattr(notice, f), getattr(uploaded, f))
+            for f in (*_NOTICE_FIGURES, "postal_code")
+            if getattr(uploaded, f) is not None and getattr(uploaded, f) != getattr(notice, f)
+        ]
+    return results
+
+
+def _acra_version(pack: ExtractedPack) -> str:
+    return pack.official.versions.get("acra", "ACRA") if pack.official else "ACRA"
+
+
 def check_registry_entities(pack: ExtractedPack) -> list[Evidence]:
-    """Each UEN should be registered, under the name used, and live."""
-    reg = registry()
+    """Each UEN the documents give is registered with ACRA, under the name
+    used, and live."""
+    if pack.official is None or pack.official.error is not None:
+        return []
+    version = _acra_version(pack)
     results = []
-    for doc_id, page, role, uen, name in _registered_entities(pack):
-        entity = reg.entities.get(uen)
+    applicant = pack.official.applicant_uen
+    named = {e[3].strip() for e in registered_entities(pack)}
+    if applicant and applicant not in named and pack.official.applicant() is None:
+        # Given only on the forms (no application data): reported on the form that gives it
+        form = next((c.doc_id for c in pack.entity_self_certs
+                     for row in c.tax_rows if (row.tin or "").strip() == applicant), PACK_DOC)
+        results.append(_ev(
+            "REGISTRY_ENTITY_NOT_FOUND", "fraud_signal", "high", form, 1, 0.95,
+            f"The applicant's UEN {applicant} is not registered with ACRA ({version}).",
+            expected="a registered UEN", observed=f"UEN {applicant}",
+        ))
+    for doc_id, page, role, uen, name in registered_entities(pack):
+        entity = pack.official.companies.get(uen.strip())
         where = f"the {role} on {doc_id}" if doc_id != PACK_DOC else "the applicant"
         if entity is None:
             results.append(_ev(
                 "REGISTRY_ENTITY_NOT_FOUND", "fraud_signal", "high", doc_id, page, 0.95,
-                f"UEN {uen} given for {where} ('{name}') is not in the company register "
-                f"({reg.version}, as of {reg.as_of}).",
+                f"UEN {uen} given for {where} ('{name}') is not registered with ACRA ({version}).",
                 expected="a registered UEN", observed=f"UEN {uen}",
             ))
             continue
-        if similarity(name, entity.name) < SCREENING_MATCH_THRESHOLD:
+        if similarity(name, entity.company_name) < SCREENING_MATCH_THRESHOLD:
             results.append(_ev(
                 "REGISTRY_NAME_MISMATCH", "fraud_signal", "high", doc_id, page, 0.9,
-                f"UEN {uen} is registered to '{entity.name}', but {where} names "
-                f"'{name}' ({reg.version}).",
-                expected=entity.name, observed=name,
+                f"UEN {uen} is registered to '{entity.company_name}', but {where} names "
+                f"'{name}' ({version}).",
+                expected=entity.company_name, observed=name,
             ))
-        if entity.status != "Live":
+        if not _live(entity):
             results.append(_ev(
                 "REGISTRY_ENTITY_INACTIVE", "fraud_signal", "high", doc_id, page, 0.95,
-                f"'{entity.name}' (UEN {uen}) is '{entity.status}' in the company register "
-                f"({reg.version}), so it cannot trade.",
-                expected="Live", observed=entity.status,
+                f"'{entity.company_name}' (UEN {uen}) is '{entity.status}' at ACRA "
+                f"({version}), so it cannot trade.",
+                expected="LIVE COMPANY", observed=entity.status,
             ))
     return results
 
 
 def check_registry_signatories(pack: ExtractedPack) -> list[Evidence]:
     """Authorised signatories should be registered officers of the applicant."""
-    if pack.manifest is None:
+    if pack.manifest is None or pack.official is None:
         return []
-    reg = registry()
-    entity = reg.entities.get(pack.manifest.uen)
+    entity = pack.official.applicant()
     if entity is None:
         return []  # REGISTRY_ENTITY_NOT_FOUND already reports it
     return [
@@ -1404,7 +1841,7 @@ def check_registry_signatories(pack: ExtractedPack) -> list[Evidence]:
             "REGISTRY_SIGNATORY_NOT_OFFICER", "fraud_signal", "medium",
             PACK_DOC, 1, 0.8,
             f"Authorised signatory '{person}' is not a registered officer of "
-            f"'{entity.name}' ({reg.version}).",
+            f"'{entity.company_name}' ({_acra_version(pack)}).",
             expected=", ".join(o.name for o in entity.officers), observed=person,
         )
         for person in pack.manifest.authorised_signatories
@@ -1426,6 +1863,13 @@ def _screened_names(pack: ExtractedPack) -> dict[str, tuple[str, str, int, str]]
     for b in pack.bills_of_lading:
         mentions += [(b.shipper_name, b.doc_id, b.page, "shipper"),
                      (b.consignee_name, b.doc_id, b.page, "consignee")]
+    # The applicant's people as ACRA lists them, and as its forms name them
+    record = pack.official.applicant() if pack.official else None
+    if record is not None:
+        mentions += [(o.name, PACK_DOC, 1, f"officer ({o.position.lower()}) at ACRA") for o in record.officers]
+        mentions += [(h.name, PACK_DOC, 1, "shareholder at ACRA") for h in record.shareholders]
+    mentions += [(s.name, c.doc_id, 1, "signatory") for c in pack.entity_self_certs for s in c.signatories if s.name]
+    mentions += [(c.full_name, c.doc_id, 1, "declarant") for c in pack.individual_self_certs if c.full_name]
     names: dict[str, tuple[str, str, int, str]] = {}
     for name, doc_id, page, role in mentions:
         names.setdefault(screening_key(name), (name, doc_id, page, role))
@@ -1433,20 +1877,22 @@ def _screened_names(pack: ExtractedPack) -> dict[str, tuple[str, str, int, str]]
 
 
 def check_sanctions(pack: ExtractedPack) -> list[Evidence]:
-    """Screen the applicant, its people and its counterparties against the
-    sanctions list. A hit is a possible match for a person to dispose of."""
+    """Screen the applicant, its people (from the application, ACRA's record
+    and the forms) and its counterparties against the sanctions list. A hit
+    is a possible match for a person to dispose of."""
     wl = watchlist()
     results = []
     for name, doc_id, page, role in _screened_names(pack).values():
-        for entry, score in screen(name):
+        for entry, score, matched in screen(name):
+            listed = f"'{entry.name}'" + ("" if matched == entry.name else f" (alias '{matched}')")
             results.append(_ev(
                 "SANCTIONS_MATCH", "fraud_signal", "high", doc_id, page, round(score, 2),
-                f"The {role} '{name}' resembles '{entry.name}' on {entry.list} "
+                f"The {role} '{name}' resembles {listed} on {entry.list} "
                 f"({entry.reference}), similarity {score:.2f}. Sanctions list {wl.version}, "
                 f"as of {wl.as_of}. Confirm or dismiss the match before proceeding.",
                 quote=name,
                 expected="no sanctions match",
-                observed=f"'{name}' ~ '{entry.name}' ({entry.list} {entry.reference})",
+                observed=f"'{name}' ~ {listed} ({entry.list} {entry.reference})",
             ))
     return results
 
@@ -1457,24 +1903,27 @@ def check_sanctions(pack: ExtractedPack) -> list[Evidence]:
 # the exact event a finding is about.
 # ---------------------------------------------------------------------------
 
-def incorporation(manifest: ApplicationManifest) -> tuple[date, str]:
-    """The applicant's incorporation date and its source: the company
-    register when it lists the UEN, otherwise the application itself."""
-    reg = registry()
-    entity = reg.entities.get(manifest.uen)
+def incorporation(pack: ExtractedPack) -> tuple[date, str] | None:
+    """The applicant's incorporation date and its source: ACRA's record when
+    it has one, otherwise the application; None with neither."""
+    entity = pack.official.applicant() if pack.official else None
     if entity is not None:
-        return entity.incorporated, f"the company register ({reg.version})"
-    return manifest.date_of_incorporation, "the application"
+        return entity.incorporation_date, f"ACRA ({_acra_version(pack)})"
+    if pack.manifest is not None:
+        return pack.manifest.date_of_incorporation, "the application"
+    return None
 
 
 def dated_facts(pack: ExtractedPack) -> list[TimelineEvent]:
     """Every dated fact the pack states, unsorted. Trade facts carry the
     invoice they belong to as *ref*."""
     facts: list[TimelineEvent] = []
-    if pack.manifest is not None:
-        on, source = incorporation(pack.manifest)
+    incorporated = incorporation(pack)
+    if incorporated is not None:
+        on, source = incorporated
         facts.append(TimelineEvent(on=on, kind="incorporated", label=f"Incorporated, per {source}",
                                    doc_id=PACK_DOC, page=1))
+    if pack.manifest is not None:
         facts.append(TimelineEvent(on=pack.manifest.application_date, kind="application",
                                    label=f"Application {pack.manifest.application_id} submitted",
                                    doc_id=PACK_DOC, page=1))
@@ -1524,9 +1973,10 @@ def dated_facts(pack: ExtractedPack) -> list[TimelineEvent]:
 
 def check_temp_before_incorporation(pack: ExtractedPack) -> list[Evidence]:
     """No document can describe trading by a company before it existed."""
-    if pack.manifest is None:
+    known = incorporation(pack)
+    if known is None:
         return []
-    incorporated, source = incorporation(pack.manifest)
+    incorporated, source = known
     return [
         _ev(
             "TEMP_BEFORE_INCORPORATION", "fraud_signal", "high", f.doc_id, f.page, 0.95,
@@ -1627,14 +2077,27 @@ AGENTS: list[Agent] = [
     Agent(
         "Cross-Document",
         "Consistency of identity, amounts and quantities across invoices, purchase orders, "
-        "bills of lading, bank and statements.",
-        [check_xdoc_identity, check_xdoc_invoice_bank, check_xdoc_po_invoice, check_xdoc_bl_invoice],
+        "bills of lading, bank statements, financial statements and the ACRA profile.",
+        [
+            check_xdoc_identity,
+            check_xdoc_invoice_bank,
+            check_xdoc_po_invoice,
+            check_xdoc_bl_invoice,
+            check_fs_acra,
+            check_xdoc_bank_cash,
+            check_xdoc_bank_debt,
+            check_xdoc_bank_revenue,
+            check_acra_entity,
+            check_acra_signatories,
+            check_acra_persons,
+        ],
     ),
     Agent(
         "Registry & Screening",
-        "Companies and people checked against the company register and the sanctions list "
-        "(versioned reference data).",
-        [check_registry_entities, check_registry_signatories, check_sanctions],
+        "Companies and people checked against ACRA's and IRAS's own records (fetched, not uploaded) "
+        "and the sanctions list (versioned reference data).",
+        [check_official_records, check_official_copies, check_registry_entities, check_registry_signatories,
+         check_sanctions],
     ),
     Agent(
         "Timeline",

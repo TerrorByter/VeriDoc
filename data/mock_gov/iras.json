@@ -1,0 +1,67 @@
+{
+  "source": "Mock IRAS Notices of Assessment, as Myinfo returns them with the person's consent (prototype)",
+  "version": "IRAS-MOCK-2026.10.21",
+  "as_of": "2026-10-21",
+  "notices": [
+    {
+      "name": "MR TAN BEE HUAT",
+      "id_number": "S2015888E",
+      "year_of_assessment": 2025,
+      "income": "131862.00",
+      "deductions": "22540.00",
+      "chargeable_income": "109322.00",
+      "tax_payable": "6522.03",
+      "postal_code": "478236"
+    },
+    {
+      "name": "MR LIM SOO KENG",
+      "id_number": "S6812345J",
+      "year_of_assessment": 2025,
+      "income": "131862.00",
+      "deductions": "22540.00",
+      "chargeable_income": "109322.00",
+      "tax_payable": "6522.03",
+      "postal_code": "560456"
+    },
+    {
+      "name": "MS ONG HUI LING",
+      "id_number": "S7034567C",
+      "year_of_assessment": 2025,
+      "income": "131862.00",
+      "deductions": "22540.00",
+      "chargeable_income": "109322.00",
+      "tax_payable": "6522.03",
+      "postal_code": "510088"
+    },
+    {
+      "name": "MR KOH WEI JIE",
+      "id_number": "S7656789E",
+      "year_of_assessment": 2025,
+      "income": "131862.00",
+      "deductions": "22540.00",
+      "chargeable_income": "109322.00",
+      "tax_payable": "6522.03",
+      "postal_code": "120301"
+    },
+    {
+      "name": "MS GOH MEI XIN",
+      "id_number": "S7278901G",
+      "year_of_assessment": 2025,
+      "income": "131862.00",
+      "deductions": "22540.00",
+      "chargeable_income": "109322.00",
+      "tax_payable": "6522.03",
+      "postal_code": "460017"
+    },
+    {
+      "name": "MR TEO KAI MING",
+      "id_number": "S6989012H",
+      "year_of_assessment": 2025,
+      "income": "131862.00",
+      "deductions": "22540.00",
+      "chargeable_income": "109322.00",
+      "tax_payable": "6522.03",
+      "postal_code": "760620"
+    }
+  ]
+}

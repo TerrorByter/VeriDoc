@@ -50,7 +50,7 @@ from gldb.config import (
     PROMPT_SCREEN_ENABLED,
 )
 from gldb.coverage import untraceable
-from gldb.intake import load_manifest
+from gldb.intake import document_paths, load_manifest
 from gldb.pipeline import assess
 from gldb.schemas import Evidence
 from gldb.signal_library import signal_for
@@ -173,7 +173,7 @@ def evaluate_pack(folder: Path) -> tuple[PackResult, int]:
     try:
         # Rules only: the AI team never changes the score or route, and only
         # the agent evaluation runs it
-        result = assess(folder.name, sorted(folder.glob("*.pdf")), load_manifest(folder), team=None)
+        result = assess(folder.name, document_paths(folder), load_manifest(folder), team=None)
     except Exception as exc:  # noqa: BLE001 - report any pipeline failure per pack
         return PackResult(
             pack=folder.name,

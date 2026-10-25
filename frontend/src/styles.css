@@ -327,6 +327,14 @@ table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
   transition: border-color 0.15s, background 0.15s;
 }
 .dropzone.dragging { border-color: var(--brand); background: var(--brand-soft); color: var(--brand); }
+.slot-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+.slot-grid > li { display: grid; }
+.dropzone.slot { flex-direction: column; flex-wrap: nowrap; align-items: stretch; justify-content: flex-start; gap: 6px; padding: 14px; text-align: left; }
+.dropzone.slot.filled { border-style: solid; border-color: var(--low); background: var(--low-soft); }
+.dropzone.slot.dragging { border-color: var(--brand); background: var(--brand-soft); }
+.slot-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.slot-head h3 { color: var(--text); }
+.slot-count { margin-right: auto; align-self: center; }
 .file-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .file-list li { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 4px; background: var(--sunken); }
 .file-list li .muted { margin-left: auto; }

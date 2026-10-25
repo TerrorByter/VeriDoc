@@ -1,12 +1,15 @@
 ﻿"""
 gldb/data_factory.py
 --------------------
-Generates synthetic PDF document packs for the gldb-prototype.
+Generates the text-only synthetic PDF packs the test suite runs on (the demo
+packs, in the format of the team's sample, come from gldb.demo_packs). They
+are the only packs with invoices, purchase orders and bills of lading, so they
+keep the trade checks and the AI team's trade patterns tested.
 
 Usage:
     python -m gldb.data_factory
 
-(Re)creates data/packs/clean/, tampered/, incomplete/, scanned/ (the clean
+(Re)creates tests/fixtures/packs/clean/, tampered/, incomplete/, scanned/ (the clean
 pack as image-only scans) and sanctioned/ (a sanctioned buyer), overwriting
 existing files. The third_party_payment/, related_party/, round_trip/ and
 innocent_split/ packs hold patterns the rules cannot judge, for the AI team.
@@ -1284,7 +1287,7 @@ def _verify_pack(pack_dir: Path, tampered_inv1002: bool = False) -> None:
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def generate_packs(base_dir: str | Path = "data/packs") -> None:
+def generate_packs(base_dir: str | Path = "tests/fixtures/packs") -> None:
     """Generate every pack under *base_dir*."""
     base = Path(base_dir)
     _generate_clean(base / "clean")

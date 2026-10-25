@@ -5,15 +5,19 @@ Intake stage: file validation, hashing, metadata extraction, text extraction,
 and document classification.
 
 Rules:
-- validate_file raises IntakeError for bad extension, missing PDF magic bytes,
-  or oversized files.
+- validate_file raises IntakeError for a bad extension, a file that does not
+  start like its extension says (PDF or .xlsx), or an oversized file.
 - sha256_file returns a 64-char hex digest.
 - parse_pdf_date parses Adobe PDF date strings to timezone-aware datetimes.
   Never raises; returns None on bad/missing input.
 - read_text returns per-page text via pdfplumber; pages with no text layer
-  are filled from OCR text when the pipeline's OCR stage supplied it.
+  are filled from OCR text when the pipeline's OCR stage supplied it. For a
+  workbook it returns one text per sheet.
 - classify inspects the first page only; forms take priority over generic types.
-- intake() orchestrates all of the above and returns a list of DocMeta.
+- document_paths lists the documents (PDFs and workbooks) in a folder.
+- intake() orchestrates all of the above and returns a list of DocMeta. A
+  workbook's sheets count as its pages, and a workbook is classified by its
+  sheets.
 - load_manifest reads application.json from a folder and parses it as
   ApplicationManifest, returning None if the file is absent.
 """
@@ -30,8 +34,9 @@ import pdfplumber
 import pypdf
 
 from gldb.config import MAX_FILE_MB
-from gldb.forensics import hidden_reasons
+from gldb.forensics import hidden_chars
 from gldb.schemas import ApplicationManifest, DocMeta, DocType
+from gldb.workbook import WorkbookError, is_workbook, properties, read_workbook, workbook_text
 
 
 # ---------------------------------------------------------------------------
@@ -48,32 +53,37 @@ class IntakeError(Exception):
 # ---------------------------------------------------------------------------
 
 
+#: Accepted file types and the bytes each starts with (an .xlsx is a zip)
+FILE_TYPES: dict[str, bytes] = {".pdf": b"%PDF", ".xlsx": b"PK\x03\x04"}
+
+
 def validate_file(path: "Path | str") -> None:
-    """Validate *path* as an acceptable PDF upload.
+    """Validate *path* as an acceptable PDF or workbook upload.
 
     Raises IntakeError unless ALL three conditions pass:
-    1. Extension is .pdf (case-insensitive).
-    2. File starts with the PDF magic bytes b"%PDF".
+    1. Extension is .pdf or .xlsx (case-insensitive).
+    2. File starts with the magic bytes of its extension.
     3. File size is within MAX_FILE_MB megabytes.
     """
     p = Path(path)
 
     # 1 — extension check
-    if p.suffix.lower() != ".pdf":
+    magic = FILE_TYPES.get(p.suffix.lower())
+    if magic is None:
         raise IntakeError(
-            f"Unsupported file type: {p.suffix!r}. Only .pdf files are accepted."
+            f"Unsupported file type: {p.suffix!r}. Only {' and '.join(FILE_TYPES)} files are accepted."
         )
 
     # 2 — magic bytes check
     try:
         with p.open("rb") as fh:
-            header = fh.read(4)
+            header = fh.read(len(magic))
     except OSError as exc:
         raise IntakeError(f"Cannot read file {p.name}: {exc}") from exc
 
-    if header != b"%PDF":
+    if header != magic:
         raise IntakeError(
-            f"{p.name} does not appear to be a valid PDF (missing %PDF header)."
+            f"{p.name} does not appear to be a valid {p.suffix.lstrip('.').upper()} file (wrong file header)."
         )
 
     # 3 — size check
@@ -160,10 +170,8 @@ def parse_pdf_date(s: "str | None") -> "datetime | None":
 
 def _visible(page: pdfplumber.page.Page) -> pdfplumber.page.Page:
     """*page* without its hidden characters."""
-    return page.filter(
-        lambda obj: obj["object_type"] != "char"
-        or not hidden_reasons(obj, page.width, page.height)
-    )
+    hidden = {id(char) for char, _ in hidden_chars(page)}
+    return page.filter(lambda obj: obj["object_type"] != "char" or id(obj) not in hidden)
 
 
 def read_text(
@@ -176,8 +184,11 @@ def read_text(
     so hidden instructions never reach the model.
 
     Returns a list of strings, one per page. A page with no extractable text
-    (a scanned page) takes its *ocr* text when given, else an empty string.
+    (a scanned page) takes its *ocr* text when given, else an empty string. A
+    workbook has one text per sheet (see gldb.workbook.workbook_text).
     """
+    if is_workbook(path):
+        return workbook_text(path)
     with pdfplumber.open(str(path)) as pdf:
         pages = [
             (_visible(page) if visible_only else page).extract_text() or ""
@@ -221,6 +232,7 @@ _DOC_KEYWORDS: list[tuple[str, DocType]] = [
     ("PURCHASE ORDER", "purchase_order"),
     ("BILL OF LADING", "bill_of_lading"),
     ("NOTICE OF ASSESSMENT", "notice_of_assessment"),
+    ("CORPORATE COMPLIANCE AND FINANCIAL PROFILE", "acra_profile"),
 ]
 
 
@@ -228,31 +240,64 @@ def classify(text: list[str]) -> DocType:
     """Classify a document by inspecting the first page of *text*.
 
     *text* is the output of read_text() — a list of per-page strings.
-    Returns a DocType literal.  Classification is substring-based on the
-    first page only.  Forms are checked before generic document types.
+    Returns a DocType literal.  Classification is case-insensitive and
+    substring-based on the first page only.  Forms are checked before generic
+    document types.
     Falls back to ``"unknown"`` when no keyword matches.
     """
     if not text:
         return "unknown"
 
-    first_page = text[0]
+    first_page = text[0].casefold()
 
     # Forms first (higher specificity)
     for keyword, doc_type in _FORM_KEYWORDS:
-        if keyword in first_page:
+        if keyword.casefold() in first_page:
             return doc_type
 
     # Generic document types
     for keyword, doc_type in _DOC_KEYWORDS:
-        if keyword in first_page:
+        if keyword.casefold() in first_page:
             return doc_type
 
     return "unknown"
 
 
+#: Sheets a workbook of financial statements has
+_STATEMENT_SHEETS = {"income statement", "balance sheet"}
+
+
+def classify_workbook(path: "Path | str") -> DocType:
+    """A workbook with an income statement and a balance sheet is the
+    applicant's financial statements; any other workbook is unknown."""
+    names = {sheet.name.strip().casefold() for sheet in read_workbook(path)}
+    return "financial_statements" if _STATEMENT_SHEETS <= names else "unknown"
+
+
 # ---------------------------------------------------------------------------
 # Intake orchestration
 # ---------------------------------------------------------------------------
+
+
+def document_paths(folder: "Path | str") -> list[Path]:
+    """The documents (PDFs and workbooks) in *folder*, in name order."""
+    return sorted(p for p in Path(folder).iterdir() if p.suffix.lower() in FILE_TYPES)
+
+
+def _file_metadata(path: Path) -> tuple[int, datetime | None, datetime | None, str | None]:
+    """(page count, creation date, modification date, producer) of a PDF or workbook."""
+    if is_workbook(path):
+        props = properties(path)
+        return len(read_workbook(path)), props.created, props.modified, props.application
+    reader = pypdf.PdfReader(str(path))
+    metadata = reader.metadata or {}
+    producer = metadata.get("/Producer")
+    return (
+        len(reader.pages),
+        parse_pdf_date(str(metadata.get("/CreationDate", "")) or None),
+        parse_pdf_date(str(metadata.get("/ModDate", "")) or None),
+        str(producer) if producer is not None else None,
+    )
 
 
 def intake(
@@ -265,13 +310,14 @@ def intake(
     Steps per file:
     1. validate_file — raises IntakeError on failure.
     2. sha256_file — SHA-256 hex digest.
-    3. pypdf.PdfReader — page count, creation date, mod date, producer.
-    4. classify(read_text(path)) — document type.
+    3. pypdf.PdfReader — page count, creation date, mod date, producer (for a
+       workbook: its sheet count and its own properties).
+    4. classify(read_text(path)) — document type (a workbook: by its sheets).
     5. Build and return DocMeta.
 
     Args:
         case_id: The case identifier (used for audit/logging; not stored in DocMeta).
-        file_paths: Paths to the uploaded PDF files.
+        file_paths: Paths to the uploaded PDF and workbook files.
         ocr: Optional doc_id -> OCR page text from the OCR stage, so scanned
             documents can be classified.
 
@@ -279,7 +325,7 @@ def intake(
         A list of DocMeta objects, one per file.
 
     Raises:
-        IntakeError: If any file fails validation.
+        IntakeError: If any file fails validation or cannot be read.
     """
     docs: list[DocMeta] = []
 
@@ -292,22 +338,17 @@ def intake(
         # 2. Hash
         sha256 = sha256_file(path)
 
-        # 3. PDF metadata
-        reader = pypdf.PdfReader(str(path))
-        page_count: int = len(reader.pages)
-        metadata = reader.metadata or {}
-        creation_date: datetime | None = parse_pdf_date(
-            str(metadata.get("/CreationDate", "")) or None
-        )
-        mod_date: datetime | None = parse_pdf_date(
-            str(metadata.get("/ModDate", "")) or None
-        )
-        producer_raw = metadata.get("/Producer")
-        producer: str | None = str(producer_raw) if producer_raw is not None else None
-
-        # 4. doc_id and classification
-        doc_id = path.stem
-        doc_type: DocType = classify(read_text(path, ocr=(ocr or {}).get(doc_id)))
+        # 3. Metadata
+        try:
+            page_count, creation_date, mod_date, producer = _file_metadata(path)
+            # 4. doc_id and classification
+            doc_id = path.stem
+            doc_type: DocType = (
+                classify_workbook(path) if is_workbook(path)
+                else classify(read_text(path, ocr=(ocr or {}).get(doc_id)))
+            )
+        except WorkbookError as exc:
+            raise IntakeError(str(exc)) from exc
 
         # 5. Build DocMeta
         docs.append(

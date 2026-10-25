@@ -17,7 +17,7 @@ from gldb.checks import check_prompt_injection
 from gldb.intake import load_manifest, read_text
 from gldb.schemas import PromptAttackHit
 
-PACKS = Path(__file__).parent.parent / "data" / "packs"
+PACKS = Path(__file__).parent / "fixtures" / "packs"
 
 
 class FakeGuardrail:

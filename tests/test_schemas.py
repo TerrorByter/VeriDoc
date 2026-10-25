@@ -13,7 +13,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from gldb.config import money
 from gldb.privacy import mask_id
@@ -33,6 +33,8 @@ from gldb.schemas import (
     Guarantor,
     Invoice,
     LineItem,
+    Money,
+    OptionalMoney,
     ReadinessResult,
     RiskResult,
     Signatory,
@@ -61,6 +63,24 @@ def test_money_integer():
 
 def test_money_already_decimal():
     assert money(Decimal("1.005")) == Decimal("1.01")
+
+
+# ---------------------------------------------------------------------------
+# Money as printed
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(("printed", "figure"), [
+    ("SGD 1,234.56", Decimal("1234.56")), ("$1,234.56", Decimal("1234.56")), ("(1.541)", Decimal("-1.541")),
+    ("SGD (1,234.56)", Decimal("-1234.56")), ("-5", Decimal("-5")),
+])
+def test_money_is_read_as_printed_with_brackets_for_losses(printed, figure):
+    assert TypeAdapter(Money).validate_python(printed) == figure
+
+
+@pytest.mark.parametrize("printed", ["", "-", "  "])
+def test_no_amount_is_not_money_for_an_optional_figure(printed):
+    assert TypeAdapter(OptionalMoney).validate_python(printed) is None
 
 
 # ---------------------------------------------------------------------------

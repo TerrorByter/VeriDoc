@@ -298,6 +298,7 @@ export type StageId =
   | "intake"
   | "prompt_screen"
   | "extract"
+  | "records"
   | "agents"
   | "ai_team"
   | "shadow_score"
@@ -307,7 +308,7 @@ export type StageId =
   | "projections"
   | "record";
 
-/** The stages the rail shows: the AI team runs inside stage 5 and the shadow score inside stage 6 */
+/** The stages the rail shows: the AI team runs inside stage 6 and the shadow score inside stage 7 */
 export type RailStageId = Exclude<StageId, "ai_team" | "shadow_score">;
 
 export type StageState = "running" | "ran" | "off" | "failed";
@@ -359,6 +360,8 @@ export interface CaseView {
   allowed_actions: string[];
   open_flags: string[];
   stages: StageReport[];
+  /** What ACRA and IRAS hold for the case, NRIC/FIN masked; null when not fetched */
+  official: OfficialRecords | null;
   ocr_confidence: Record<string, number[]>;
   prompt_screen: Record<string, PromptAttackHit[]> | null;
   cost: CaseCost | null;
@@ -366,6 +369,79 @@ export interface CaseView {
   signals: Record<string, Signal>;
   /** Bank rows (T01...), invoice numbers and counterparties (P01...) -> the document page they are on */
   subjects: Record<string, DocRef>;
+}
+
+/** Money as the server sends it: a decimal string */
+type Amount = string | null;
+
+export interface AcraOfficer {
+  name: string;
+  /** Masked NRIC/FIN */
+  id_number: string;
+  position: string;
+  appointed: string;
+  postal_code: string | null;
+}
+
+export interface AcraFinancials {
+  period_start: string;
+  period_end: string;
+  currency: string;
+  total_assets: Amount;
+  total_current_assets: Amount;
+  total_liabilities: Amount;
+  total_current_liabilities: Amount;
+  retained_earnings: Amount;
+  revenue: Amount;
+  profit_before_tax: Amount;
+  profit_after_tax: Amount;
+  ebit: Amount;
+  operating_cashflow: Amount;
+  investing_cashflow: Amount;
+  financing_cashflow: Amount;
+}
+
+export interface AcraRecord {
+  company_name: string;
+  uen: string;
+  incorporation_date: string;
+  status: string;
+  registered_address: string;
+  issued_on: string;
+  officers: AcraOfficer[];
+  shareholders: { name: string; shares: number }[];
+  financials: AcraFinancials | null;
+}
+
+export interface IrasNotice {
+  name: string;
+  /** Masked NRIC/FIN */
+  id_number: string;
+  year_of_assessment: number;
+  income: Amount;
+  deductions: Amount;
+  chargeable_income: Amount;
+  tax_payable: Amount;
+  postal_code: string | null;
+}
+
+/** The records the pipeline fetched from ACRA and IRAS rather than took from the applicant */
+export interface OfficialRecords {
+  retrieved_at: string;
+  versions: Record<string, string>;
+  applicant_uen: string | null;
+  /** UEN -> ACRA's record; null where ACRA has no such company */
+  companies: Record<string, AcraRecord | null>;
+  notices: IrasNotice[];
+  /** Masked NRIC/FIN of each person IRAS holds no notice for */
+  no_notice: string[];
+  error: string | null;
+}
+
+/** A synthetic demo pack and what it shows */
+export interface PackInfo {
+  name: string;
+  note: string | null;
 }
 
 export interface RunStarted {

@@ -1,33 +1,44 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createCase, createCaseFromPack, listPacks } from "../../api";
 import { navigate } from "../../route";
-import type { RunStarted } from "../../types";
+import type { PackInfo, RunStarted } from "../../types";
+import { OTHER_SLOT, UPLOAD_SLOTS, type UploadSlot } from "../../uploadSlots";
+import { DropArea } from "../DropArea";
 import { ErrorNote, Icon } from "../ui";
 
-/** What each synthetic demo pack shows, so a presenter can pick the right one. */
-const PACK_NOTES: Record<string, string> = {
-  clean: "A genuine application. Expect a fast track.",
-  incomplete: "A bank statement month is missing. Expect an incomplete case.",
-  injected: "An invoice carries printed instructions aimed at an AI reviewer.",
-  retro_po: "A purchase order dated after its invoice and shipment.",
-  sanctioned: "A counterparty on the sanctions list.",
-  scanned: "Scanned pages with no text layer. Needs OCR.",
-  tampered: "Seven kinds of tampering across the pack.",
-};
+const SLOTS = [...UPLOAD_SLOTS, OTHER_SLOT];
+
+const extension = (file: File) => file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
 
 export function NewCaseScreen() {
-  const [packs, setPacks] = useState<string[]>([]);
-  const [files, setFiles] = useState<File[]>([]);
-  const [dragging, setDragging] = useState(false);
+  const [packs, setPacks] = useState<PackInfo[]>([]);
+  const [held, setHeld] = useState<Record<string, File[]>>({});
   const [starting, setStarting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const input = useRef<HTMLInputElement>(null);
+  const files = SLOTS.flatMap((slot) => held[slot.id] ?? []);
+  const typesAdded = UPLOAD_SLOTS.filter((slot) => held[slot.id]?.length).length;
 
   useEffect(() => {
     listPacks().then(setPacks).catch(() => setPacks([]));
   }, []);
 
-  const add = (list: FileList | null) => list && setFiles((prev) => [...prev, ...Array.from(list)]);
+  /** Put files in a slot. A file name is used once in the case: the server keeps files by name. */
+  const add = (slot: UploadSlot, incoming: File[]) => {
+    if (incoming.length === 0) return;
+    const accepted = slot.accept.split(",");
+    const wrong = incoming.filter((file) => !accepted.includes(extension(file)));
+    if (wrong.length) return setError(`${wrong.map((f) => f.name).join(", ")}: ${slot.title} takes ${accepted.join(" or ")} files.`);
+    if (!slot.multiple && incoming.length > 1) return setError(`${slot.title} takes one file.`);
+    const kept = slot.multiple ? (held[slot.id] ?? []) : [];
+    const taken = new Set([...SLOTS.filter((s) => s.id !== slot.id).flatMap((s) => held[s.id] ?? []), ...kept].map((f) => f.name));
+    const repeated = incoming.filter((file) => taken.has(file.name));
+    if (repeated.length) return setError(`Already added: ${repeated.map((f) => f.name).join(", ")}.`);
+    setError(null);
+    setHeld({ ...held, [slot.id]: [...kept, ...incoming] });
+  };
+
+  const remove = (slot: UploadSlot, file: File) =>
+    setHeld({ ...held, [slot.id]: (held[slot.id] ?? []).filter((f) => f !== file) });
 
   const start = (label: string, begin: () => Promise<RunStarted>) => {
     setStarting(label);
@@ -53,9 +64,11 @@ export function NewCaseScreen() {
 
       <section className="panel" aria-labelledby="demo-title">
         <h2 id="demo-title">Start from a demo pack</h2>
-        <p className="muted">Synthetic applicants, each built to show one kind of risk.</p>
+        <p className="muted">
+          Synthetic applicants in the format of the team's sample, each built to show one kind of risk.
+        </p>
         <ul className="pack-grid">
-          {packs.map((name) => (
+          {packs.map(({ name, note }) => (
             <li key={name}>
               <button
                 type="button"
@@ -64,7 +77,7 @@ export function NewCaseScreen() {
                 onClick={() => start(name, () => createCaseFromPack(name))}
               >
                 <span className="pack-name mono">{name}</span>
-                <span className="muted">{PACK_NOTES[name] ?? "Synthetic document set."}</span>
+                <span className="muted">{note ?? "Synthetic document set."}</span>
                 {starting === name && <span className="spinner" aria-label="Starting" />}
               </button>
             </li>
@@ -75,50 +88,24 @@ export function NewCaseScreen() {
       <section className="panel" aria-labelledby="upload-title">
         <h2 id="upload-title">Upload documents</h2>
         <p className="muted">
-          Invoices, purchase orders, bills of lading, bank statements, financial statements and the
-          FATCA/CRS form as PDFs, plus the application data as <code>application.json</code>.
+          Add each document of the application to its place. The pipeline reads what a file contains, not
+          where it was put. The ACRA profile and the guarantors' Notices of Assessment are not uploaded: the
+          pipeline fetches them from ACRA and IRAS.
         </p>
-        <div
-          className={`dropzone${dragging ? " dragging" : ""}`}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragging(false);
-            add(e.dataTransfer.files);
-          }}
-        >
-          <Icon name="upload" size={20} />
-          <span>Drop files here or</span>
-          <button type="button" className="btn" onClick={() => input.current?.click()}>Choose files</button>
-          <input
-            ref={input}
-            id="upload-files"
-            type="file"
-            multiple
-            hidden
-            accept=".pdf,.json"
-            aria-label="Loan documents"
-            onChange={(e) => add(e.target.files)}
-          />
-        </div>
-        {files.length > 0 && (
-          <ul className="file-list" aria-label="Selected files">
-            {files.map((f, i) => (
-              <li key={`${f.name}-${i}`}>
-                <Icon name="doc" size={14} />
-                <span className="mono">{f.name}</span>
-                <span className="muted">{Math.max(1, Math.round(f.size / 1024))} KB</span>
-              </li>
-            ))}
-          </ul>
-        )}
+        <ul className="slot-grid">
+          {UPLOAD_SLOTS.map((slot) => (
+            <li key={slot.id}>
+              <Slot slot={slot} files={held[slot.id] ?? []} onFiles={add} onRemove={remove} />
+            </li>
+          ))}
+        </ul>
+        <Slot slot={OTHER_SLOT} files={held[OTHER_SLOT.id] ?? []} onFiles={add} onRemove={remove} />
         <div className="actions">
+          <span className="muted slot-count">
+            {typesAdded} of {UPLOAD_SLOTS.length} document types added
+          </span>
           {files.length > 0 && (
-            <button type="button" className="btn ghost" disabled={starting !== null} onClick={() => setFiles([])}>
+            <button type="button" className="btn ghost" disabled={starting !== null} onClick={() => setHeld({})}>
               Clear
             </button>
           )}
@@ -137,5 +124,32 @@ export function NewCaseScreen() {
         </div>
       </section>
     </main>
+  );
+}
+
+function Slot({ slot, files, onFiles, onRemove }: {
+  slot: UploadSlot;
+  files: File[];
+  onFiles: (slot: UploadSlot, files: File[]) => void;
+  onRemove: (slot: UploadSlot, file: File) => void;
+}) {
+  return (
+    <DropArea slot={slot} filled={files.length > 0} onFiles={(incoming) => onFiles(slot, incoming)}>
+      {files.length > 0 && (
+        <ul className="file-list" aria-label={`${slot.title}: selected files`}>
+          {files.map((file) => (
+            <li key={file.name}>
+              <Icon name="doc" size={14} />
+              <span className="mono">{file.name}</span>
+              <span className="muted">{Math.max(1, Math.round(file.size / 1024))} KB</span>
+              <button type="button" className="btn ghost small" aria-label={`Remove ${file.name}`}
+                onClick={() => onRemove(slot, file)}>
+                <Icon name="close" size={14} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </DropArea>
   );
 }

@@ -9,6 +9,7 @@ import { IntakeStage } from "../stages/IntakeStage";
 import { InvestigationStage } from "../stages/InvestigationStage";
 import { OcrStage } from "../stages/OcrStage";
 import { PromptScreenStage } from "../stages/PromptScreenStage";
+import { RecordsStage } from "../stages/RecordsStage";
 import { ReadinessStage } from "../stages/ReadinessStage";
 import { RouteStage } from "../stages/RouteStage";
 import { ScoreStage } from "../stages/ScoreStage";
@@ -40,6 +41,13 @@ function result(kase: CaseView, id: RailStageId): string {
     }
     case "extract":
       return kase.extraction_mode === "llm" ? "Fields extracted by the model" : "Fields extracted by the rule-based parser";
+    case "records": {
+      const records = kase.official;
+      if (!records) return "Not fetched";
+      if (records.error) return "ACRA and IRAS did not answer";
+      const found = Object.values(records.companies).filter(Boolean).length;
+      return `${plural(found, "ACRA record")}, ${plural(records.notices.length, "IRAS notice")}`;
+    }
     case "agents": {
       const explained = risky.length - openFindings(kase).length;
       const rules = `${plural(risky.length - explained, "open finding")} from ${kase.agent_reports.reduce((n, a) => n + a.checks_run, 0)} checks`
@@ -66,6 +74,7 @@ const BODY: Record<RailStageId, (p: StageProps) => ReactNode> = {
   intake: (p) => <IntakeStage {...p} />,
   prompt_screen: (p) => <PromptScreenStage {...p} />,
   extract: (p) => <ExtractStage {...p} />,
+  records: (p) => <RecordsStage {...p} />,
   agents: (p) => <AgentsStage {...p} />,
   score: (p) => <ScoreStage {...p} />,
   readiness: (p) => <ReadinessStage {...p} />,
@@ -81,12 +90,12 @@ export function StageDetail(props: StageProps & { stage: RailStageId }) {
   const off = status.state === "off";
   const prev = STAGES[info.n - 2];
   const next = STAGES[info.n];
-  // Stage 5 runs two steps (the rule agents and the AI team): its time and cost are both together
+  // Stage 6 runs two steps (the rule agents and the AI team): its time and cost are both together
   const steps: StageId[] = info.steps ?? [stage];
   const reports = kase.stages.filter((s) => steps.includes(s.stage_id));
   const costs = steps.flatMap((id) => kase.cost?.usd_by_stage[id] ?? []);
   const cost = costs.length ? String(costs.reduce((n, c) => n + Number(c), 0)) : undefined;
-  // Only the AI team calls Bedrock in stage 5
+  // Only the AI team calls Bedrock in stage 6
   const team = steps.includes("ai_team") ? kase.ai_team : undefined;
   const serviceOff = off || (steps.includes("ai_team") && !team);
 

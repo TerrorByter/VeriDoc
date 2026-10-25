@@ -12,11 +12,12 @@ from pathlib import Path
 import pytest
 
 from gldb.coverage import coverage, untraceable
-from gldb.intake import load_manifest
+from gldb.intake import intake, load_manifest
 from gldb.pipeline import assess
-from gldb.schemas import CaseResult, Evidence
+from gldb.schemas import CaseResult, Evidence, ExtractedPack
+from tests.statement_forms import END, ROWS, statement_form
 
-PACKS = Path(__file__).parent.parent / "data" / "packs"
+PACKS = Path(__file__).parent / "fixtures" / "packs"
 
 
 @pytest.fixture(scope="module")
@@ -51,7 +52,7 @@ def test_findings_on_the_application_need_the_application(tampered: CaseResult) 
                   document="pack", page=1, observed="Someone Else", method="deterministic",
                   confidence=0.8, explanation="x")
     assert untraceable([ev], tampered.pack) == []
-    assert untraceable([ev], tampered.pack.model_copy(update={"manifest": None})) == ["E98"]
+    assert untraceable([ev], tampered.pack.model_copy(update={"manifest": None, "official": None})) == ["E98"]
 
 
 def test_only_risk_findings_count(tampered: CaseResult) -> None:
@@ -60,3 +61,28 @@ def test_only_risk_findings_count(tampered: CaseResult) -> None:
                               confidence=1.0, explanation="x")
     assert untraceable([readiness_item], tampered.pack) == []
     assert coverage([], tampered.pack) == 1.0
+
+
+def _form_finding(path: Path, quote: str) -> tuple[list[Evidence], ExtractedPack]:
+    docs = intake("t", [path])
+    pack = ExtractedPack(case_id="t", docs=docs, invoices=[], bank_statements=[], financial_statements=[],
+                         extraction_mode="stub", paths={docs[0].doc_id: path})
+    ev = Evidence(evidence_id="E01", check_id="BANK_RUNNING_BAL", severity="high", document=docs[0].doc_id,
+                  page=1, quote=quote, method="deterministic", confidence=1.0, explanation="x")
+    return [ev], pack
+
+
+def test_a_quote_held_in_a_form_field_is_traceable(tmp_path: Path) -> None:
+    """A fillable statement's figures are field values, not page text: the
+    viewer boxes the field, so the analyst can be shown it."""
+    path = statement_form(tmp_path, [*ROWS, END])
+    assert untraceable(*_form_finding(path, "Sales Revenue")) == []
+    assert untraceable(*_form_finding(path, "Dividend Income")) == ["E01"]
+
+
+def test_findings_on_the_official_records_need_them(tampered: CaseResult) -> None:
+    ev = Evidence(evidence_id="E96", check_id="SANCTIONS_MATCH", severity="high", document="pack", page=1,
+                  quote="VIKTOR ALDANE", method="deterministic", confidence=0.9, explanation="x")
+    no_application = tampered.pack.model_copy(update={"manifest": None})
+    assert untraceable([ev], no_application) == []
+    assert untraceable([ev], no_application.model_copy(update={"official": None})) == ["E96"]

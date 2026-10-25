@@ -1,0 +1,39 @@
+{
+  "application_id": "APP-2026-INFLATED_FINANCIALS",
+  "application_date": "2026-07-10",
+  "company_name": "BRIGHTWAVE COMPONENTS PTE. LTD.",
+  "uen": "201733321K",
+  "country_of_incorporation": "SINGAPORE",
+  "date_of_incorporation": "2017-11-02",
+  "registered_address": {
+    "block": "21",
+    "street": "UBI ROAD 1",
+    "floor": "04",
+    "unit": "12",
+    "building": "UBI TECHPARK",
+    "city_state": "SINGAPORE",
+    "postal_code": "408724",
+    "country": "SINGAPORE"
+  },
+  "authorised_signatories": [
+    "PRIYA NAIR",
+    "LIM SOO KENG"
+  ],
+  "guarantors": [
+    {
+      "name": "LIM SOO KENG",
+      "id_number": "S6812345J",
+      "nationality": "SINGAPORE",
+      "residential_address": {
+        "block": "456",
+        "street": "ANG MO KIO AVENUE 10",
+        "floor": "09",
+        "unit": "1180",
+        "building": "",
+        "city_state": "SINGAPORE",
+        "postal_code": "560456",
+        "country": "SINGAPORE"
+      }
+    }
+  ]
+}

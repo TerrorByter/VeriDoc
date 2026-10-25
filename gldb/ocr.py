@@ -29,6 +29,7 @@ from botocore.config import Config
 from gldb.config import AWS_REGION, OCR_MAX_WORKERS
 from gldb.schemas import Box, OcrLine
 from gldb.usage import log_usage
+from gldb.workbook import is_workbook
 
 #: Adaptive retries slow the client down when Textract throttles, so a burst
 #: above the account's rate quota waits instead of failing the case.
@@ -86,6 +87,7 @@ def _ocr_bytes(textract: Any, page_pdf: bytes) -> tuple[str, float, list[OcrLine
 
 def ocr_files(paths: list[Path], case_id: str = "", client: Any | None = None) -> OcrResult:
     """OCR every page of every non-form PDF with Textract DetectDocumentText.
+    Workbooks have no pages to read and are skipped.
 
     Pages are split sequentially (pypdf readers are not thread-safe); only the
     Textract calls run concurrently.
@@ -98,6 +100,8 @@ def ocr_files(paths: list[Path], case_id: str = "", client: Any | None = None) -
     textract = client or _default_client()
     jobs: list[tuple[str, bytes]] = []
     for path in paths:
+        if is_workbook(path):
+            continue
         reader = pypdf.PdfReader(str(path))
         if not reader.get_fields():
             jobs.extend((path.stem, _page_bytes(page)) for page in reader.pages)

@@ -19,7 +19,7 @@ from gldb.intake import intake, load_manifest, read_text
 from gldb.llm_client import LLMResult
 from gldb.ocr import ocr_files
 
-CLEAN = Path(__file__).parent.parent / "data" / "packs" / "clean"
+CLEAN = Path(__file__).parent / "fixtures" / "packs" / "clean"
 
 
 @pytest.fixture(scope="module")
@@ -140,7 +140,7 @@ def test_ocr_files_one_call_per_page() -> None:
 
 
 def test_hidden_text_never_reaches_the_llm(monkeypatch: pytest.MonkeyPatch) -> None:
-    tampered = Path(__file__).parent.parent / "data" / "packs" / "tampered"
+    tampered = Path(__file__).parent / "fixtures" / "packs" / "tampered"
     paths = [tampered / "invoice_INV-1002.pdf"]
     docs = intake("t", paths)
     seen: list[str] = []

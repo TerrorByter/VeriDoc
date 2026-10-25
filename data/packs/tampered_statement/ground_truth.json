@@ -1,0 +1,29 @@
+{
+  "pack": "tampered_statement",
+  "company": "CORVID MARINE ENGINEERING PTE. LTD.",
+  "note": "A sales credit on Corvid's statement was raised and the file re-saved; its balances no longer add up.",
+  "expected_band": "High",
+  "expected_path": "enhanced_review",
+  "expected_readiness": "Complete",
+  "expected_check_ids": [
+    "BANK_RUNNING_BAL",
+    "FORENSIC_INCREMENTAL_UPDATE",
+    "META_MOD_AFTER_CREATE"
+  ],
+  "expected_check_ids_ocr": [],
+  "expected_compliance_check_ids": [],
+  "expected_leads": [],
+  "expected_triage": [],
+  "tampers": [
+    {
+      "doc": "bank_statement",
+      "type": "credit_raised",
+      "check_ids": [
+        "BANK_RUNNING_BAL",
+        "FORENSIC_INCREMENTAL_UPDATE",
+        "META_MOD_AFTER_CREATE"
+      ],
+      "detail": "a sales credit raised by SGD 250,000 in an incremental save three weeks later"
+    }
+  ]
+}

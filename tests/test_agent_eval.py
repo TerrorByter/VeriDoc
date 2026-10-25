@@ -27,7 +27,7 @@ from gldb.pipeline import assess
 from gldb.usage import CaseCost
 from tests.fakes import ScriptedBedrock, use
 
-PACKS = Path(__file__).parent.parent / "data" / "packs"
+PACKS = Path(__file__).parent / "fixtures" / "packs"
 #: Models with a price in config, so the cost of a case is known
 MODELS = TeamModels(
     supervisor="global.anthropic.claude-sonnet-4-6",

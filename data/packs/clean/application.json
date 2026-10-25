@@ -1,52 +1,38 @@
 {
-  "application_id": "APP-2026-0815",
-  "application_date": "2026-08-10",
-  "company_name": "Lumen Harbour Trading Pte. Ltd.",
-  "uen": "202301234K",
-  "country_of_incorporation": "Singapore",
-  "date_of_incorporation": "2023-01-16",
+  "application_id": "APP-2026-CLEAN",
+  "application_date": "2026-07-10",
+  "company_name": "ACMA LTD.",
+  "uen": "196500233E",
+  "country_of_incorporation": "SINGAPORE",
+  "date_of_incorporation": "1965-10-09",
   "registered_address": {
-    "block": "12",
-    "street": "Harbour Link Road",
-    "floor": "08",
-    "unit": "03",
-    "building": "Lumen Harbour Centre",
-    "city_state": "Singapore",
-    "postal_code": "098765",
-    "country": "Singapore"
+    "block": "67",
+    "street": "19 JURONG PORT ROAD",
+    "floor": "25",
+    "unit": "550",
+    "building": "JURONG TOWER 2",
+    "city_state": "SINGAPORE",
+    "postal_code": "619093",
+    "country": "SINGAPORE"
   },
   "authorised_signatories": [
-    "Tan Wei Ming"
+    "MATTHEW TAN",
+    "TAN BEE HUAT"
   ],
   "guarantors": [
     {
-      "name": "Tan Wei Ming",
-      "id_number": "S1234567D",
-      "nationality": "Singapore",
+      "name": "TAN BEE HUAT",
+      "id_number": "S2015888E",
+      "nationality": "SINGAPORE",
       "residential_address": {
-        "block": "45",
-        "street": "Kingfisher Lane",
-        "floor": "10",
-        "unit": "12",
-        "building": "Kingfisher Court",
-        "city_state": "Singapore",
-        "postal_code": "529045",
-        "country": "Singapore"
-      }
-    },
-    {
-      "name": "Daniel Brooks",
-      "id_number": "G7654321L",
-      "nationality": "Australia",
-      "residential_address": {
-        "block": "8",
-        "street": "Marina Crest Drive",
+        "block": "123",
+        "street": "HOUGANG AVENUE 3",
         "floor": "15",
-        "unit": "02",
-        "building": "Crest Residences",
-        "city_state": "Singapore",
-        "postal_code": "018987",
-        "country": "Singapore"
+        "unit": "243",
+        "building": "",
+        "city_state": "SINGAPORE",
+        "postal_code": "478236",
+        "country": "SINGAPORE"
       }
     }
   ]

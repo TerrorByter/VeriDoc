@@ -31,6 +31,8 @@ def _strip_money_text(value: Any) -> Any:
     removed; the figure itself is never changed. "-" or "" means no amount."""
     if isinstance(value, str):
         text = value.replace(",", "").replace("SGD", "").replace("S$", "").replace("$", "").strip()
+        if text.startswith("(") and text.endswith(")"):
+            text = "-" + text[1:-1]   # accountants' brackets: a loss
         return None if text in ("", "-") else text
     return value
 
@@ -114,7 +116,7 @@ class Transaction(BaseModel):
 
 class BankStatement(BaseModel):
     doc_id: str
-    bank_name: str
+    bank_name: str | None = None   # a fillable statement carries its bank only as a logo
     account_holder: str
     period_start: date
     period_end: date
@@ -127,14 +129,30 @@ class BankStatement(BaseModel):
 
 class FinancialStatementSummary(BaseModel):
     doc_id: str
-    company_name: str
-    uen: str
+    #: The identity the statements state; a workbook states none
+    company_name: str | None = None
+    uen: str | None = None
     financial_year_end: date
     revenue: Money
     total_assets: Money
     total_liabilities: Money
     total_equity: Money
+    #: Further figures, in dollars, where the statements give them (a workbook does)
+    cash: OptionalMoney = None
+    total_current_assets: OptionalMoney = None
+    total_current_liabilities: OptionalMoney = None
+    #: Interest-bearing debt: short-term borrowings, current and long-term debt
+    borrowings: OptionalMoney = None
+    retained_earnings: OptionalMoney = None
+    ebit: OptionalMoney = None
+    profit_before_tax: OptionalMoney = None
+    profit_after_tax: OptionalMoney = None
+    operating_cashflow: OptionalMoney = None
+    investing_cashflow: OptionalMoney = None
+    financing_cashflow: OptionalMoney = None
     page: int = 1
+    #: Field -> the page (sheet) a figure is on, where it is not `page`
+    figure_pages: dict[str, int] = {}
     source_quotes: dict[str, str] = {}
 
 
@@ -145,8 +163,98 @@ class NoticeOfAssessment(BaseModel):
     name: str
     id_number: str          # NRIC or FIN; masked with gldb.privacy.mask_id before display
     year_of_assessment: int
+    #: The tax computation as printed; empty where the notice does not show it
+    income: OptionalMoney = None
+    deductions: OptionalMoney = None
+    chargeable_income: OptionalMoney = None
+    tax_payable: OptionalMoney = None
+    #: Postal code of the address the notice is sent to, where it shows one
+    postal_code: str | None = None
     page: int = 1
     source_quotes: dict[str, str] = {}
+
+
+class AcraOfficer(BaseModel):
+    name: str
+    id_number: str          # NRIC or FIN; masked with gldb.privacy.mask_id before display
+    position: str
+    appointed: date
+    #: Postal code of the address the profile gives the officer, if it does
+    postal_code: str | None = None
+
+
+class AcraShareholder(BaseModel):
+    name: str
+    shares: int
+
+
+class AcraFinancials(BaseModel):
+    """The latest financial period in an ACRA profile, as ACRA prints it. The
+    profile states no unit (the sample's figures are SGD millions): see
+    config.ACRA_FIGURES_UNIT. A figure ACRA marks unavailable is empty."""
+
+    period_start: date
+    period_end: date
+    currency: str
+    total_assets: OptionalMoney = None
+    total_current_assets: OptionalMoney = None
+    total_liabilities: OptionalMoney = None
+    total_current_liabilities: OptionalMoney = None
+    retained_earnings: OptionalMoney = None
+    revenue: OptionalMoney = None
+    profit_before_tax: OptionalMoney = None
+    profit_after_tax: OptionalMoney = None
+    ebit: OptionalMoney = None
+    operating_cashflow: OptionalMoney = None
+    investing_cashflow: OptionalMoney = None
+    financing_cashflow: OptionalMoney = None
+
+
+class AcraProfile(BaseModel):
+    """An ACRA Corporate Compliance and Financial Profile: the register's own
+    statement of the company, as of the day it was issued."""
+
+    doc_id: str
+    company_name: str
+    uen: str
+    incorporation_date: date
+    status: str             # e.g. "LIVE COMPANY"
+    registered_address: str  # as printed, with its postal code
+    issued_on: date
+    officers: list[AcraOfficer]
+    shareholders: list[AcraShareholder]
+    #: None where the profile has no financial information (no XBRL filing)
+    financials: AcraFinancials | None = None
+    page: int = 1
+    source_quotes: dict[str, str] = {}
+
+
+#: doc_id of a record fetched from ACRA or IRAS rather than uploaded (gldb.official)
+ACRA_DOC = "ACRA"
+IRAS_DOC = "IRAS"
+
+
+class OfficialRecords(BaseModel):
+    """The official records the pipeline fetched for a case (gldb.official):
+    ACRA's record of each company the documents name and IRAS's latest Notice
+    of Assessment for each person whose tax record the case relies on."""
+
+    retrieved_at: datetime
+    #: Data set -> version ("acra", "iras"), as the service reported them
+    versions: dict[str, str] = {}
+    #: The applicant's UEN as the documents give it; None if none does
+    applicant_uen: str | None = None
+    #: UEN -> ACRA's record; None where ACRA has no company with that UEN
+    companies: dict[str, AcraProfile | None] = {}
+    notices: list[NoticeOfAssessment] = []
+    #: NRIC/FIN of each person IRAS returned no notice for (masked before display)
+    no_notice: list[str] = []
+    #: Why nothing was fetched (the service did not answer); None when it did
+    error: str | None = None
+
+    def applicant(self) -> AcraProfile | None:
+        """ACRA's record of the applicant, if it has one."""
+        return self.companies.get(self.applicant_uen) if self.applicant_uen else None
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +310,8 @@ class TaxResidencyRow(BaseModel):
     tin: str | None          # masked with gldb.privacy.mask_id before logging
     reasons_ticked: list[Literal["A", "B+", "C"]]
     explanation: str | None
+    #: The form page the row is on
+    page: int = 1
 
 
 class ControllingPerson(BaseModel):
@@ -219,6 +329,8 @@ class Signatory(BaseModel):
     date_raw: str | None     # raw string as it appears on the form
     date: date | None        # parsed date (None if unparseable)
     signature_field_signed: bool
+    #: The form page the slot is on
+    page: int = 1
 
 
 class EntitySelfCert(BaseModel):
@@ -259,6 +371,38 @@ class EntitySelfCert(BaseModel):
     raw_fields: dict[str, str]
 
 
+class IndividualSelfCert(BaseModel):
+    """Extracted fields from a GLDB FATCA/CRS Individual Self-Certification AcroForm."""
+    doc_id: str
+    template_id: str | None
+
+    # Part 1 — identification
+    full_name: str | None
+    date_of_birth: date | None   # None if blank or unparseable
+    place_of_birth: str | None
+    residential_address: Address
+    mailing_different: bool
+    mailing_address: Address
+    mailing_explanation: str | None
+
+    # Part 2 — US status
+    us_status_ticked: list[Literal["not_us_person", "us_person", "no_longer_us_person"]]
+    us_tin_parts: list[str | None]   # masked with gldb.privacy.mask_id before logging
+
+    # Part 3 — tax residency (only rows with content)
+    tax_rows: list[TaxResidencyRow]
+
+    # Declaration
+    declaration_name: str | None
+    declaration_id_number: str | None   # NRIC or FIN; masked with gldb.privacy.mask_id before display
+    declaration_date: date | None
+    #: The signature field carries a signature
+    signature_field_signed: bool
+
+    # Raw field dump from pypdf get_fields() — never sent to an LLM
+    raw_fields: dict[str, str]
+
+
 # ---------------------------------------------------------------------------
 # Document metadata
 # ---------------------------------------------------------------------------
@@ -272,6 +416,7 @@ DocType = Literal[
     "fatca_crs_entity",
     "fatca_crs_individual",
     "notice_of_assessment",
+    "acra_profile",
     "unknown",
 ]
 
@@ -325,8 +470,12 @@ class ExtractedPack(BaseModel):
     purchase_orders: list[PurchaseOrder] = []
     bills_of_lading: list[BillOfLading] = []
     entity_self_certs: list[EntitySelfCert] = []
+    individual_self_certs: list[IndividualSelfCert] = []
     notices_of_assessment: list[NoticeOfAssessment] = []
+    acra_profiles: list[AcraProfile] = []
     manifest: ApplicationManifest | None = None
+    #: What ACRA and IRAS hold for the case; None when the records stage did not run
+    official: OfficialRecords | None = None
     extraction_mode: Literal["llm", "stub", "mixed"]
     #: doc_id -> file on disk, for checks that inspect the raw file (forensics).
     #: Never serialised: it would leak local paths into results and the API.
@@ -460,7 +609,7 @@ class AgentReport(BaseModel):
 
 #: Pipeline stages in run order; "record" (persist + audit) runs outside assess()
 StageId = Literal[
-    "ocr", "intake", "prompt_screen", "extract", "agents", "ai_team", "shadow_score", "score", "readiness", "route",
+    "ocr", "intake", "prompt_screen", "extract", "records", "agents", "ai_team", "shadow_score", "score", "readiness", "route",
     "projections", "record",
 ]
 #: "running" is only ever reported live; a finished stage is "ran", "failed", or "off"

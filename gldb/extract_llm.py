@@ -2,8 +2,8 @@
 gldb/extract_llm.py
 -------------------
 LLM extraction (AWS Bedrock via gldb.llm_client) for invoices, bank
-statements, financial statement summaries, purchase orders, bills of lading
-and Notices of Assessment.
+statements, financial statement summaries, purchase orders, bills of lading,
+Notices of Assessment and ACRA profiles.
 
 Rules:
 - Document text is untrusted data: hidden text (white, tiny, off-page) is
@@ -14,7 +14,10 @@ Rules:
 - Every source quote must appear verbatim in the document text; quotes that
   do not are dropped, so the LLM cannot invent evidence.
 - FATCA/CRS forms are AcroForms and are read deterministically by
-  extract_stub.parse_entity_self_cert. Form contents never go to an LLM.
+  extract_stub.parse_entity_self_cert and parse_individual_self_cert, and so
+  is a fillable bank statement (extract_stub.parse_bank_statement_form) and a
+  financial statements workbook (extract_stub.parse_financial_workbook). Form
+  and workbook contents never go to an LLM.
 """
 
 from __future__ import annotations
@@ -25,10 +28,17 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from gldb.extract_stub import parse_entity_self_cert
+from gldb.extract_stub import (
+    is_bank_statement_form,
+    parse_bank_statement_form,
+    parse_entity_self_cert,
+    parse_financial_workbook,
+    parse_individual_self_cert,
+)
 from gldb.intake import contains_quote, model_view
 from gldb.llm_client import converse, prompt_version
 from gldb.schemas import (
+    AcraProfile,
     ApplicationManifest,
     BankStatement,
     BillOfLading,
@@ -39,6 +49,7 @@ from gldb.schemas import (
     NoticeOfAssessment,
     PurchaseOrder,
 )
+from gldb.workbook import is_workbook
 
 _SYSTEM = (
     "You extract structured data from one loan-application document into the "
@@ -61,6 +72,7 @@ _MODELS: dict[str, type[BaseModel]] = {
     "purchase_order": PurchaseOrder,
     "bill_of_lading": BillOfLading,
     "notice_of_assessment": NoticeOfAssessment,
+    "acra_profile": AcraProfile,
 }
 
 #: Fields set by the pipeline, not by the model.
@@ -138,16 +150,23 @@ def parse_pack(
     path_map = {p.stem: p for p in pdf_paths}
     extracted: dict[str, list[Any]] = {doc_type: [] for doc_type in _MODELS}
     entity_self_certs = []
+    individual_self_certs = []
 
     for doc in docs:
         path = path_map.get(doc.doc_id)
         if path is None:
             continue
-        if doc.doc_type in _MODELS:
+        if doc.doc_type == "bank_statement" and is_bank_statement_form(path):
+            extracted["bank_statement"].append(parse_bank_statement_form(doc.doc_id, path))
+        elif doc.doc_type == "financial_statements" and is_workbook(path):
+            extracted["financial_statements"].append(parse_financial_workbook(doc.doc_id, path))
+        elif doc.doc_type in _MODELS:
             pages = model_view(path, ocr.get(doc.doc_id))
             extracted[doc.doc_type].append(_extract_doc(doc, pages, case_id))
         elif doc.doc_type == "fatca_crs_entity":
             entity_self_certs.append(parse_entity_self_cert(doc.doc_id, path))
+        elif doc.doc_type == "fatca_crs_individual":
+            individual_self_certs.append(parse_individual_self_cert(doc.doc_id, path))
 
     return ExtractedPack(
         case_id=case_id,
@@ -158,7 +177,9 @@ def parse_pack(
         purchase_orders=extracted["purchase_order"],
         bills_of_lading=extracted["bill_of_lading"],
         entity_self_certs=entity_self_certs,
+        individual_self_certs=individual_self_certs,
         notices_of_assessment=extracted["notice_of_assessment"],
+        acra_profiles=extracted["acra_profile"],
         manifest=manifest,
         extraction_mode="llm",
         paths=path_map,

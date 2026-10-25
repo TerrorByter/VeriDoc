@@ -6,6 +6,7 @@ const SWITCH: Partial<Record<StageId, string>> = {
   ocr: "OCR_ENABLED=true",
   prompt_screen: "PROMPT_SCREEN_ENABLED=true",
   extract: "EXTRACTION_MODE=llm",
+  records: "OFFICIAL_RECORDS_ENABLED=true",
   ai_team: "AGENTS_ENABLED=true",
 };
 

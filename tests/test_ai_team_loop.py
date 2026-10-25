@@ -23,7 +23,7 @@ from gldb.intake import load_manifest
 from gldb.pipeline import assess
 from tests.fakes import ScriptedBedrock, use
 
-CLEAN = Path(__file__).parent.parent / "data" / "packs" / "clean"
+CLEAN = Path(__file__).parent / "fixtures" / "packs" / "clean"
 BRIEFS = {"forensics": "f", "transaction": "t", "kyc": "k", "timeline": "l"}
 
 

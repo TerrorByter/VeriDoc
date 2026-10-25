@@ -80,7 +80,7 @@ export function DecisionDrawer({
               id="rfi-files"
               type="file"
               multiple
-              accept="application/pdf"
+              accept="application/pdf,.xlsx"
               aria-label="Requested documents"
               onChange={(e) => setFiles([...(e.target.files ?? [])])}
             />

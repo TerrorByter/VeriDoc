@@ -26,7 +26,7 @@ export const STAGES: StageInfo[] = [
   {
     id: "ocr", n: 1, group: "Read", name: "OCR", service: "Textract",
     what: "Reads every page as it appears visually, independently of the text stored inside the PDF. The two readings are compared later to catch figures pasted over the original.",
-    input: "Uploaded PDFs", output: "Page text, confidence and line positions",
+    input: "Uploaded PDFs (workbooks are not read)", output: "Page text, confidence and line positions",
   },
   {
     id: "intake", n: 2, group: "Read", name: "Intake",
@@ -44,32 +44,37 @@ export const STAGES: StageInfo[] = [
     input: "Model-visible page text", output: "Fields with source quotes",
   },
   {
-    id: "agents", n: 5, group: "Check", name: "Agents", steps: ["agents", "ai_team"], service: "Bedrock",
-    what: "The 36 checks run first as mandatory tools, so no AI can skip one. Then a Supervisor briefs four AI specialists, who investigate with read-only tools and report leads. Leads never change the score.",
+    id: "records", n: 5, group: "Read", name: "Official records",
+    what: "Fetches ACRA's record of every company the documents name and IRAS's Notice of Assessment for each guarantor, as the bank would itself. The documents are held to these, never to a copy the applicant supplies.",
+    input: "UENs and NRICs the documents give", output: "ACRA records and IRAS notices",
+  },
+  {
+    id: "agents", n: 6, group: "Check", name: "Agents", steps: ["agents", "ai_team"], service: "Bedrock",
+    what: "The rule checks run first as mandatory tools, so no AI can skip one. Then a Supervisor briefs four AI specialists, who investigate with read-only tools and report leads. Leads never change the score.",
     input: "Extracted fields and raw files", output: "Findings",
   },
   {
-    id: "score", n: 6, group: "Decide", name: "Score", steps: ["score", "shadow_score"],
+    id: "score", n: 7, group: "Decide", name: "Score", steps: ["score", "shadow_score"],
     what: "Only fraud findings score. Each maps to a named signal with fixed points, so every line of the score names the rule behind it.",
     input: "Fraud findings", output: "Score out of 100 and risk band",
   },
   {
-    id: "readiness", n: 7, group: "Decide", name: "Readiness",
+    id: "readiness", n: 8, group: "Decide", name: "Readiness",
     what: "Missing documents and form errors make a case incomplete. They never add risk points: completeness and risk are kept apart on purpose.",
     input: "Compliance and completeness findings", output: "Complete or incomplete",
   },
   {
-    id: "route", n: 8, group: "Decide", name: "Route",
+    id: "route", n: 9, group: "Decide", name: "Route",
     what: "A versioned policy table turns the score, readiness and hard flags into a review path. A hard flag can raise the path but never lower it.",
     input: "Score, readiness, hard flags", output: "Review path",
   },
   {
-    id: "projections", n: 9, group: "Explain", name: "Investigation",
+    id: "projections", n: 10, group: "Explain", name: "Investigation",
     what: "The investigation queue, transaction chains and timeline are built from the findings, never separately, so they cannot disagree with them.",
     input: "Findings and extracted fields", output: "Tasks, chains and a timeline",
   },
   {
-    id: "record", n: 10, group: "Record", name: "Audit record",
+    id: "record", n: 11, group: "Record", name: "Audit record",
     what: "The result is stored and one audit event records everything needed to reconstruct the decision later: versions, file hashes and evidence coverage.",
     input: "Case result", output: "Stored result and audit event",
   },
@@ -77,7 +82,7 @@ export const STAGES: StageInfo[] = [
 
 export const STAGE_BY_ID = Object.fromEntries(STAGES.map((s) => [s.id, s])) as Record<RailStageId, StageInfo>;
 
-/** The rail stage a server stage belongs to: the AI team runs in stage 5, the shadow score in stage 6 */
+/** The rail stage a server stage belongs to: the AI team runs in stage 6, the shadow score in stage 7 */
 export const stageOf = (id: StageId): StageInfo => STAGE_BY_ID[id === "ai_team" ? "agents" : id === "shadow_score" ? "score" : id];
 
 /** The AI team in its order: the Supervisor plans, then the specialists investigate */
@@ -160,6 +165,7 @@ export const DOC_TYPE_LABEL: Record<string, string> = {
   fatca_crs_entity: "FATCA/CRS form (entity)",
   fatca_crs_individual: "FATCA/CRS form (individual)",
   notice_of_assessment: "Notice of Assessment",
+  acra_profile: "ACRA business profile",
   unknown: "Unrecognised",
 };
 

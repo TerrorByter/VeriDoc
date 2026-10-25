@@ -7,6 +7,7 @@ import type {
   EvidenceLocation,
   FlagDecision,
   MlroDecision,
+  PackInfo,
   Progress,
   ReasonCode,
   RunStarted,
@@ -30,7 +31,7 @@ const json = (body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 });
 
-export const listPacks = () => request<string[]>("/api/packs");
+export const listPacks = () => request<PackInfo[]>("/api/packs");
 
 const upload = (files: File[]): RequestInit => {
   const body = new FormData();

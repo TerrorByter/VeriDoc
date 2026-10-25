@@ -67,7 +67,7 @@ export function RunScreen({ caseId }: { caseId: string }) {
   // The AI team and the shadow scorer failing never stop the run: their rows still finish, flagged but not as a failure
   const isAi = (id: StageId) => id === "ai_team" || id === "shadow_score";
   const aiFailed = (id: StageId) => isAi(id) && states.get(id) === "failed";
-  /** A row's state from its steps: stage 5 runs the rule agents and the AI team, stage 6 the score and the shadow scorer */
+  /** A row's state from its steps: stage 6 runs the rule agents and the AI team, stage 7 the score and the shadow scorer */
   const rowOf = (s: StageInfo): RowState => {
     const ids = s.steps ?? [s.id];
     const steps = ids.map((id) => (aiFailed(id) ? "ran" : stateOf(id)));

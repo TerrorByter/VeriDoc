@@ -1,0 +1,175 @@
+<?xml version='1.0' encoding='utf-8'?>
+<CONSOLIDATED_LIST xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://www.un.org/sc/resources/sc-sanctions.xsd" dateGenerated="2026-10-24T23:00:07.335Z">
+  <INDIVIDUALS>
+    <INDIVIDUAL>
+      <DATAID>113219</DATAID>
+      <VERSIONNUM>1</VERSIONNUM>
+      <FIRST_NAME>MOHAMMED</FIRST_NAME>
+      <SECOND_NAME>SALAHALDIN</SECOND_NAME>
+      <THIRD_NAME>ABD EL HALIM</THIRD_NAME>
+      <FOURTH_NAME>ZIDANE</FOURTH_NAME>
+      <UN_LIST_TYPE>Al-Qaida</UN_LIST_TYPE>
+      <REFERENCE_NUMBER>QDi.001</REFERENCE_NUMBER>
+      <LISTED_ON>2001-01-25</LISTED_ON>
+      <NAME_ORIGINAL_SCRIPT>محمد صلاح الدين عبدالحليم زيدان</NAME_ORIGINAL_SCRIPT>
+      <COMMENTS1>Responsible for Usama bin Laden’s (deceased) security. Hair: Dark. Eyes: Dark. Photo available for inclusion in the INTERPOL-UN Security Council Special Notice INTERPOL-UN Security Council Special Notice:https://www.interpol.int/en/How-we-work/Notices/View-UN-Notices-Individuals</COMMENTS1>
+      <HAS_INTERPOL_LINK>YES</HAS_INTERPOL_LINK>
+      <INTERPOL_LINK>https://www.interpol.int/en/How-we-work/Notices/View-UN-Notices-Individuals#2012-312380</INTERPOL_LINK>
+      <NATIONALITY>
+        <VALUE>Egypt</VALUE>
+      </NATIONALITY>
+      <LIST_TYPE>
+        <VALUE>UN List</VALUE>
+      </LIST_TYPE>
+      <LAST_DAY_UPDATED>
+        <VALUE>2010-12-16</VALUE>
+        <VALUE>2013-07-24</VALUE>
+        <VALUE>2017-02-15</VALUE>
+        <VALUE>2019-03-29</VALUE>
+        <VALUE>2019-05-01</VALUE>
+        <VALUE>2022-11-08</VALUE>
+        <VALUE>2026-08-13</VALUE>
+      </LAST_DAY_UPDATED>
+      <LAST_REVIEWED_ON>
+        <VALUE>2010-06-15</VALUE>
+        <VALUE>2019-02-21</VALUE>
+        <VALUE>2022-11-08</VALUE>
+      </LAST_REVIEWED_ON>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Good</QUALITY>
+        <ALIAS_NAME>Sayf-Al Adl</ALIAS_NAME>
+        <NOTE>DOB: 11 Apr. 1963. POB: Monufia Governorate, Egypt. Nationality: Egypt. In
+Arabic: سيف العدل </NOTE>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Good</QUALITY>
+        <ALIAS_NAME>Muhamad Ibrahim Makkawi</ALIAS_NAME>
+        <NOTE>DOB: a) 11 Apr. 1960 b) 11 Apr. 1963. POB: Egypt. Nationality: Egypt</NOTE>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Low</QUALITY>
+        <ALIAS_NAME>Ibrahim al-Madani</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Low</QUALITY>
+        <ALIAS_NAME>Saif Al-'Adil</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Low</QUALITY>
+        <ALIAS_NAME>Seif al Adel</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Low</QUALITY>
+        <ALIAS_NAME>SALEM AL-SHARIF</ALIAS_NAME>
+        <NOTE>سالم الشريف</NOTE>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Low</QUALITY>
+        <ALIAS_NAME>HAZEM AL-MADANI</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Low</QUALITY>
+        <ALIAS_NAME>ABER SABIL</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Low</QUALITY>
+        <ALIAS_NAME>MUHANNAD SALEM</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Low</QUALITY>
+        <ALIAS_NAME>ABU KHALED AL-SAN’ANI</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ADDRESS>
+        <COUNTRY />
+      </INDIVIDUAL_ADDRESS>
+      <INDIVIDUAL_DATE_OF_BIRTH>
+        <TYPE_OF_DATE>EXACT</TYPE_OF_DATE>
+        <DATE>1963-04-11</DATE>
+      </INDIVIDUAL_DATE_OF_BIRTH>
+      <INDIVIDUAL_DATE_OF_BIRTH>
+        <TYPE_OF_DATE>EXACT</TYPE_OF_DATE>
+        <DATE>1960-04-11</DATE>
+      </INDIVIDUAL_DATE_OF_BIRTH>
+      <INDIVIDUAL_PLACE_OF_BIRTH>
+        <STATE_PROVINCE>Monufia Governate</STATE_PROVINCE>
+        <COUNTRY>Egypt</COUNTRY>
+      </INDIVIDUAL_PLACE_OF_BIRTH>
+      <INDIVIDUAL_DOCUMENT />
+      <SORT_KEY />
+      <SORT_KEY_LAST_MOD />
+    </INDIVIDUAL>
+  </INDIVIDUALS>
+  <ENTITIES>
+    <ENTITY>
+      <DATAID>113458</DATAID>
+      <VERSIONNUM>1</VERSIONNUM>
+      <FIRST_NAME>AL-QAIDA</FIRST_NAME>
+      <UN_LIST_TYPE>Al-Qaida</UN_LIST_TYPE>
+      <REFERENCE_NUMBER>QDe.004</REFERENCE_NUMBER>
+      <LISTED_ON>2001-10-06</LISTED_ON>
+      <NAME_ORIGINAL_SCRIPT>القاعدة</NAME_ORIGINAL_SCRIPT>
+      <COMMENTS1>INTERPOL-UN Security Council Special Notice:https://www.interpol.int/en/How-we-work/Notices/View-UN-Notices-Entities</COMMENTS1>
+      <HAS_INTERPOL_LINK>YES</HAS_INTERPOL_LINK>
+      <INTERPOL_LINK>https://www.interpol.int/en/How-we-work/Notices/View-UN-Notices-Entities#2013-16649</INTERPOL_LINK>
+      <LIST_TYPE>
+        <VALUE>UN List</VALUE>
+      </LIST_TYPE>
+      <LAST_DAY_UPDATED>
+        <VALUE>2009-03-05</VALUE>
+        <VALUE>2012-03-21</VALUE>
+        <VALUE>2020-11-24</VALUE>
+      </LAST_DAY_UPDATED>
+      <LAST_REVIEWED_ON>
+        <VALUE>2010-06-21</VALUE>
+        <VALUE>2020-11-24</VALUE>
+        <VALUE>2025-12-31</VALUE>
+      </LAST_REVIEWED_ON>
+      <ENTITY_ALIAS>
+        <QUALITY>a.k.a.</QUALITY>
+        <ALIAS_NAME>"The Base"</ALIAS_NAME>
+      </ENTITY_ALIAS>
+      <ENTITY_ALIAS>
+        <QUALITY>a.k.a.</QUALITY>
+        <ALIAS_NAME>Al Qaeda</ALIAS_NAME>
+      </ENTITY_ALIAS>
+      <ENTITY_ALIAS>
+        <QUALITY>a.k.a.</QUALITY>
+        <ALIAS_NAME>Islamic Salvation Foundation</ALIAS_NAME>
+      </ENTITY_ALIAS>
+      <ENTITY_ALIAS>
+        <QUALITY>a.k.a.</QUALITY>
+        <ALIAS_NAME>The Group for the Preservation of the Holy Sites</ALIAS_NAME>
+      </ENTITY_ALIAS>
+      <ENTITY_ALIAS>
+        <QUALITY>a.k.a.</QUALITY>
+        <ALIAS_NAME>The Islamic Army for the Liberation of Holy Places</ALIAS_NAME>
+      </ENTITY_ALIAS>
+      <ENTITY_ALIAS>
+        <QUALITY>a.k.a.</QUALITY>
+        <ALIAS_NAME>The World Islamic Front for Jihad Against Jews and Crusaders</ALIAS_NAME>
+      </ENTITY_ALIAS>
+      <ENTITY_ALIAS>
+        <QUALITY>a.k.a.</QUALITY>
+        <ALIAS_NAME>Usama Bin Laden Network</ALIAS_NAME>
+      </ENTITY_ALIAS>
+      <ENTITY_ALIAS>
+        <QUALITY>a.k.a.</QUALITY>
+        <ALIAS_NAME>Usama Bin Laden Organization</ALIAS_NAME>
+      </ENTITY_ALIAS>
+      <ENTITY_ALIAS>
+        <QUALITY>a.k.a.</QUALITY>
+        <ALIAS_NAME>Al Qa'ida</ALIAS_NAME>
+      </ENTITY_ALIAS>
+      <ENTITY_ALIAS>
+        <QUALITY>a.k.a.</QUALITY>
+        <ALIAS_NAME>Al Qa’ida/Islamic Army</ALIAS_NAME>
+        <NOTE>formerly listed as</NOTE>
+      </ENTITY_ALIAS>
+      <ENTITY_ADDRESS>
+        <COUNTRY />
+      </ENTITY_ADDRESS>
+      <SORT_KEY />
+      <SORT_KEY_LAST_MOD />
+    </ENTITY>
+  </ENTITIES>
+</CONSOLIDATED_LIST>

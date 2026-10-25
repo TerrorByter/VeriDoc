@@ -33,7 +33,7 @@ from gldb.pipeline import assess
 from gldb.schemas import AgentTeam, Memo
 from tests.fakes import ScriptedBedrock, use
 
-PACKS = Path(__file__).parent.parent / "data" / "packs"
+PACKS = Path(__file__).parent / "fixtures" / "packs"
 MODELS = TeamModels(supervisor="sup-model", specialist="spec-model")
 BRIEFS = {"forensics": "FORENSICS-BRIEF", "transaction": "TRANSACTION-BRIEF", "kyc": "KYC-BRIEF",
           "timeline": "TIMELINE-BRIEF"}

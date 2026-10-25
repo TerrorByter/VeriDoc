@@ -1,0 +1,437 @@
+{
+  "source": "Mock ACRA BizFile register (prototype): the team's ACMA sample and fictional companies",
+  "version": "ACRA-MOCK-2026.10.21",
+  "as_of": "2026-10-21",
+  "companies": [
+    {
+      "company_name": "Lumen Harbour Trading Pte. Ltd.",
+      "uen": "202301234K",
+      "incorporation_date": "2023-01-16",
+      "status": "LIVE COMPANY",
+      "registered_address": "12 HARBOUR LINK ROAD #08-03 LUMEN HARBOUR CENTRE (098765)",
+      "issued_on": "2026-10-21",
+      "officers": [
+        {
+          "name": "Tan Wei Ming",
+          "id_number": "S1234567D",
+          "position": "DIRECTOR",
+          "appointed": "2023-01-16",
+          "postal_code": "529045"
+        },
+        {
+          "name": "Daniel Brooks",
+          "id_number": "G7654321L",
+          "position": "DIRECTOR",
+          "appointed": "2023-01-16",
+          "postal_code": "018987"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "Tan Wei Ming",
+          "shares": 60000
+        },
+        {
+          "name": "Daniel Brooks",
+          "shares": 40000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "Orchid Lane Retail Pte. Ltd.",
+      "uen": "201912345A",
+      "incorporation_date": "2019-04-02",
+      "status": "LIVE COMPANY",
+      "registered_address": "238 THOMSON ROAD #10-01 VELOCITY (307683)",
+      "issued_on": "2026-10-21",
+      "officers": [
+        {
+          "name": "Grace Lee Hui Min",
+          "id_number": "S8012345B",
+          "position": "DIRECTOR",
+          "appointed": "2019-04-02",
+          "postal_code": "570238"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "Grace Lee Hui Min",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "Bayview Marine Supplies Pte. Ltd.",
+      "uen": "201845678M",
+      "incorporation_date": "2018-11-20",
+      "status": "LIVE COMPANY",
+      "registered_address": "21 PENJURU CLOSE (608615)",
+      "issued_on": "2026-10-21",
+      "officers": [
+        {
+          "name": "Rahul Menon",
+          "id_number": "S7834567H",
+          "position": "DIRECTOR",
+          "appointed": "2018-11-20",
+          "postal_code": "650287"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "Rahul Menon",
+          "shares": 50000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "Kestrel Marine Supplies Pte. Ltd.",
+      "uen": "202011111K",
+      "incorporation_date": "2020-03-09",
+      "status": "LIVE COMPANY",
+      "registered_address": "3 PIONEER SECTOR 1 (628414)",
+      "issued_on": "2026-10-21",
+      "officers": [
+        {
+          "name": "Viktor Aldane",
+          "id_number": "G1122334P",
+          "position": "DIRECTOR",
+          "appointed": "2020-03-09",
+          "postal_code": null
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "Viktor Aldane",
+          "shares": 10000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "Harbourline Logistics Pte. Ltd.",
+      "uen": "201500999C",
+      "incorporation_date": "2015-06-30",
+      "status": "STRUCK OFF",
+      "registered_address": "9 KEPPEL ROAD #04-11 (089055)",
+      "issued_on": "2026-10-21",
+      "officers": [
+        {
+          "name": "Ong Kai Wen",
+          "id_number": "S7512345C",
+          "position": "DIRECTOR",
+          "appointed": "2015-06-30",
+          "postal_code": "460512"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "Ong Kai Wen",
+          "shares": 30000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "Seabright Provisions Pte. Ltd.",
+      "uen": "202205551D",
+      "incorporation_date": "2022-02-14",
+      "status": "LIVE COMPANY",
+      "registered_address": "10 ANSON ROAD #18-07 INTERNATIONAL PLAZA (079903)",
+      "issued_on": "2026-10-21",
+      "officers": [
+        {
+          "name": "Daniel Brooks",
+          "id_number": "G7654321L",
+          "position": "DIRECTOR",
+          "appointed": "2022-02-14",
+          "postal_code": "018987"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "Daniel Brooks",
+          "shares": 20000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "ACMA LTD.",
+      "uen": "196500233E",
+      "incorporation_date": "1965-10-09",
+      "status": "LIVE COMPANY",
+      "registered_address": "19 JURONG PORT ROAD (619093)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "TAN BEE HUAT",
+          "id_number": "S2015888E",
+          "position": "CHAIRMAN",
+          "appointed": "2020-10-11",
+          "postal_code": "478236"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "BOBBY DARYL LEE",
+          "shares": 25000000
+        }
+      ],
+      "financials": {
+        "period_start": "2025-01-01",
+        "period_end": "2025-12-31",
+        "currency": "SGD",
+        "total_assets": "6.749",
+        "total_current_assets": "6.166",
+        "total_liabilities": "5.657",
+        "total_current_liabilities": "5.416",
+        "retained_earnings": "-194.497",
+        "revenue": "7.935",
+        "profit_before_tax": "-1.541",
+        "profit_after_tax": "-1.548",
+        "ebit": "-1.499",
+        "operating_cashflow": "0.371",
+        "investing_cashflow": "-0.122",
+        "financing_cashflow": "-0.137"
+      }
+    },
+    {
+      "company_name": "BRIGHTWAVE COMPONENTS PTE. LTD.",
+      "uen": "201733321K",
+      "incorporation_date": "2017-11-02",
+      "status": "LIVE COMPANY",
+      "registered_address": "21 UBI ROAD 1 #04-12 UBI TECHPARK (408724)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "LIM SOO KENG",
+          "id_number": "S6812345J",
+          "position": "CHAIRMAN",
+          "appointed": "2017-11-02",
+          "postal_code": "560456"
+        },
+        {
+          "name": "PRIYA NAIR",
+          "id_number": "S8023456K",
+          "position": "CHIEF EXECUTIVE OFFICER",
+          "appointed": "2017-11-02",
+          "postal_code": "529602"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "LIM SOO KENG",
+          "shares": 1000000
+        }
+      ],
+      "financials": {
+        "period_start": "2025-01-01",
+        "period_end": "2025-12-31",
+        "currency": "SGD",
+        "total_assets": "9.449",
+        "total_current_assets": "8.632",
+        "total_liabilities": "7.920",
+        "total_current_liabilities": "7.582",
+        "retained_earnings": "-272.296",
+        "revenue": "11.109",
+        "profit_before_tax": "-2.157",
+        "profit_after_tax": "-2.167",
+        "ebit": "-2.099",
+        "operating_cashflow": "0.519",
+        "investing_cashflow": "-0.171",
+        "financing_cashflow": "-0.192"
+      }
+    },
+    {
+      "company_name": "CORVID MARINE ENGINEERING PTE. LTD.",
+      "uen": "201422219M",
+      "incorporation_date": "2014-08-19",
+      "status": "LIVE COMPANY",
+      "registered_address": "5 TUAS SOUTH AVENUE 2 #02-01 TUAS MARINE HUB (637503)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "ONG HUI LING",
+          "id_number": "S7034567C",
+          "position": "CHAIRMAN",
+          "appointed": "2014-08-19",
+          "postal_code": "510088"
+        },
+        {
+          "name": "ARJUN MEHTA",
+          "id_number": "S8545678D",
+          "position": "CHIEF EXECUTIVE OFFICER",
+          "appointed": "2014-08-19",
+          "postal_code": "529602"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "ONG HUI LING",
+          "shares": 1000000
+        }
+      ],
+      "financials": {
+        "period_start": "2025-01-01",
+        "period_end": "2025-12-31",
+        "currency": "SGD",
+        "total_assets": "5.399",
+        "total_current_assets": "4.933",
+        "total_liabilities": "4.526",
+        "total_current_liabilities": "4.333",
+        "retained_earnings": "-155.598",
+        "revenue": "6.348",
+        "profit_before_tax": "-1.233",
+        "profit_after_tax": "-1.238",
+        "ebit": "-1.199",
+        "operating_cashflow": "0.297",
+        "investing_cashflow": "-0.098",
+        "financing_cashflow": "-0.110"
+      }
+    },
+    {
+      "company_name": "DUSKFIELD TRADING PTE. LTD.",
+      "uen": "201955532N",
+      "incorporation_date": "2019-05-27",
+      "status": "LIVE COMPANY",
+      "registered_address": "10 ANSON ROAD #15-07 INTERNATIONAL PLAZA (079903)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "KOH WEI JIE",
+          "id_number": "S7656789E",
+          "position": "CHAIRMAN",
+          "appointed": "2019-05-27",
+          "postal_code": "120301"
+        },
+        {
+          "name": "SARAH LOW",
+          "id_number": "S8867890F",
+          "position": "CHIEF EXECUTIVE OFFICER",
+          "appointed": "2019-05-27",
+          "postal_code": "529602"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "KOH WEI JIE",
+          "shares": 1000000
+        }
+      ],
+      "financials": {
+        "period_start": "2025-01-01",
+        "period_end": "2025-12-31",
+        "currency": "SGD",
+        "total_assets": "8.099",
+        "total_current_assets": "7.399",
+        "total_liabilities": "6.788",
+        "total_current_liabilities": "6.499",
+        "retained_earnings": "-233.396",
+        "revenue": "9.522",
+        "profit_before_tax": "-1.849",
+        "profit_after_tax": "-1.858",
+        "ebit": "-1.799",
+        "operating_cashflow": "0.445",
+        "investing_cashflow": "-0.146",
+        "financing_cashflow": "-0.164"
+      }
+    },
+    {
+      "company_name": "EASTGATE HOLDINGS PTE. LTD.",
+      "uen": "201611144P",
+      "incorporation_date": "2016-01-12",
+      "status": "LIVE COMPANY",
+      "registered_address": "1 CHANGI BUSINESS PARK CRESCENT #06-02 PLAZA 8 (486025)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "GOH MEI XIN",
+          "id_number": "S7278901G",
+          "position": "CHAIRMAN",
+          "appointed": "2016-01-12",
+          "postal_code": "460017"
+        },
+        {
+          "name": "RAHUL BOSE",
+          "id_number": "S8689012H",
+          "position": "CHIEF EXECUTIVE OFFICER",
+          "appointed": "2016-01-12",
+          "postal_code": "529602"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "VIKTOR ALDANE",
+          "shares": 1000000
+        }
+      ],
+      "financials": {
+        "period_start": "2025-01-01",
+        "period_end": "2025-12-31",
+        "currency": "SGD",
+        "total_assets": "6.074",
+        "total_current_assets": "5.549",
+        "total_liabilities": "5.091",
+        "total_current_liabilities": "4.874",
+        "retained_earnings": "-175.047",
+        "revenue": "7.142",
+        "profit_before_tax": "-1.387",
+        "profit_after_tax": "-1.393",
+        "ebit": "-1.349",
+        "operating_cashflow": "0.334",
+        "investing_cashflow": "-0.110",
+        "financing_cashflow": "-0.123"
+      }
+    },
+    {
+      "company_name": "FERNLEAF SUPPLIES PTE. LTD.",
+      "uen": "201288855Q",
+      "incorporation_date": "2012-03-30",
+      "status": "STRUCK OFF",
+      "registered_address": "33 WOODLANDS LOOP #05-18 WOODLANDS CENTRE (738330)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "TEO KAI MING",
+          "id_number": "S6989012H",
+          "position": "CHAIRMAN",
+          "appointed": "2012-03-30",
+          "postal_code": "760620"
+        },
+        {
+          "name": "NUR AISYAH",
+          "id_number": "S9090123I",
+          "position": "CHIEF EXECUTIVE OFFICER",
+          "appointed": "2012-03-30",
+          "postal_code": "529602"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "TEO KAI MING",
+          "shares": 1000000
+        }
+      ],
+      "financials": {
+        "period_start": "2025-01-01",
+        "period_end": "2025-12-31",
+        "currency": "SGD",
+        "total_assets": "4.724",
+        "total_current_assets": "4.316",
+        "total_liabilities": "3.960",
+        "total_current_liabilities": "3.791",
+        "retained_earnings": "-136.148",
+        "revenue": "5.554",
+        "profit_before_tax": "-1.079",
+        "profit_after_tax": "-1.084",
+        "ebit": "-1.049",
+        "operating_cashflow": "0.260",
+        "investing_cashflow": "-0.085",
+        "financing_cashflow": "-0.096"
+      }
+    }
+  ]
+}

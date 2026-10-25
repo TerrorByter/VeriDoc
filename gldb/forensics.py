@@ -6,7 +6,8 @@ findings; gldb.checks wraps them into Evidence for the Forensics agent.
 
 Detects, without any AWS call:
 - hidden text (white, tiny or off-page): where injected instructions and
-  invisible edits live;
+  invisible edits live. White text on a dark panel or image is a heading, not
+  hidden: it counts as hidden only against a light backdrop;
 - mixed-font tokens: a number whose digits are drawn in different fonts or
   sizes, the trace left by overlaying edited text;
 - incremental updates: a PDF saved again after creation;
@@ -22,11 +23,14 @@ from pathlib import Path
 from typing import Any
 
 import pdfplumber
+from PIL import Image
 
 from gldb.config import (
+    BACKDROP_DPI,
     HIDDEN_TEXT_MAX_SIZE_PT,
     TOKEN_GAP_FRACTION,
     WHITE_FILL_MIN,
+    WHITE_TEXT_BACKDROP_MAX_LUMINANCE,
 )
 
 _LINEARIZED_WINDOW = 1024
@@ -75,6 +79,36 @@ def hidden_reasons(char: dict[str, Any], width: float, height: float) -> list[st
     return reasons
 
 
+def _on_dark_backdrop(image: Image.Image, page: pdfplumber.page.Page, char: dict[str, Any]) -> bool:
+    """Whether the rendered *image* of *page* is dark behind *char*: the
+    median luminance around it is below WHITE_TEXT_BACKDROP_MAX_LUMINANCE. The
+    box is widened by half the character's height on each side, so that a
+    narrow glyph (an "I") does not outweigh the backdrop."""
+    scale = BACKDROP_DPI / 72
+    pad = (char["bottom"] - char["top"]) / 2
+    left, right = char["x0"] - pad - page.bbox[0], char["x1"] + pad - page.bbox[0]
+    top, bottom = char["top"] - page.bbox[1], char["bottom"] - page.bbox[1]
+    box = (max(0, int(left * scale)), max(0, int(top * scale)),
+           min(image.width, int(right * scale) + 1), min(image.height, int(bottom * scale) + 1))
+    if box[2] <= box[0] or box[3] <= box[1]:
+        return False
+    pixels = sorted(image.crop(box).convert("L").tobytes())
+    return pixels[len(pixels) // 2] < 255 * WHITE_TEXT_BACKDROP_MAX_LUMINANCE
+
+
+def hidden_chars(page: pdfplumber.page.Page) -> list[tuple[dict[str, Any], list[str]]]:
+    """Each character of *page* a reader cannot see, with why. White text
+    counts only over a light backdrop, found by rendering the page (only a
+    page with white text is rendered)."""
+    found = [(char, hidden_reasons(char, page.width, page.height)) for char in page.chars]
+    if any("white text" in why for _, why in found):
+        image = page.to_image(resolution=BACKDROP_DPI).original
+        for char, why in found:
+            if "white text" in why and _on_dark_backdrop(image, page, char):
+                why.remove("white text")
+    return [(char, why) for char, why in found if why]
+
+
 def hidden_text(path: Path) -> list[HiddenText]:
     """Invisible text per page, in content-stream order."""
     found: list[HiddenText] = []
@@ -82,11 +116,9 @@ def hidden_text(path: Path) -> list[HiddenText]:
         for number, page in enumerate(pdf.pages, start=1):
             text: list[str] = []
             reasons: set[str] = set()
-            for char in page.chars:
-                why = hidden_reasons(char, page.width, page.height)
-                if why:
-                    text.append(char["text"])
-                    reasons.update(why)
+            for char, why in hidden_chars(page):
+                text.append(char["text"])
+                reasons.update(why)
             visible_chars = "".join(text).strip()
             if visible_chars:
                 found.append(HiddenText(number, visible_chars, tuple(sorted(reasons))))

@@ -1,0 +1,39 @@
+{
+  "application_id": "APP-2026-IDENTITY_MISMATCH",
+  "application_date": "2026-07-10",
+  "company_name": "DUSKFIELD TRADING PTE. LTD.",
+  "uen": "201955532N",
+  "country_of_incorporation": "SINGAPORE",
+  "date_of_incorporation": "2019-05-27",
+  "registered_address": {
+    "block": "10",
+    "street": "ANSON ROAD",
+    "floor": "15",
+    "unit": "07",
+    "building": "INTERNATIONAL PLAZA",
+    "city_state": "SINGAPORE",
+    "postal_code": "079903",
+    "country": "SINGAPORE"
+  },
+  "authorised_signatories": [
+    "SARAH LOW",
+    "KOH WEI JIE"
+  ],
+  "guarantors": [
+    {
+      "name": "KOH WEI JIE",
+      "id_number": "S7656789E",
+      "nationality": "SINGAPORE",
+      "residential_address": {
+        "block": "301",
+        "street": "CLEMENTI AVENUE 2",
+        "floor": "12",
+        "unit": "45",
+        "building": "",
+        "city_state": "SINGAPORE",
+        "postal_code": "120301",
+        "country": "SINGAPORE"
+      }
+    }
+  ]
+}

@@ -14,7 +14,7 @@ from gldb.pipeline import pack_from_folder
 from gldb.reconciliation import build_chains
 from gldb.schemas import TransactionChain
 
-PACKS = Path(__file__).parent.parent / "data" / "packs"
+PACKS = Path(__file__).parent / "fixtures" / "packs"
 
 
 def _chains(pack_name: str) -> dict[str, TransactionChain]:

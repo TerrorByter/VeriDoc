@@ -42,6 +42,8 @@ from gldb.config import (
     GUARDRAIL_ID,
     GUARDRAIL_VERSION,
     OCR_ENABLED,
+    OFFICIAL_RECORDS_ENABLED,
+    OFFICIAL_RECORDS_URL,
     POLICY_VERSION,
     PROMPT_SCREEN_ENABLED,
 )
@@ -49,9 +51,10 @@ from gldb.coverage import coverage
 from gldb.extract import parse_pack
 from gldb.extract_llm import PROMPT_VERSION as EXTRACT_PROMPT_VERSION
 from gldb.extract_stub import parse_pack as parse_pack_stub
-from gldb.intake import intake, load_manifest, model_view
+from gldb.intake import document_paths, intake, load_manifest, model_view
 from gldb.investigation import build_queue
 from gldb.ocr import OcrResult, ocr_files
+from gldb.official import fetch as fetch_official
 from gldb.prompt_screen import screen
 from gldb.reconciliation import build_chains
 from gldb.reference import versions as reference_versions
@@ -86,7 +89,8 @@ def pack_from_folder(folder: str | Path) -> ExtractedPack:
     """Build an ExtractedPack from a pre-generated pack directory.
 
     Reads all PDF files in *folder*, runs intake, stub-parses each document,
-    and loads application.json as the manifest.  Used by tests to avoid AWS.
+    loads application.json as the manifest and, as assess() does, fetches the
+    official records.  Used by tests to avoid AWS.
 
     Args:
         folder: Path to a pack directory (e.g. data/packs/clean/).
@@ -95,14 +99,15 @@ def pack_from_folder(folder: str | Path) -> ExtractedPack:
         A fully populated ExtractedPack.
     """
     folder = Path(folder)
-    pdf_paths = sorted(folder.glob("*.pdf"))
+    pdf_paths = document_paths(folder)
 
     case_id = folder.name
 
     docs = intake(case_id, pdf_paths)
     manifest = load_manifest(folder)
 
-    return parse_pack_stub(case_id, docs, pdf_paths, manifest)
+    pack = parse_pack_stub(case_id, docs, pdf_paths, manifest)
+    return pack.model_copy(update={"official": fetch_official(pack)}) if OFFICIAL_RECORDS_ENABLED else pack
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +119,7 @@ def pack_from_folder(folder: str | Path) -> ExtractedPack:
 #: The rule score, readiness and route come before the AI team: they are
 #: fixed before any AI runs, and nothing it produces can reach them
 ASSESS_STAGES: tuple[StageId, ...] = (
-    "ocr", "intake", "prompt_screen", "extract", "agents", "score", "readiness", "route", "ai_team",
+    "ocr", "intake", "prompt_screen", "extract", "records", "agents", "score", "readiness", "route", "ai_team",
     "shadow_score", "projections",
 )
 
@@ -233,7 +238,7 @@ def assess(
     on_activity: Activity = lambda _: None,
 ) -> CaseResult:
     """Run the stages in ASSESS_STAGES: ocr -> intake -> prompt_screen ->
-    extract -> agents -> score -> readiness -> route -> ai_team ->
+    extract -> records -> agents -> score -> readiness -> route -> ai_team ->
     shadow_score -> projections (chains, timeline, investigation queue). The
     rule score, readiness and route are fixed before any AI runs. A stage switched off in config
     is recorded as "off"; the AI team runs on *team* (None: off) and tells
@@ -266,6 +271,14 @@ def assess(
     pack = pack.model_copy(update={
         "ocr_confidence": ocr.confidence, "ocr_lines": ocr.lines, "prompt_screen": screened,
     })
+
+    # ACRA's and IRAS's own records, fetched rather than taken from the applicant
+    if OFFICIAL_RECORDS_ENABLED:
+        official = stages.run("records", lambda: fetch_official(pack), version=OFFICIAL_RECORDS_URL,
+                              status=lambda r: "failed" if r.error else "ran")
+        pack = pack.model_copy(update={"official": official})
+    else:
+        stages.off("records")
 
     evidence, agent_reports = stages.run("agents", lambda: run_agents(pack),
                                          version=f"{sum(len(a.checks) for a in AGENTS)} checks")
@@ -478,9 +491,9 @@ def _cli_main() -> None:  # pragma: no cover
         print(f"Error: {folder} is not a directory.", file=sys.stderr)
         sys.exit(1)
 
-    pdf_paths = sorted(folder.glob("*.pdf"))
+    pdf_paths = document_paths(folder)
     if not pdf_paths:
-        print(f"No PDF files found in {folder}.", file=sys.stderr)
+        print(f"No documents found in {folder}.", file=sys.stderr)
         sys.exit(1)
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

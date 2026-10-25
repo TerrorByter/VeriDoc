@@ -39,7 +39,7 @@ from gldb.form_maps import (
     INDIVIDUAL_FIELD_MAP,
     all_pdf_field_names,
 )
-from gldb.reference import registry
+from gldb import official
 from gldb.schemas import ApplicationManifest
 from gldb.signal_library import BY_CHECK
 
@@ -447,15 +447,13 @@ def test_beyond_rules_pack_documents(packs):
     assert "INV-1002 PART 1" in july and "INV-1002 PART 2" in july
 
 
-def test_new_registry_entity_and_version():
-    reg = registry()
-    assert reg.version == "ACRA-SYN-2026.10.04"
-    assert reg.as_of == date(2026, 10, 4)
-    entity = reg.entities["202205551D"]
-    assert entity.name == "Seabright Provisions Pte. Ltd."
-    assert entity.status == "Live"
-    assert entity.incorporated == date(2022, 2, 14)
-    assert [(o.name, o.role) for o in entity.officers] == [("Daniel Brooks", "Director")]
+def test_the_related_party_counterparty_is_registered_with_acra():
+    entity = official.company("202205551D")
+    assert entity is not None
+    assert entity.company_name == "Seabright Provisions Pte. Ltd."
+    assert entity.status == "LIVE COMPANY"
+    assert entity.incorporation_date == date(2022, 2, 14)
+    assert [(o.name, o.position) for o in entity.officers] == [("Daniel Brooks", "DIRECTOR")]
 
 
 # ---------------------------------------------------------------------------

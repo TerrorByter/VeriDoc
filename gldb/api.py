@@ -69,10 +69,11 @@ from gldb.config import (
 from gldb.evaluate import Report, load_saved
 from gldb.extract_llm import ExtractionError
 from gldb.feedback import CheckFeedback, report
-from gldb.intake import IntakeError, validate_file
+from gldb.intake import IntakeError, document_paths, validate_file
 from gldb.jobs import Progress, StageProgress
 from gldb.pipeline import ASSESS_STAGES, OCR_LINES_FILE, run
 from gldb.reference import versions as reference_versions
+from gldb.privacy import mask_id
 from gldb.signal_library import RULE_VERSION, SIGNALS, signal_for
 from gldb.usage import CaseCost
 from gldb.viewer import locate, render_page
@@ -89,6 +90,7 @@ from gldb.schemas import (
     GateDecision,
     InvestigationTask,
     OcrLine,
+    OfficialRecords,
     PromptAttackHit,
     ReadinessResult,
     ReasonCode,
@@ -118,7 +120,7 @@ class CaseView(BaseModel):
     """What the browser sees of a CaseResult."""
 
     case_id: str
-    #: The applicant company, from the application data
+    #: The applicant company, from the application data, else ACRA's record
     company_name: str | None
     docs: list[DocMeta]
     evidence: list[Evidence]
@@ -139,6 +141,8 @@ class CaseView(BaseModel):
     #: Fraud flags from the latest assessment not yet confirmed or dismissed
     open_flags: list[str]
     stages: list[StageReport]
+    #: What ACRA and IRAS hold for the case, every NRIC/FIN masked; None when not fetched
+    official: OfficialRecords | None = None
     #: OCR confidence per document page (no text); empty when OCR was off
     ocr_confidence: dict[str, list[float]]
     #: Prompt attack hits per screened document; None when the screen was off
@@ -245,12 +249,34 @@ class EvidenceLocation(BaseModel):
     boxes: list[Box]
 
 
+def _masked(records: OfficialRecords | None) -> OfficialRecords | None:
+    """*records* with every NRIC/FIN masked, for the browser."""
+    if records is None:
+        return None
+    return records.model_copy(update={
+        "companies": {
+            uen: c.model_copy(update={"officers": [o.model_copy(update={"id_number": mask_id(o.id_number)})
+                                                   for o in c.officers]}) if c else None
+            for uen, c in records.companies.items()
+        },
+        "notices": [n.model_copy(update={"id_number": mask_id(n.id_number)}) for n in records.notices],
+        "no_notice": [mask_id(i) for i in records.no_notice],
+    })
+
+
+def _company_name(result: CaseResult) -> str | None:
+    if result.pack.manifest is not None:
+        return result.pack.manifest.company_name
+    record = result.pack.official.applicant() if result.pack.official else None
+    return record.company_name if record else None
+
+
 def _view(result: CaseResult) -> CaseView:
     events = read_events(result.case_id)
     status = lifecycle.status(events)
     return CaseView(
         case_id=result.case_id,
-        company_name=result.pack.manifest.company_name if result.pack.manifest else None,
+        company_name=_company_name(result),
         docs=result.pack.docs,
         evidence=result.evidence,
         agent_reports=result.agent_reports,
@@ -268,6 +294,7 @@ def _view(result: CaseResult) -> CaseView:
         allowed_actions=lifecycle.allowed_actions(status),
         open_flags=lifecycle.open_flags(result.evidence, events),
         stages=result.stages,
+        official=_masked(result.pack.official),
         ocr_confidence=result.pack.ocr_confidence,
         prompt_screen=result.pack.prompt_screen,
         cost=usage.case_cost(result.case_id),
@@ -352,23 +379,38 @@ def _start(case_id: str, background: BackgroundTasks, new_case: bool = True) -> 
     return RunStarted(case_id=case_id)
 
 
-@app.get("/api/packs")
-def list_packs() -> list[str]:
-    """Names of the synthetic demo packs."""
+class PackInfo(BaseModel):
+    name: str
+    #: What the pack shows, from its ground truth; None where it says nothing
+    note: str | None = None
+
+
+def _pack_names() -> list[str]:
     return sorted(p.name for p in Path(PACKS_DIR).iterdir() if p.is_dir())
+
+
+def _note(folder: Path) -> str | None:
+    truth = folder / "ground_truth.json"
+    return json.loads(truth.read_text(encoding="utf-8")).get("note") if truth.is_file() else None
+
+
+@app.get("/api/packs")
+def list_packs() -> list[PackInfo]:
+    """The synthetic demo packs, each with what it shows."""
+    return [PackInfo(name=name, note=_note(Path(PACKS_DIR) / name)) for name in _pack_names()]
 
 
 @app.post("/api/cases/from-pack/{name}", status_code=202)
 def create_case_from_pack(name: str, background: BackgroundTasks) -> RunStarted:
     """Open a case from a demo pack: its files are copied into the case, as
     an upload would be, so the case can later take more documents."""
-    if name not in list_packs():
+    if name not in _pack_names():
         raise HTTPException(404, "Pack not found")
     case_id = _new_case_id()
     folder = _case_folder(case_id)
     folder.mkdir(parents=True)
     source = Path(PACKS_DIR) / name
-    for path in [*source.glob("*.pdf"), source / MANIFEST]:
+    for path in [*document_paths(source), source / MANIFEST]:
         if path.is_file():
             shutil.copy2(path, folder / path.name)
     return _start(case_id, background)
@@ -385,11 +427,10 @@ def create_case(background: BackgroundTasks, files: list[UploadFile] = File(...)
 
 
 def _summary(result: CaseResult, events: list[AuditEvent]) -> CaseSummary:
-    manifest = result.pack.manifest
     created = next((e.timestamp for e in events if e.action == "case_created"), None)
     return CaseSummary(
         case_id=result.case_id,
-        company_name=manifest.company_name if manifest else None,
+        company_name=_company_name(result),
         doc_count=len(result.pack.docs),
         band=result.risk.band,
         score=result.risk.score,

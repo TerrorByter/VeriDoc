@@ -1,0 +1,25 @@
+{
+  "pack": "struck_off",
+  "company": "FERNLEAF SUPPLIES PTE. LTD.",
+  "note": "Fernleaf applies for a loan, but ACRA has struck the company off.",
+  "expected_band": "Medium",
+  "expected_path": "standard_review",
+  "expected_readiness": "Complete",
+  "expected_check_ids": [
+    "REGISTRY_ENTITY_INACTIVE"
+  ],
+  "expected_check_ids_ocr": [],
+  "expected_compliance_check_ids": [],
+  "expected_leads": [],
+  "expected_triage": [],
+  "tampers": [
+    {
+      "doc": "pack",
+      "type": "struck_off",
+      "check_ids": [
+        "REGISTRY_ENTITY_INACTIVE"
+      ],
+      "detail": "ACRA status STRUCK OFF"
+    }
+  ]
+}

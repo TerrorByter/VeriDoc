@@ -20,6 +20,7 @@ env/
 # Runtime data (not committed)
 data/uploads/
 data/cases/
+data/reference/history/
 logs/*.jsonl
 logs/evaluation.json
 

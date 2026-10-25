@@ -19,7 +19,7 @@ from gldb.intake import classify, read_text
 from gldb.pipeline import pack_from_folder
 from gldb.schemas import ExtractedPack
 
-PACKS = Path(__file__).parent.parent / "data" / "packs"
+PACKS = Path(__file__).parent / "fixtures" / "packs"
 
 
 @pytest.fixture

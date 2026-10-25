@@ -1,0 +1,27 @@
+{
+  "pack": "inflated_financials",
+  "company": "BRIGHTWAVE COMPONENTS PTE. LTD.",
+  "note": "The submitted financials double what Brightwave filed with ACRA; the bank shows the real revenue.",
+  "expected_band": "High",
+  "expected_path": "enhanced_review",
+  "expected_readiness": "Complete",
+  "expected_check_ids": [
+    "FS_ACRA_MISMATCH",
+    "XDOC_BANK_REVENUE"
+  ],
+  "expected_check_ids_ocr": [],
+  "expected_compliance_check_ids": [],
+  "expected_leads": [],
+  "expected_triage": [],
+  "tampers": [
+    {
+      "doc": "Submitted financials",
+      "type": "figures_inflated",
+      "check_ids": [
+        "FS_ACRA_MISMATCH",
+        "XDOC_BANK_REVENUE"
+      ],
+      "detail": "every figure doubled against the ACRA filing"
+    }
+  ]
+}

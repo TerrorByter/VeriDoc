@@ -27,7 +27,7 @@ from gldb.intake import read_text
 from gldb.ocr import OcrResult, ocr_files
 from gldb.schemas import DocMeta, ExtractedPack
 
-CLEAN = Path(__file__).parent.parent / "data" / "packs" / "clean"
+CLEAN = Path(__file__).parent / "fixtures" / "packs" / "clean"
 
 
 def _pdf(tmp_path: Path, pages: list[str], name: str = "doc.pdf") -> Path:

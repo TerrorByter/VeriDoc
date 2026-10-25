@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from gldb import official
 from gldb.checks import (
     check_temp_before_incorporation,
     check_temp_trade_sequence,
@@ -21,7 +22,7 @@ from gldb.pipeline import pack_from_folder
 from gldb.schemas import ExtractedPack
 from gldb.timeline import build_timeline
 
-PACKS = Path(__file__).parent.parent / "data" / "packs"
+PACKS = Path(__file__).parent / "fixtures" / "packs"
 
 
 @pytest.fixture
@@ -67,7 +68,7 @@ def test_document_dated_before_incorporation_is_high(clean: ExtractedPack) -> No
     assert (ev.check_id, ev.severity, ev.document) == (
         "TEMP_BEFORE_INCORPORATION", "high", "invoice_INV-1001",
     )
-    assert "2023-01-16" in ev.explanation and "ACRA-SYN" in ev.explanation
+    assert "2023-01-16" in ev.explanation and "ACRA-MOCK" in ev.explanation
     assert ev.observed == "2022-12-01"
 
 
@@ -76,7 +77,9 @@ def test_unregistered_company_uses_the_application_date(clean: ExtractedPack) ->
     manifest = clean.manifest.model_copy(update={
         "uen": "209999999Z", "date_of_incorporation": date(2026, 6, 15),
     })
-    found = check_temp_before_incorporation(clean.model_copy(update={"manifest": manifest}))
+    unregistered = clean.model_copy(update={"manifest": manifest})
+    unregistered = unregistered.model_copy(update={"official": official.fetch(unregistered)})  # as the pipeline would
+    found = check_temp_before_incorporation(unregistered)
     assert "invoice_INV-1001" in {e.document for e in found}
     assert "invoice_INV-1002" not in {e.document for e in found}
     assert all("application" in e.explanation for e in found)

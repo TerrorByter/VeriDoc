@@ -14,7 +14,7 @@ from gldb.pipeline import assess
 from gldb.schemas import ApplicationManifest, CaseResult
 from gldb.signal_library import signal_for
 
-PACKS = Path(__file__).parent.parent / "data" / "packs"
+PACKS = Path(__file__).parent / "fixtures" / "packs"
 
 
 def _assess(name: str) -> CaseResult:

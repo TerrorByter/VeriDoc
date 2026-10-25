@@ -827,6 +827,39 @@ class TestBankCoverage:
         assert any(e.check_id == "BANK_COVERAGE" for e in evs)
         assert any("2026-04" in (e.observed or "") for e in evs)
 
+    def test_one_statement_spanning_the_months_covers_them(self):
+        stmt = _make_bank_stmt(
+            "bank_statement_h1",
+            period_start=date(2026, 1, 1),
+            period_end=date(2026, 6, 30),
+            transactions=[],
+            closing=money("100000.00"),
+        )
+        manifest = _make_manifest(application_date=date(2026, 7, 10))
+        pack = _make_pack(bank_statements=[stmt], manifest=manifest)
+        assert check_bank_coverage(pack) == []
+
+    def test_months_between_two_spanning_statements_are_missing(self):
+        stmts = [
+            _make_bank_stmt("bank_statement_q1", period_start=date(2026, 1, 1), period_end=date(2026, 3, 31),
+                            transactions=[], closing=money("100000.00")),
+            _make_bank_stmt("bank_statement_jun", period_start=date(2026, 6, 1), period_end=date(2026, 6, 30),
+                            transactions=[], closing=money("100000.00")),
+        ]
+        pack = _make_pack(bank_statements=stmts, manifest=_make_manifest(application_date=date(2026, 7, 10)))
+        (ev,) = check_bank_coverage(pack)
+        assert ev.observed == "Missing months: 2026-04, 2026-05"
+
+    def test_recency_is_measured_from_the_statement_that_ends_last(self):
+        stmts = [
+            _make_bank_stmt("bank_statement_h1", period_start=date(2026, 1, 1), period_end=date(2026, 6, 30),
+                            transactions=[], closing=money("100000.00")),
+            _make_bank_stmt("bank_statement_jan", period_start=date(2026, 1, 15), period_end=date(2026, 1, 31),
+                            transactions=[], closing=money("100000.00")),
+        ]
+        pack = _make_pack(bank_statements=stmts, manifest=_make_manifest(application_date=date(2026, 7, 10)))
+        assert check_bank_coverage(pack) == []
+
     def test_stale_statement_fires(self):
         stmt = _make_bank_stmt(
             period_start=date(2026, 1, 1),
@@ -1601,7 +1634,7 @@ class TestNormaliseName:
 class TestAgents:
     def test_every_check_belongs_to_exactly_one_agent(self):
         checks = [c for agent in AGENTS for c in agent.checks]
-        assert len(checks) == len(set(checks)) == 36
+        assert len(checks) == len(set(checks)) == 45
 
     def test_evidence_is_tagged_with_its_agent_and_reports_match(self):
         pack = _make_pack(

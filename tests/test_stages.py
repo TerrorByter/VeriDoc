@@ -20,7 +20,7 @@ from gldb.pipeline import ASSESS_STAGES, StageCallback, assess, ignore_stage
 from gldb.schemas import CaseResult, StageReport
 from gldb.signal_library import RULE_VERSION
 
-PACKS = Path(__file__).parent.parent / "data" / "packs"
+PACKS = Path(__file__).parent / "fixtures" / "packs"
 
 
 def _assess(pack: str = "clean", on_stage: StageCallback = ignore_stage) -> CaseResult:
@@ -29,7 +29,7 @@ def _assess(pack: str = "clean", on_stage: StageCallback = ignore_stage) -> Case
 
 
 def test_every_stage_is_recorded_in_order() -> None:
-    assert ASSESS_STAGES == ("ocr", "intake", "prompt_screen", "extract", "agents", "score", "readiness", "route",
+    assert ASSESS_STAGES == ("ocr", "intake", "prompt_screen", "extract", "records", "agents", "score", "readiness", "route",
                              "ai_team", "shadow_score", "projections")
     result = _assess()
     assert [s.stage_id for s in result.stages] == list(ASSESS_STAGES)

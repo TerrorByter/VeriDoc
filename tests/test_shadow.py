@@ -30,7 +30,7 @@ from gldb.pipeline import assess
 from gldb.schemas import AgentTeam, Lead, ReviewPath, Routing, ShadowScore
 from tests.fakes import ScriptedBedrock, use
 
-PACKS = Path(__file__).parent.parent / "data" / "packs"
+PACKS = Path(__file__).parent / "fixtures" / "packs"
 MODELS = TeamModels(supervisor="sup-model", specialist="spec-model", shadow="shadow-model")
 BRIEFS = {"forensics": "F", "transaction": "T", "kyc": "K", "timeline": "L"}
 

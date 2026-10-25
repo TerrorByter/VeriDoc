@@ -1,0 +1,107 @@
+<?xml version='1.0' encoding='utf-8'?>
+<CONSOLIDATED_LIST xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://www.un.org/sc/resources/sc-sanctions.xsd" dateGenerated="2026-10-24T23:00:07.335Z">
+  <INDIVIDUALS>
+    <INDIVIDUAL>
+      <DATAID>110577</DATAID>
+      <VERSIONNUM>1</VERSIONNUM>
+      <FIRST_NAME>MOHAMMAD</FIRST_NAME>
+      <SECOND_NAME>HASSAN</SECOND_NAME>
+      <THIRD_NAME>AKHUND</THIRD_NAME>
+      <UN_LIST_TYPE>Taliban</UN_LIST_TYPE>
+      <REFERENCE_NUMBER>TAi.002</REFERENCE_NUMBER>
+      <LISTED_ON>2001-01-25</LISTED_ON>
+      <NAME_ORIGINAL_SCRIPT>محمد حسن آخوند</NAME_ORIGINAL_SCRIPT>
+      <COMMENTS1>A close associate of Mullah Mohammed Omar (TAi.004). Member of Taliban Supreme Council as at Dec. 2009. Belongs to Baabar tribe INTERPOL-UN Security Council Special Notice:https://www.interpol.int/en/How-we-work/Notices/View-UN-Notices-Individuals</COMMENTS1>
+      <HAS_INTERPOL_LINK>YES</HAS_INTERPOL_LINK>
+      <INTERPOL_LINK>https://www.interpol.int/en/How-we-work/Notices/View-UN-Notices-Individuals#2006-25710</INTERPOL_LINK>
+      <TITLE>
+        <VALUE>Mullah</VALUE>
+        <VALUE>Haji</VALUE>
+      </TITLE>
+      <DESIGNATION>
+        <VALUE>First Deputy, Council of Ministers under the Taliban regime (1996-2001)  </VALUE>
+        <VALUE>Foreign Minister under the Taliban regime (1996-2001)  </VALUE>
+        <VALUE>Governor of Kandahar under the Taliban regime(1996-2001)  </VALUE>
+        <VALUE>Political Advisor of Mullah Mohammed Omar  </VALUE>
+      </DESIGNATION>
+      <NATIONALITY>
+        <VALUE>Afghanistan</VALUE>
+      </NATIONALITY>
+      <LIST_TYPE>
+        <VALUE>UN List</VALUE>
+      </LIST_TYPE>
+      <LAST_DAY_UPDATED>
+        <VALUE>2003-09-03</VALUE>
+        <VALUE>2005-12-20</VALUE>
+        <VALUE>2007-07-09</VALUE>
+        <VALUE>2007-09-21</VALUE>
+        <VALUE>2011-11-29</VALUE>
+        <VALUE>2026-03-10</VALUE>
+        <VALUE>2026-04-13</VALUE>
+      </LAST_DAY_UPDATED>
+      <LAST_REVIEWED_ON>
+        <VALUE>2010-07-21</VALUE>
+      </LAST_REVIEWED_ON>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY />
+        <ALIAS_NAME />
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ADDRESS>
+        <CITY>Kabul</CITY>
+        <COUNTRY>Afghanistan</COUNTRY>
+      </INDIVIDUAL_ADDRESS>
+      <INDIVIDUAL_DATE_OF_BIRTH>
+        <TYPE_OF_DATE>BETWEEN</TYPE_OF_DATE>
+        <FROM_YEAR>1955</FROM_YEAR>
+        <TO_YEAR>1958</TO_YEAR>
+      </INDIVIDUAL_DATE_OF_BIRTH>
+      <INDIVIDUAL_DATE_OF_BIRTH>
+        <TYPE_OF_DATE>BETWEEN</TYPE_OF_DATE>
+        <FROM_YEAR>1945</FROM_YEAR>
+        <TO_YEAR>1950</TO_YEAR>
+      </INDIVIDUAL_DATE_OF_BIRTH>
+      <INDIVIDUAL_PLACE_OF_BIRTH>
+        <CITY>Pashmul village, Panjwai District</CITY>
+        <STATE_PROVINCE>Kandahar Province</STATE_PROVINCE>
+        <COUNTRY>Afghanistan</COUNTRY>
+      </INDIVIDUAL_PLACE_OF_BIRTH>
+      <INDIVIDUAL_DOCUMENT>
+        <TYPE_OF_DOCUMENT>Passport</TYPE_OF_DOCUMENT>
+        <NUMBER>P04581926</NUMBER>
+        <ISSUING_COUNTRY>Afghanistan</ISSUING_COUNTRY>
+        <DATE_OF_ISSUE>2024-08-07</DATE_OF_ISSUE>
+        <CITY_OF_ISSUE>Kandahar</CITY_OF_ISSUE>
+        <COUNTRY_OF_ISSUE>Afghanistan</COUNTRY_OF_ISSUE>
+        <NOTE>expires 7 Aug. 2034</NOTE>
+      </INDIVIDUAL_DOCUMENT>
+      <SORT_KEY />
+      <SORT_KEY_LAST_MOD />
+    </INDIVIDUAL>
+  </INDIVIDUALS>
+  <ENTITIES>
+    <ENTITY>
+      <DATAID>3000441</DATAID>
+      <VERSIONNUM>1</VERSIONNUM>
+      <FIRST_NAME>HAQQANI NETWORK (HQN)</FIRST_NAME>
+      <UN_LIST_TYPE>Taliban</UN_LIST_TYPE>
+      <REFERENCE_NUMBER>TAe.012</REFERENCE_NUMBER>
+      <LISTED_ON>2012-11-05</LISTED_ON>
+      <NAME_ORIGINAL_SCRIPT>شبکه حقانی</NAME_ORIGINAL_SCRIPT>
+      <COMMENTS1>Network of Taliban fighters centered around the border between Khost Province, Afghanistan and North Waziristan, Pakistan. Founded by Jalaluddin Haqqani (TAi.040) and currently headed by his son Sirajuddin Jallaloudine Haqqani (TAi.144). Other listed members include Nasiruddin Haqqani (TAi.146), Sangeen Zadran Sher Mohammad (TAi.152), Abdul Aziz Abbasin (TAi.155), Fazl Rabi (TAi.157), Ahmed Jan Wazir (TAi.159), Bakht Gul (TAi.161), Abdul Rauf Zakir (TAi.164). Responsible for suicide attacks and targeted assassination as well as kidnappings in Kabul and other provinces of Afghanistan. Linked to Al-Qaida (QDe.004), Islamic Movement of Uzbekistan (QDe.010), Tehrik-e Taliban Pakistan (QDe.132), Lashkar I Jhangvi (QDe.096), and Jaish-IMohammed (QDe.019) INTERPOL-UN Security Council Special Notice:https://www.interpol.int/en/How-we-work/Notices/View-UN-Notices-Entities</COMMENTS1>
+      <HAS_INTERPOL_LINK>YES</HAS_INTERPOL_LINK>
+      <INTERPOL_LINK>https://www.interpol.int/en/How-we-work/Notices/View-UN-Notices-Entities#2013-17074</INTERPOL_LINK>
+      <LIST_TYPE>
+        <VALUE>UN List</VALUE>
+      </LIST_TYPE>
+      <ENTITY_ALIAS>
+        <QUALITY />
+        <ALIAS_NAME />
+      </ENTITY_ALIAS>
+      <ENTITY_ADDRESS>
+        <COUNTRY />
+      </ENTITY_ADDRESS>
+      <SORT_KEY />
+      <SORT_KEY_LAST_MOD />
+    </ENTITY>
+  </ENTITIES>
+</CONSOLIDATED_LIST>

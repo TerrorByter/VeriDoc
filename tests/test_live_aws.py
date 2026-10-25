@@ -29,7 +29,7 @@ pytestmark = pytest.mark.skipif(
     os.environ.get("RUN_LIVE") != "1", reason="set RUN_LIVE=1 to call AWS"
 )
 
-PACKS = Path(__file__).parent.parent / "data" / "packs"
+PACKS = Path(__file__).parent / "fixtures" / "packs"
 INVOICE = next((PACKS / "clean").glob("invoice_*.pdf"))
 
 

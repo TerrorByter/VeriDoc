@@ -1,0 +1,39 @@
+{
+  "application_id": "APP-2026-STRUCK_OFF",
+  "application_date": "2026-07-10",
+  "company_name": "FERNLEAF SUPPLIES PTE. LTD.",
+  "uen": "201288855Q",
+  "country_of_incorporation": "SINGAPORE",
+  "date_of_incorporation": "2012-03-30",
+  "registered_address": {
+    "block": "33",
+    "street": "WOODLANDS LOOP",
+    "floor": "05",
+    "unit": "18",
+    "building": "WOODLANDS CENTRE",
+    "city_state": "SINGAPORE",
+    "postal_code": "738330",
+    "country": "SINGAPORE"
+  },
+  "authorised_signatories": [
+    "NUR AISYAH",
+    "TEO KAI MING"
+  ],
+  "guarantors": [
+    {
+      "name": "TEO KAI MING",
+      "id_number": "S6989012H",
+      "nationality": "SINGAPORE",
+      "residential_address": {
+        "block": "620",
+        "street": "YISHUN RING ROAD",
+        "floor": "10",
+        "unit": "512",
+        "building": "",
+        "city_state": "SINGAPORE",
+        "postal_code": "760620",
+        "country": "SINGAPORE"
+      }
+    }
+  ]
+}

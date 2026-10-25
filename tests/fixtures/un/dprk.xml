@@ -1,0 +1,154 @@
+<?xml version='1.0' encoding='utf-8'?>
+<CONSOLIDATED_LIST xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://www.un.org/sc/resources/sc-sanctions.xsd" dateGenerated="2026-10-24T23:00:07.335Z">
+  <INDIVIDUALS>
+    <INDIVIDUAL>
+      <DATAID>690734</DATAID>
+      <VERSIONNUM>1</VERSIONNUM>
+      <FIRST_NAME>YUN</FIRST_NAME>
+      <SECOND_NAME>HO-JIN</SECOND_NAME>
+      <UN_LIST_TYPE>DPRK</UN_LIST_TYPE>
+      <REFERENCE_NUMBER>KPi.001</REFERENCE_NUMBER>
+      <LISTED_ON>2009-07-16</LISTED_ON>
+      <COMMENTS1>Director of Namchongang Trading Corporation; oversees the import of items
+needed for the uranium enrichment program.</COMMENTS1>
+      <HAS_INTERPOL_LINK>NO</HAS_INTERPOL_LINK>
+      <INTERPOL_LINK />
+      <DESIGNATION>
+        <VALUE>Director of Namchongang Trading Corporation</VALUE>
+      </DESIGNATION>
+      <NATIONALITY>
+        <VALUE>Democratic People's Republic of Korea</VALUE>
+      </NATIONALITY>
+      <LIST_TYPE>
+        <VALUE>UN List</VALUE>
+      </LIST_TYPE>
+      <LAST_DAY_UPDATED>
+        <VALUE>2022-07-26</VALUE>
+      </LAST_DAY_UPDATED>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY>Good</QUALITY>
+        <ALIAS_NAME>Yun Ho-chin</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ADDRESS>
+        <CITY>Pyongyang</CITY>
+        <COUNTRY>Democratic People's Republic of Korea</COUNTRY>
+      </INDIVIDUAL_ADDRESS>
+      <INDIVIDUAL_DATE_OF_BIRTH>
+        <TYPE_OF_DATE>EXACT</TYPE_OF_DATE>
+        <DATE>1944-10-13</DATE>
+      </INDIVIDUAL_DATE_OF_BIRTH>
+      <INDIVIDUAL_PLACE_OF_BIRTH>
+        <COUNTRY />
+      </INDIVIDUAL_PLACE_OF_BIRTH>
+      <INDIVIDUAL_DOCUMENT />
+      <SORT_KEY />
+      <SORT_KEY_LAST_MOD />
+    </INDIVIDUAL>
+    <INDIVIDUAL>
+      <DATAID>690740</DATAID>
+      <VERSIONNUM>1</VERSIONNUM>
+      <FIRST_NAME>RI</FIRST_NAME>
+      <SECOND_NAME>HONG-SOP</SECOND_NAME>
+      <UN_LIST_TYPE>DPRK</UN_LIST_TYPE>
+      <REFERENCE_NUMBER>KPi.004</REFERENCE_NUMBER>
+      <LISTED_ON>2009-07-16</LISTED_ON>
+      <COMMENTS1>Former director, Yongbyon Nuclear Research Center, oversaw three core
+facilities that assist in the production of weapons-grade plutonium: the Fuel
+Fabrication Facility, the Nuclear Reactor, and the Reprocessing Plant.</COMMENTS1>
+      <HAS_INTERPOL_LINK>NO</HAS_INTERPOL_LINK>
+      <INTERPOL_LINK />
+      <DESIGNATION>
+        <VALUE>Former director, Yongbyon Nuclear Research Center, and Head of Nuclear Weapons Institute </VALUE>
+      </DESIGNATION>
+      <NATIONALITY>
+        <VALUE>Democratic People's Republic of Korea</VALUE>
+      </NATIONALITY>
+      <LIST_TYPE>
+        <VALUE>UN List</VALUE>
+      </LIST_TYPE>
+      <LAST_DAY_UPDATED>
+        <VALUE>2018-07-09</VALUE>
+        <VALUE>2022-07-26</VALUE>
+        <VALUE>2023-06-29</VALUE>
+      </LAST_DAY_UPDATED>
+      <INDIVIDUAL_ALIAS>
+        <QUALITY />
+        <ALIAS_NAME />
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ADDRESS>
+        <CITY>Pyongyang</CITY>
+        <COUNTRY>Democratic People's Republic of Korea</COUNTRY>
+      </INDIVIDUAL_ADDRESS>
+      <INDIVIDUAL_DATE_OF_BIRTH>
+        <TYPE_OF_DATE>EXACT</TYPE_OF_DATE>
+        <DATE>1940-02-26</DATE>
+      </INDIVIDUAL_DATE_OF_BIRTH>
+      <INDIVIDUAL_PLACE_OF_BIRTH>
+        <COUNTRY />
+      </INDIVIDUAL_PLACE_OF_BIRTH>
+      <INDIVIDUAL_DOCUMENT />
+      <SORT_KEY />
+      <SORT_KEY_LAST_MOD />
+    </INDIVIDUAL>
+  </INDIVIDUALS>
+  <ENTITIES>
+    <ENTITY>
+      <DATAID>690751</DATAID>
+      <VERSIONNUM>1</VERSIONNUM>
+      <FIRST_NAME>KOREA RYONBONG GENERAL CORPORATION</FIRST_NAME>
+      <UN_LIST_TYPE>DPRK</UN_LIST_TYPE>
+      <REFERENCE_NUMBER>KPe.002</REFERENCE_NUMBER>
+      <LISTED_ON>2009-04-24</LISTED_ON>
+      <COMMENTS1>Defense conglomerate specializing in acquisition for DPRK defense
+industries and support to that country’s military-related sales.</COMMENTS1>
+      <HAS_INTERPOL_LINK>NO</HAS_INTERPOL_LINK>
+      <INTERPOL_LINK />
+      <LIST_TYPE>
+        <VALUE>UN List</VALUE>
+      </LIST_TYPE>
+      <ENTITY_ALIAS>
+        <QUALITY>a.k.a.</QUALITY>
+        <ALIAS_NAME>KOREA YONBONG GENERAL CORPORATION</ALIAS_NAME>
+      </ENTITY_ALIAS>
+      <ENTITY_ALIAS>
+        <QUALITY>f.k.a.</QUALITY>
+        <ALIAS_NAME>LYONGAKSAN GENERAL TRADING CORPORATION</ALIAS_NAME>
+      </ENTITY_ALIAS>
+      <ENTITY_ADDRESS>
+        <STREET>Pot’onggang District</STREET>
+        <CITY>Pyongyang</CITY>
+        <COUNTRY>Democratic People's Republic of Korea</COUNTRY>
+      </ENTITY_ADDRESS>
+      <ENTITY_ADDRESS>
+        <STREET>Rakwon-dong, Pothonggang District</STREET>
+        <CITY>Pyongyang</CITY>
+        <COUNTRY>Democratic People's Republic of Korea</COUNTRY>
+      </ENTITY_ADDRESS>
+      <SORT_KEY />
+      <SORT_KEY_LAST_MOD />
+    </ENTITY>
+    <ENTITY>
+      <DATAID>690765</DATAID>
+      <VERSIONNUM>1</VERSIONNUM>
+      <FIRST_NAME>KOREA KUMRYONG TRADING CORPORATION</FIRST_NAME>
+      <UN_LIST_TYPE>DPRK</UN_LIST_TYPE>
+      <REFERENCE_NUMBER>KPe.014</REFERENCE_NUMBER>
+      <LISTED_ON>2013-01-22</LISTED_ON>
+      <COMMENTS1>Used as an alias by the Korea Mining Development Trading Corporation (KOMID) to carry out procurement activities. KOMID was designated by the Committee in April 2009 and is the DPRK’s primary arms dealer and main exporter of goods and equipment related to ballistic missiles and conventional weapons.</COMMENTS1>
+      <HAS_INTERPOL_LINK>NO</HAS_INTERPOL_LINK>
+      <INTERPOL_LINK />
+      <LIST_TYPE>
+        <VALUE>UN List</VALUE>
+      </LIST_TYPE>
+      <ENTITY_ALIAS>
+        <QUALITY />
+        <ALIAS_NAME />
+      </ENTITY_ALIAS>
+      <ENTITY_ADDRESS>
+        <COUNTRY />
+      </ENTITY_ADDRESS>
+      <SORT_KEY />
+      <SORT_KEY_LAST_MOD />
+    </ENTITY>
+  </ENTITIES>
+</CONSOLIDATED_LIST>

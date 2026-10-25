@@ -242,6 +242,24 @@ INDIVIDUAL_FIELD_MAP: dict[str, Any] = {
 }
 
 # ---------------------------------------------------------------------------
+# Bank statement form field map (a fillable statement of account)
+# ---------------------------------------------------------------------------
+
+#: Header fields, by what they hold. The bank itself is only a logo image.
+BANK_STATEMENT_FIELD_MAP: dict[str, str] = {
+    "account_holder":  "F01008",
+    "period":          "F01007",
+    "opening_balance": "F01012",
+    "closing_balance": "F01015",
+}
+
+#: Row n has the fields F02<nnn><column letter>
+BANK_STATEMENT_ROW_FIELD = "F02{n:03d}{column}"
+BANK_STATEMENT_ROW_COLUMNS: dict[str, str] = {
+    "date": "a", "description": "b", "credit": "c", "debit": "d", "balance": "e",
+}
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

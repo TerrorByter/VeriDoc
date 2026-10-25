@@ -46,6 +46,12 @@ META_MOD_GAP_HOURS: int = 24
 #: Maximum allowed upload size in megabytes
 MAX_FILE_MB: int = 10
 
+#: Spreadsheet limits. A workbook is untrusted: a sheet larger than this, or a
+#: part that unpacks larger than this, is refused rather than read.
+WORKBOOK_MAX_ROWS: int = 1000
+WORKBOOK_MAX_COLUMNS: int = 30
+WORKBOOK_MAX_PART_MB: int = 20
+
 # ---------------------------------------------------------------------------
 # Checklist / application readiness constants
 # ---------------------------------------------------------------------------
@@ -56,6 +62,33 @@ REQUIRED_BANK_MONTHS: int = 6
 #: Maximum age (days) of the most-recent bank statement page before flagging
 #: as stale. Assumption — to be confirmed with GLDB.
 BANK_RECENCY_DAYS: int = 45
+
+# ---------------------------------------------------------------------------
+# Cross-document checks between bank statements, financial statements and ACRA
+# ---------------------------------------------------------------------------
+
+#: The unit of the figures an ACRA profile prints. The profile states none; the
+#: sample's are SGD millions. Assumption: to be confirmed with GLDB.
+ACRA_FIGURES_UNIT: Decimal = Decimal("1000000")
+
+#: Words in a bank description (lower case) that mark money borrowed, debt
+#: repaid, interest paid and the lender, and credits that are not sales.
+#: Assumptions: the bank's own transaction codes would be better.
+DEBT_INFLOW_WORDS: tuple[str, ...] = ("issuance", "drawdown", "loan proceeds")
+DEBT_REPAYMENT_WORDS: tuple[str, ...] = ("principal", "repayment")
+DEBT_INTEREST_WORDS: tuple[str, ...] = ("interest",)
+DEBT_NAME_WORDS: tuple[str, ...] = ("bond", "loan", "debenture", "borrowing")
+NON_SALES_CREDIT_WORDS: tuple[str, ...] = (
+    "interest", "dividend", "investment", "issuance", "drawdown", "loan", "capital", "refund",
+)
+
+#: Sales receipts in the bank statements, annualised, should be within this
+#: range of the revenue the financial statements report, and at least this
+#: many days of statements are needed to annualise. Assumptions: the sponsor
+#: has fixed no thresholds.
+BANK_REVENUE_RATIO_MIN: Decimal = Decimal("0.5")
+BANK_REVENUE_RATIO_MAX: Decimal = Decimal("1.5")
+BANK_REVENUE_MIN_DAYS: int = 90
 
 #: Entity type H ("start-up") maximum age in months (from entity form option H)
 START_UP_MAX_MONTHS: int = 24
@@ -113,6 +146,14 @@ HIDDEN_TEXT_MAX_SIZE_PT: float = 2.0
 #: A gray/RGB fill with every component at or above this counts as white
 WHITE_FILL_MIN: float = 0.95
 
+#: White text is a heading, not hidden text, over a backdrop darker than this:
+#: the median luminance (0 black, 1 white) of the pixels behind each character
+#: on the rendered page. An assumption: white on a mid-tone is hard to read.
+WHITE_TEXT_BACKDROP_MAX_LUMINANCE: float = 0.5
+
+#: Resolution of the render that shows what lies behind white text (72 is one pixel per point)
+BACKDROP_DPI: int = 72
+
 #: Two words closer than this (fraction of font size) form one token. Must stay
 #: below a space (about 0.28 em) and above kerning/rounding noise.
 TOKEN_GAP_FRACTION: float = 0.15
@@ -165,8 +206,23 @@ OCR_MIN_CONFIDENCE: float = 80.0
 # Reference data and screening (gldb/reference.py, gldb/screening.py)
 # ---------------------------------------------------------------------------
 
-#: Versioned reference data: synthetic ACRA register and sanctions list
-REFERENCE_DIR: str = "data/reference"
+#: Versioned reference data, both screened. The designations are the UN
+#: lists MAS names, kept current by gldb.sanctions_sync; the watchlist is the
+#: bank's own hand-kept list (in the prototype, fictional demo names).
+DESIGNATIONS_PATH: str = "data/reference/designations.json"
+WATCHLIST_PATH: str = "data/reference/sanctions.json"
+
+#: MAS's page of the UN lists that Singapore's targeted financial sanctions
+#: apply, and how often `python -m gldb.sanctions_sync --every` looks at it
+SANCTIONS_SOURCE_URL: str = (
+    "https://www.mas.gov.sg/regulation/anti-money-laundering/targeted-financial-sanctions/"
+    "lists-of-designated-individuals-and-entities"
+)
+SANCTIONS_SYNC_EVERY_HOURS: float = 24.0
+SANCTIONS_TIMEOUT_S: float = 30.0
+#: MAS answers a "Maintenance" page to a client that does not look like a
+#: browser: this names the sync and still passes for one
+SANCTIONS_USER_AGENT: str = "Mozilla/5.0 (compatible; gldb-sanctions-sync/1.0)"
 
 #: Name similarity (0-1) at or above which a screened name is a sanctions hit.
 #: Tuned for recall: a false hit costs an analyst a look, a miss is a breach.
@@ -213,19 +269,33 @@ BEDROCK_MODEL_ID: str = os.getenv("BEDROCK_MODEL_ID", "")
 #: parsed and the text layer can be compared with what a reader sees.
 OCR_ENABLED: bool = _bool_env("OCR_ENABLED", False)
 
-#: Concurrent Textract calls. Match the account's DetectDocumentText quota
-#: (transactions per second; 1 on a new account).
-OCR_MAX_WORKERS: int = int(os.getenv("OCR_MAX_WORKERS", "1"))
+#: Concurrent Textract calls. Keep at or below the account's DetectDocumentText
+#: quota (transactions per second; 1 on a new account). 5 is half the 10/s
+#: quota raised for ap-southeast-1, leaving headroom for adaptive retries.
+OCR_MAX_WORKERS: int = int(os.getenv("OCR_MAX_WORKERS", "5"))
 
 #: Resolution of document pages rendered for the evidence viewer (gldb.viewer)
 VIEWER_DPI: int = 110
 
+#: A workbook sheet is drawn for the viewer in this font size, with this
+#: padding around each cell (pixels)
+SHEET_FONT_PX: int = 16
+SHEET_PAD_PX: int = 8
+
 #: Whether to screen document text for prompt attacks with a Bedrock
 #: guardrail before any model reads it (gldb.prompt_screen; infra/guardrail.yaml).
 PROMPT_SCREEN_ENABLED: bool = _bool_env("PROMPT_SCREEN_ENABLED", False)
+
 #: The guardrail and its pinned, immutable version (stack outputs)
 GUARDRAIL_ID: str = os.getenv("GUARDRAIL_ID", "")
 GUARDRAIL_VERSION: str = os.getenv("GUARDRAIL_VERSION", "")
+
+#: The official records service (ACRA's register, IRAS's notices of
+#: assessment): mock_gov in the prototype. Off, the checks fall back to an
+#: uploaded ACRA profile and uploaded notices.
+OFFICIAL_RECORDS_ENABLED: bool = _bool_env("OFFICIAL_RECORDS_ENABLED", True)
+OFFICIAL_RECORDS_URL: str = os.getenv("OFFICIAL_RECORDS_URL", "http://127.0.0.1:8001")
+OFFICIAL_RECORDS_TIMEOUT_S: float = 5.0
 
 #: Whether to run the AI agent team (gldb.ai_team): a Supervisor and specialists
 #: on Bedrock that investigate each case and write leads for the analyst.

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from gldb.schemas import Signal
 
-RULE_VERSION = "2026-10-04.5"
+RULE_VERSION = "2026-10-21.2"
 
 SIGNALS: tuple[Signal, ...] = (
     # DOC: document integrity and forensics -------------------------------
@@ -66,6 +66,18 @@ SIGNALS: tuple[Signal, ...] = (
     Signal(signal_id="FIN-004", check_id="BANK_CONTINUITY", family="FIN",
            name="Statements do not chain month to month",
            remedy="Obtain the missing or original statements directly from the bank."),
+    Signal(signal_id="FIN-005", check_id="FS_ACRA_MISMATCH", family="FIN",
+           name="Submitted figures differ from ACRA's filing",
+           remedy="Obtain the financial statements as filed with ACRA, and ask the applicant to explain the difference."),
+    Signal(signal_id="FIN-006", check_id="XDOC_BANK_CASH", family="FIN",
+           name="Bank balance exceeds the balance-sheet cash",
+           remedy="Ask the applicant to reconcile the account to the balance sheet; obtain the statement directly from the bank."),
+    Signal(signal_id="FIN-007", check_id="XDOC_BANK_DEBT", family="FIN",
+           name="Debt payments not supported by the balance sheet",
+           remedy="Request the loan or bond agreement and the lender's statement; ask why the debt is not on the balance sheet."),
+    Signal(signal_id="FIN-008", check_id="XDOC_BANK_REVENUE", family="FIN",
+           name="Bank receipts out of line with reported revenue",
+           remedy="Ask the applicant to reconcile revenue to bank receipts; request more statements or the sales ledger."),
     # TXN: transaction consistency -----------------------------------------
     Signal(signal_id="TXN-001", check_id="XDOC_INVOICE_BANK", family="TXN",
            name="Invoice not matched by a bank receipt",
@@ -92,6 +104,21 @@ SIGNALS: tuple[Signal, ...] = (
     Signal(signal_id="REG-005", check_id="REGISTRY_SIGNATORY_NOT_OFFICER", family="REG",
            name="Signatory not a registered officer",
            remedy="Request the board resolution authorising the signatory, and verify identity."),
+    Signal(signal_id="REG-006", check_id="XDOC_ACRA_ENTITY", family="REG",
+           name="Entity form differs from the ACRA profile",
+           remedy="Compare the form with the ACRA profile; ask the applicant to correct whichever is wrong."),
+    Signal(signal_id="REG-007", check_id="XDOC_ACRA_SIGNATORY", family="REG",
+           name="Form signatory not an officer in the ACRA profile",
+           remedy="Request the board resolution authorising the signatory, and verify identity."),
+    Signal(signal_id="REG-008", check_id="XDOC_ACRA_PERSON", family="REG",
+           name="Person's details differ from the ACRA profile",
+           remedy="Verify the person's identity and address with them; ask which document is out of date."),
+    Signal(signal_id="REG-009", check_id="XDOC_OFFICIAL_RECORD", family="REG",
+           name="Uploaded copy differs from the official record",
+           remedy="Treat the uploaded copy as altered; rely on the record fetched from ACRA or IRAS and ask the applicant why they differ."),
+    Signal(signal_id="REG-010", check_id="OFFICIAL_RECORDS_UNAVAILABLE", family="REG",
+           name="ACRA and IRAS records not fetched",
+           remedy="Re-run the case once the official records service answers."),
     # TEMP: temporal consistency ------------------------------------------
     Signal(signal_id="TEMP-001", check_id="TEMP_BEFORE_INCORPORATION", family="TEMP",
            name="Dated before the company existed",

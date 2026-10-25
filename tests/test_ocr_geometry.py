@@ -19,7 +19,7 @@ from gldb.ocr import ocr_files
 from gldb.schemas import Box, OcrLine
 from gldb.viewer import locate
 
-PACKS = Path(__file__).parent.parent / "data" / "packs"
+PACKS = Path(__file__).parent / "fixtures" / "packs"
 SCANNED = PACKS / "scanned" / "invoice_INV-1001.pdf"
 
 
@@ -77,6 +77,7 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
     for module in (api, pipeline):
         monkeypatch.setattr(module, "CASES_DIR", str(tmp_path / "cases"))
     monkeypatch.setattr(api, "UPLOADS_DIR", str(tmp_path / "uploads"))
+    monkeypatch.setattr(api, "PACKS_DIR", str(PACKS))
     monkeypatch.setenv("AUDIT_LOG_PATH", str(tmp_path / "audit.jsonl"))
     return TestClient(api.app)
 

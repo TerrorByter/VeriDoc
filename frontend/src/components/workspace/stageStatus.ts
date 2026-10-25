@@ -60,6 +60,8 @@ export function stageStatus(kase: CaseView, audit: AuditEvent[], id: RailStageId
       return flagged(kase.docs.filter((d) => d.doc_type === "unknown").length);
     case "prompt_screen":
       return flagged(byCheck(kase, "PROMPT_INJECTION").length);
+    case "records":
+      return flagged(byCheck(kase, "OFFICIAL_RECORDS_UNAVAILABLE", "XDOC_OFFICIAL_RECORD").length);
     case "agents":
       return flagged(openFindings(kase).length + aiLeads(kase).length);
     case "score":

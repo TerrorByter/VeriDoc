@@ -1,24 +1,37 @@
 {
   "pack": "incomplete",
-  "expected_band": "Low",
+  "company": "ACMA LTD.",
+  "note": "Three months of statements, and a second guarantor IRAS has no notice for. Expect an incomplete case.",
+  "expected_band": "Medium",
   "expected_path": "standard_review",
   "expected_readiness": "Incomplete",
-  "expected_check_ids": [],
+  "expected_check_ids": [
+    "REGISTRY_SIGNATORY_NOT_OFFICER",
+    "XDOC_ACRA_SIGNATORY"
+  ],
   "expected_check_ids_ocr": [],
   "expected_compliance_check_ids": [
     "BANK_COVERAGE",
-    "FORM_ENT_US_STATUS",
-    "FORM_ENT_TIN_OR_REASON",
-    "FORM_ENT_TYPE_SELECTION"
+    "CHECKLIST_MISSING_DOC"
   ],
   "expected_leads": [],
   "expected_triage": [],
-  "tampers": [],
-  "benign": [
+  "tampers": [
     {
-      "doc": "invoice_INV-1001",
-      "type": "rounding",
-      "detail": "paid 32,699.50 vs invoiced 32,700.00"
+      "doc": "bank_statement",
+      "type": "months_missing",
+      "check_ids": [
+        "BANK_COVERAGE"
+      ],
+      "detail": "statement covers January to March only"
+    },
+    {
+      "doc": "pack",
+      "type": "guarantor_without_notice",
+      "check_ids": [
+        "CHECKLIST_MISSING_DOC"
+      ],
+      "detail": "IRAS holds no notice for the second guarantor"
     }
   ]
 }

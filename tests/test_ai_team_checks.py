@@ -19,6 +19,8 @@ from typing import Any
 
 import pytest
 
+from gldb import official
+
 from gldb.ai_team.checks import (
     Outcome,
     bank_rows,
@@ -35,7 +37,7 @@ from gldb.pipeline import assess
 from gldb.schemas import Evidence, ExtractedPack, Lead
 from gldb.screening import screening_key
 
-PACKS = Path(__file__).parent.parent / "data" / "packs"
+PACKS = Path(__file__).parent / "fixtures" / "packs"
 
 
 @cache
@@ -225,12 +227,11 @@ def test_rp_related_party_pack_is_verified() -> None:
 
 
 def test_rp_ambiguous_register_match_is_unverified(monkeypatch: pytest.MonkeyPatch) -> None:
-    from gldb.ai_team import checks
     pack, _ = _case("related_party")
-    real = checks.registry()
-    seabright = real.entities["202205551D"]
-    twin = {**real.entities, "209999999Z": seabright}
-    monkeypatch.setattr(checks, "registry", lambda: real.model_copy(update={"entities": twin}))
+    seabright = official.company("202205551D")
+    assert seabright is not None
+    twin = seabright.model_copy(update={"uen": "209999999Z"})
+    monkeypatch.setattr(official, "search", lambda name: [seabright, twin])
     outcome = check_pattern(_lead("related_party", "kyc", counterparty=_party(pack, "Seabright Provisions Pte. Ltd.")),
                             pack, [])
     assert outcome.status == "unverified" and "more than one register entry" in outcome.reason
@@ -243,11 +244,10 @@ def test_rp_ambiguous_register_match_is_unverified(monkeypatch: pytest.MonkeyPat
 
 def test_rp_no_shared_officer_is_not_clear_when_the_applicant_is_not_in_the_register(
         monkeypatch: pytest.MonkeyPatch) -> None:
-    from gldb.ai_team import checks
     pack, _ = _case("third_party_payment")
-    real = checks.registry()
-    without_applicant = {u: e for u, e in real.entities.items() if u != "202301234K"}
-    monkeypatch.setattr(checks, "registry", lambda: real.model_copy(update={"entities": without_applicant}))
+    assert pack.official is not None
+    without_applicant = {u: e for u, e in pack.official.companies.items() if u != "202301234K"}
+    pack = pack.model_copy(update={"official": pack.official.model_copy(update={"companies": without_applicant})})
     outcome = check_pattern(_lead("related_party", "kyc", counterparty=_party(pack, "Orchid Lane Retail Pte. Ltd.")),
                             pack, [])
     assert outcome.status == "unverified" and "officers of both sides" in outcome.reason

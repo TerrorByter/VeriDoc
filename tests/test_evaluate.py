@@ -14,7 +14,7 @@ import pytest
 
 from gldb import evaluate, pipeline
 
-PACKS = Path(__file__).parent.parent / "data" / "packs"
+PACKS = Path(__file__).parent / "fixtures" / "packs"
 
 
 def test_stub_extractor_is_perfect_on_all_packs() -> None:
@@ -105,6 +105,7 @@ def test_crashing_pack_is_reported_and_counted_as_missed(
         return real_assess(case_id, *args, **kwargs)
 
     monkeypatch.setattr(evaluate, "assess", flaky)
+    monkeypatch.setattr(evaluate, "PACKS_DIR", str(PACKS))
     report = evaluate.evaluate(PACKS)
     *others, tampered = sorted(report.packs, key=lambda r: r.pack == "tampered")
     assert len(others) == 9 and all(r.ok for r in others)

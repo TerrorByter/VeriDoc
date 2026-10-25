@@ -57,7 +57,7 @@ from gldb.config import (
     SHADOW_SCORER_MODEL,
 )
 from gldb.evaluate import _missing, report_path
-from gldb.intake import load_manifest
+from gldb.intake import document_paths, load_manifest
 from gldb.pipeline import assess
 from gldb.schemas import AgentTeam, Evidence, ReviewPath
 from gldb.usage import case_cost
@@ -197,7 +197,7 @@ def _pack_result(folder: Path, truth: dict, models: TeamModels, stamp: str) -> A
     would_route: ReviewPath | None = None
     start = perf_counter()
     try:
-        result = assess(case_id, sorted(folder.glob("*.pdf")), load_manifest(folder), team=models)
+        result = assess(case_id, document_paths(folder), load_manifest(folder), team=models)
         team, evidence = result.ai_team, result.evidence
         shadow_route = result.shadow.route if result.shadow else None
         agrees = result.shadow.agrees_with_champion if result.shadow else None

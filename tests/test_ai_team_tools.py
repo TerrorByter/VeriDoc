@@ -36,7 +36,7 @@ from gldb.pipeline import assess
 from gldb.privacy import mask_id
 from gldb.schemas import AgentName, CaseResult, Lead, PromptAttackHit
 
-PACKS = Path(__file__).parent.parent / "data" / "packs"
+PACKS = Path(__file__).parent / "fixtures" / "packs"
 TRUNCATED = "…[truncated]"
 
 
@@ -546,7 +546,7 @@ def test_parties_let_kyc_find_a_shared_officer(related_party_result: CaseResult,
     assert all(p["uen"] for p in counterparties if p["role"] == "seller")
 
     officers = _run("kyc", "registry_lookup", {"name": seabright[0]["name"]}, case)["officers"]
-    assert {"name": "Daniel Brooks", "role": "Director"} in officers
+    assert {"name": "Daniel Brooks", "role": "DIRECTOR"} in officers
     assert "Daniel Brooks" in applicant["guarantors"]  # the shared person KYC can now see
 
     assert _run("supervisor", "get_case_overview", {}, case)["parties"] == parties  # so it can brief KYC
@@ -554,8 +554,8 @@ def test_parties_let_kyc_find_a_shared_officer(related_party_result: CaseResult,
 
 def test_registry_and_sanctions_lookups(clean: CaseData) -> None:
     by_name = _run("kyc", "registry_lookup", {"name": "Bayview Marine Supplies Pte Ltd"}, clean)
-    assert by_name["uen"] == "201845678M" and by_name["status"] == "Live"
-    assert by_name["incorporated"] == "2018-11-20" and by_name["officers"] == [{"name": "Rahul Menon", "role": "Director"}]
+    assert by_name["uen"] == "201845678M" and by_name["status"] == "LIVE COMPANY"
+    assert by_name["incorporated"] == "2018-11-20" and by_name["officers"] == [{"name": "Rahul Menon", "role": "DIRECTOR"}]
     assert _run("kyc", "registry_lookup", {"name": "Bayview Marine"}, clean) == {"found": False}  # below threshold
     # By UEN only a party's: Bayview's documents in this case give none
     assert _error("kyc", "registry_lookup", {"uen": "201845678M"}, clean) == "uen must be one of: 202301234K"
@@ -564,7 +564,7 @@ def test_registry_and_sanctions_lookups(clean: CaseData) -> None:
     hits = _run("kyc", "sanctions_search", {"name": "Kestrel Marine Supplies Pte Ltd"}, clean)
     assert [(h["name"], h["list"], h["reference"]) for h in hits] == \
         [("Kestrel Marine Supplies Limited", "UN-SYN", "SYN-E-0042")]
-    assert hits[0]["similarity"] >= 0.9 and set(hits[0]) == {"name", "list", "reference", "similarity"}
+    assert hits[0]["similarity"] >= 0.9 and set(hits[0]) == {"name", "list", "reference", "similarity", "matched"}
     assert _run("kyc", "sanctions_search", {"name": "Bayview Marine Supplies"}, clean) == []
 
 
@@ -577,8 +577,10 @@ def test_timeline_and_incorporation(retro_po: CaseData) -> None:
 
     incorporated = _run("timeline", "get_incorporation", {}, retro_po)
     assert incorporated["date"] == "2023-01-16" and incorporated["source"]
-    no_application = replace(retro_po, pack=retro_po.pack.model_copy(update={"manifest": None}))
-    assert "no application" in _error("timeline", "get_incorporation", {}, no_application)
+    from_acra = replace(retro_po, pack=retro_po.pack.model_copy(update={"manifest": None}))
+    assert _run("timeline", "get_incorporation", {}, from_acra)["date"] == "2023-01-16"
+    neither = replace(retro_po, pack=retro_po.pack.model_copy(update={"manifest": None, "official": None}))
+    assert "neither ACRA nor the application" in _error("timeline", "get_incorporation", {}, neither)
 
 
 # ---------------------------------------------------------------------------

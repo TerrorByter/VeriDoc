@@ -34,6 +34,21 @@
         "postal_code": "478236",
         "country": "SINGAPORE"
       }
+    },
+    {
+      "name": "MATTHEW TAN",
+      "id_number": "S8294716J",
+      "nationality": "SINGAPORE",
+      "residential_address": {
+        "block": "412",
+        "street": "Jurong West Street 42",
+        "floor": "09",
+        "unit": "318",
+        "building": "",
+        "city_state": "SINGAPORE",
+        "postal_code": "650412",
+        "country": "SINGAPORE"
+      }
     }
   ]
 }

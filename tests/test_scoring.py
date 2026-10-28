@@ -46,6 +46,7 @@ def _ev(
     *,
     evidence_id: str = "E01",
     explanation: str = "test finding",
+    document: str = "test_doc",
 ) -> Evidence:
     """Minimal Evidence factory for tests."""
     return Evidence(
@@ -53,7 +54,7 @@ def _ev(
         check_id=check_id,
         category=category,          # type: ignore[arg-type]
         severity=severity,           # type: ignore[arg-type]
-        document="test_doc",
+        document=document,
         page=1,
         method="deterministic",
         confidence=1.0,
@@ -193,6 +194,27 @@ class TestScoreWeights:
         result = score(evs)
         assert result.score == 50   # 5 + 15 + 30
 
+    def test_one_check_scores_once_per_document(self) -> None:
+        """Repeats of one check on one document are one problem: one score line,
+        with how many findings it covers. Another document counts again."""
+        evs = [
+            _ev("BANK_RUNNING_BAL", "fraud_signal", "high", evidence_id="E01", document="stmt_a"),
+            _ev("BANK_RUNNING_BAL", "fraud_signal", "high", evidence_id="E02", document="stmt_a"),
+            _ev("BANK_RUNNING_BAL", "fraud_signal", "high", evidence_id="E03", document="stmt_a"),
+            _ev("BANK_RUNNING_BAL", "fraud_signal", "high", evidence_id="E04", document="stmt_b"),
+        ]
+        result = score(evs)
+        assert result.score == 60
+        assert [(c.evidence_id, c.hits, c.points) for c in result.contributions] == [("E01", 3, 30), ("E04", 1, 30)]
+
+    def test_a_repeat_at_higher_severity_sets_the_line(self) -> None:
+        evs = [
+            _ev("BANK_RUNNING_BAL", "fraud_signal", "medium", evidence_id="E01"),
+            _ev("BANK_RUNNING_BAL", "fraud_signal", "critical", evidence_id="E02"),
+        ]
+        result = score(evs)
+        assert [(c.evidence_id, c.hits, c.points) for c in result.contributions] == [("E02", 2, 50)]
+
     def test_capped_at_100(self) -> None:
         evs = [
             _ev("A", "fraud_signal", "critical", evidence_id="E01"),  # 50
@@ -218,7 +240,7 @@ class TestScoreBands:
         # Three "low" findings = 15; add a "low" to get 20? No — we need exactly 19.
         # Build with a custom combination: low(5) + low(5) + low(5) = 15 → Low
         # We can't hit 19 exactly with the given weights; 15 is Low, 20 is Medium.
-        evs = [_ev("A", "fraud_signal", "low", evidence_id=f"E{i:02d}") for i in range(1, 4)]
+        evs = [_ev(f"A{i}", "fraud_signal", "low", evidence_id=f"E{i:02d}") for i in range(1, 4)]
         result = score(evs)
         assert result.score == 15
         assert result.band == "Low"
@@ -236,7 +258,7 @@ class TestScoreBands:
     def test_score_49_is_medium(self) -> None:
         # 3×medium(15) + low(4×... wait: 3×15=45, +low(5)=50 → High)
         # Use critical(50) → 50 High; medium×3=45 Medium
-        evs = [_ev("A", "fraud_signal", "medium", evidence_id=f"E{i:02d}") for i in range(1, 4)]
+        evs = [_ev(f"A{i}", "fraud_signal", "medium", evidence_id=f"E{i:02d}") for i in range(1, 4)]
         result = score(evs)
         assert result.score == 45
         assert result.band == "Medium"
@@ -254,15 +276,15 @@ class TestScoreBands:
 
 
 class TestScoreHardRules:
-    """META_* and XDOC_IDENTITY at high/critical must force band High."""
+    """XDOC_IDENTITY at high/critical must force band High. Metadata findings
+    corroborate; on their own they never force it."""
 
-    def test_meta_mod_after_create_high_forces_high_band(self) -> None:
-        """Single META_MOD_AFTER_CREATE at high (=30 pts) → band High + score 30."""
-        ev = _ev("META_MOD_AFTER_CREATE", "fraud_signal", "high")
-        result = score([ev])
-        assert result.score == 30
-        assert result.band == "High"
-        assert result.manual_review_required is True
+    def test_metadata_never_forces_high(self) -> None:
+        """A re-saved PDF is weak evidence: its band follows its points alone."""
+        for check in ("META_MOD_AFTER_CREATE", "META_PRODUCER_MISMATCH", "META_CUSTOM_FUTURE"):
+            result = score([_ev(check, "fraud_signal", "high")])
+            assert (result.score, result.band) == (30, "Medium")
+            assert not any("Hard rule" in r for r in result.reasons)
 
     def test_meta_mod_after_create_low_does_not_force_high(self) -> None:
         """META_MOD_AFTER_CREATE at low severity — hard rule does NOT fire."""
@@ -272,11 +294,6 @@ class TestScoreHardRules:
         assert result.band == "Low"
         # But manual_review is still False (no high/critical)
         assert result.manual_review_required is False
-
-    def test_meta_producer_mismatch_critical_forces_high(self) -> None:
-        ev = _ev("META_PRODUCER_MISMATCH", "fraud_signal", "critical")
-        result = score([ev])
-        assert result.band == "High"
 
     def test_xdoc_identity_high_forces_high(self) -> None:
         ev = _ev("XDOC_IDENTITY", "fraud_signal", "high")
@@ -292,18 +309,12 @@ class TestScoreHardRules:
 
     def test_hard_rule_reason_appended(self) -> None:
         """Hard rule fire should produce an extra reason line."""
-        ev = _ev("META_MOD_AFTER_CREATE", "fraud_signal", "high")
+        ev = _ev("XDOC_IDENTITY", "fraud_signal", "high")
         result = score([ev])
         # At least 2 lines: one for the finding, one for the hard rule
         assert len(result.reasons) >= 2
         hard_lines = [r for r in result.reasons if "Hard rule" in r]
         assert len(hard_lines) == 1
-
-    def test_any_meta_prefix_triggers_hard_rule(self) -> None:
-        """Any check_id starting with META_ at high → hard rule fires."""
-        ev = _ev("META_CUSTOM_FUTURE", "fraud_signal", "high")
-        result = score([ev])
-        assert result.band == "High"
 
 
 # ---------------------------------------------------------------------------

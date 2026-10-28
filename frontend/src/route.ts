@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { STAGE_BY_ID } from "./catalogue";
 import type { RailStageId } from "./types";
 
-/** Screens are addressed by the URL hash, so a demo can link straight to a stage. */
+/** Screens are addressed by the URL hash, so a demo can link straight to a stage. The home screen is a new case. */
 export type Route =
   | { screen: "cases" }
   | { screen: "new" }
@@ -15,14 +15,14 @@ export const DEFAULT_STAGE: RailStageId = "ocr";
 
 export function parse(hash: string): Route {
   const [first, caseId, rest] = hash.replace(/^#\/?/, "").split("/");
-  if (first === "new") return { screen: "new" };
   if (first === "controls") return { screen: "controls" };
   if (first === "cases" && caseId) {
     if (rest === "run") return { screen: "run", caseId };
     const stage = rest && rest in STAGE_BY_ID ? (rest as RailStageId) : DEFAULT_STAGE;
     return { screen: "case", caseId, stage };
   }
-  return { screen: "cases" };
+  if (first === "cases") return { screen: "cases" };
+  return { screen: "new" };
 }
 
 export function href(route: Route): string {

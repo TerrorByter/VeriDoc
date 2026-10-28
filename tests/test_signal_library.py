@@ -79,7 +79,7 @@ def test_score_is_an_itemised_sum_traced_to_evidence() -> None:
 
 
 def test_capped_score_still_lists_every_contribution() -> None:
-    risk = score([_ev("INV_ARITH", "critical", f"E0{i}") for i in range(1, 4)])
+    risk = score([_ev(check, "critical", f"E0{i}") for i, check in enumerate(("INV_ARITH", "BANK_RUNNING_BAL", "XDOC_IDENTITY"), 1)])
     assert risk.score == 100
     assert sum(c.points for c in risk.contributions) == 150
 

@@ -321,6 +321,8 @@ class ControllingPerson(BaseModel):
     slot: int
     name: str | None
     types_ticked: list[str]
+    #: The form page the slot is on
+    page: int = 1
 
 
 class Signatory(BaseModel):
@@ -561,6 +563,8 @@ class Contribution(BaseModel):
     document: str
     page: int
     points: int
+    #: Findings of this check on this document the line covers: repeats are one problem, scored once
+    hits: int = 1
 
 
 class RiskResult(BaseModel):

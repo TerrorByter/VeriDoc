@@ -19,7 +19,9 @@ from __future__ import annotations
 from threading import Lock
 from typing import Literal
 
-from pydantic import BaseModel
+from datetime import datetime, timezone
+
+from pydantic import BaseModel, computed_field
 
 from gldb.schemas import StageId, StageState
 
@@ -43,6 +45,22 @@ class Progress(BaseModel):
     #: when a stage changes state
     detail: str | None = None
     error: str | None = None
+    #: When the run started and ended (UTC); None for a run rebuilt from a stored result
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+    @computed_field
+    @property
+    def elapsed_ms(self) -> int | None:
+        """How long the run has taken, measured by the server: a page that
+        opens mid-run counts on from here, whatever its own clock says."""
+        if self.started_at is None:
+            return None
+        return round(((self.finished_at or _now()) - self.started_at).total_seconds() * 1000)
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 _lock = Lock()
@@ -51,7 +69,7 @@ _runs: dict[str, Progress] = {}
 
 def start(case_id: str) -> None:
     with _lock:
-        _runs[case_id] = Progress(case_id=case_id, state="running")
+        _runs[case_id] = Progress(case_id=case_id, state="running", started_at=_now())
 
 
 def stage(case_id: str, stage_id: StageId, state: StageState) -> None:
@@ -77,13 +95,13 @@ def detail(case_id: str, text: str) -> None:
 
 def finish(case_id: str) -> None:
     with _lock:
-        _runs[case_id] = _runs[case_id].model_copy(update={"state": "done", "current": None})
+        _runs[case_id] = _runs[case_id].model_copy(update={"state": "done", "current": None, "finished_at": _now()})
 
 
 def fail(case_id: str, error: str) -> None:
     with _lock:
         _runs[case_id] = _runs[case_id].model_copy(
-            update={"state": "failed", "current": None, "error": error}
+            update={"state": "failed", "current": None, "error": error, "finished_at": _now()}
         )
 
 

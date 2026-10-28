@@ -16,7 +16,7 @@ import pytest
 from botocore.exceptions import NoCredentialsError
 from fastapi.testclient import TestClient
 
-from gldb import api, pipeline
+from gldb import api, pipeline, rfi
 from gldb.schemas import AgentTeam, GateDecision, Lead, LeadTest, ShadowReason, ShadowScore
 from tests.acra_profiles import profile_pdf
 from tests.workbooks import INCOME, STATEMENTS, workbook
@@ -54,8 +54,19 @@ def _case(client: TestClient, pack: str = "tampered") -> dict[str, Any]:
     return _finished(client, client.post(f"/api/cases/from-pack/{pack}"))
 
 
+def test_request_draft_asks_the_applicant_without_tipping_off(client: TestClient) -> None:
+    cid = _case(client)["case_id"]
+    draft = client.get(f"/api/cases/{cid}/request-draft").json()
+    assert draft["text"].startswith("Dear ") and draft["items"]
+    assert all(item["evidence_ids"] for item in draft["items"])
+    assert not rfi.UNSAFE.search(draft["text"])
+    assert client.get("/api/cases/CASE-NOPE/request-draft").status_code == 404
+
+
 def test_list_packs(client: TestClient) -> None:
-    assert {"clean", "tampered", "incomplete"} <= {p["name"] for p in client.get("/api/packs").json()}
+    packs = {p["name"]: p for p in client.get("/api/packs").json()}
+    assert {"clean", "tampered", "incomplete"} <= set(packs)
+    assert packs["clean"]["expected_path"] == "fast_track"  # from its ground truth, for the pack's card
 
 
 def test_tampered_pack_is_high_and_pack_is_not_exposed(client: TestClient) -> None:
@@ -299,6 +310,22 @@ def test_feedback_endpoint_reports_overrides(client: TestClient) -> None:
     assert rows[0]["reasons"] == {"duplicate_finding": 1}
 
 
+def test_progress_times_the_run_from_its_start_not_from_who_is_watching(client: TestClient) -> None:
+    """The run screen's clock survives leaving the page: the server times the run."""
+    cid = client.post("/api/cases/from-pack/clean").json()["case_id"]
+    first = client.get(f"/api/cases/{cid}/progress").json()
+    assert first["state"] == "done" and first["started_at"] and first["finished_at"]
+    assert first["elapsed_ms"] >= 0
+    assert client.get(f"/api/cases/{cid}/progress").json()["elapsed_ms"] == first["elapsed_ms"]  # stopped when it finished
+
+
+def test_a_running_job_counts_up_from_its_start() -> None:
+    from gldb import jobs
+    jobs.start("CASE-TIMED")
+    progress = jobs.get("CASE-TIMED")
+    assert progress is not None and progress.finished_at is None and progress.elapsed_ms is not None
+
+
 def test_progress_lists_every_stage_in_run_order(client: TestClient) -> None:
     cid = client.post("/api/cases/from-pack/clean").json()["case_id"]
     progress = client.get(f"/api/cases/{cid}/progress").json()
@@ -386,6 +413,15 @@ def test_controls_show_versions_capabilities_and_signals(client: TestClient) -> 
     assert {c["name"]: c["enabled"] for c in controls["capabilities"]}["ocr"] is False
     assert len(controls["signals"]) == len(api.SIGNALS)
     assert controls["evaluation"] is None  # no saved report in the temp folder
+
+
+def test_controls_show_how_findings_score_and_escalate(client: TestClient) -> None:
+    scoring = client.get("/api/controls").json()["scoring"]
+    assert scoring["severity_points"] == {"info": 0, "low": 5, "medium": 15, "high": 30, "critical": 50}
+    assert (scoring["band_low_max"], scoring["band_medium_max"]) == (19, 49)
+    assert scoring["forces_high"] == ["XDOC_IDENTITY"]
+    assert scoring["forces_enhanced_review"] == sorted(api.HARD_FLAG_CHECK_IDS)
+    assert scoring["qa_sample_percent"] == api.QA_SAMPLE_PERCENT
 
 
 def test_controls_list_ai_team_capability(client: TestClient) -> None:
@@ -485,3 +521,37 @@ def test_case_view_carries_the_official_records_with_ids_masked(client: TestClie
     assert [o["id_number"] for o in applicant["officers"]] == ["S****567D", "G****321L"]
     assert sorted(records["no_notice"]) == ["G****321L", "S****567D"]  # their notices were uploaded instead
     assert "S1234567D" not in json.dumps(kase) and "G7654321L" not in json.dumps(kase)
+
+
+# ---------------------------------------------------------------------------
+# Identifying a file before a case is opened (the upload page's live check)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(("name", "doc_type"), [
+    ("bank_statement.pdf", "bank_statement"), ("fatca_crs_entity.pdf", "fatca_crs_entity"),
+    ("fatca_crs_individual.pdf", "fatca_crs_individual"), ("Submitted financials.xlsx", "financial_statements"),
+    ("invoice_INV-1001.pdf", "invoice"), ("purchase_order_PO-2001.pdf", "purchase_order"),
+    ("bill_of_lading_BL-3001.pdf", "bill_of_lading"), ("application.json", "application"),
+])
+def test_a_file_is_identified_as_a_run_would_read_it(client: TestClient, name: str, doc_type: str) -> None:
+    path = Path("data/packs/clean") / name
+    found = client.post("/api/documents/identify", files={"file": (name, path.read_bytes())}).json()
+    assert found == {"filename": name, "doc_type": doc_type, "error": None}
+
+
+@pytest.mark.parametrize(("name", "content", "says"), [
+    ("notes.txt", b"hello", "Unsupported file type"),
+    ("fake.pdf", b"not a pdf", "does not appear to be a valid PDF"),
+    ("application.json", b'{"company_name": "x"}', "application data"),
+])
+def test_a_file_a_run_cannot_use_is_identified_with_why(client: TestClient, name: str, content: bytes, says: str) -> None:
+    found = client.post("/api/documents/identify", files={"file": (name, content)}).json()
+    assert found["doc_type"] == "unknown" and says in found["error"]
+
+
+def test_identifying_a_file_keeps_nothing(client: TestClient, tmp_path: Path) -> None:
+    before = sorted(Path(api.UPLOADS_DIR).rglob("*")) if Path(api.UPLOADS_DIR).exists() else []
+    path = Path("data/packs/clean/bank_statement.pdf")
+    client.post("/api/documents/identify", files={"file": (path.name, path.read_bytes())})
+    after = sorted(Path(api.UPLOADS_DIR).rglob("*")) if Path(api.UPLOADS_DIR).exists() else []
+    assert after == before

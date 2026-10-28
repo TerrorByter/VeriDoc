@@ -17,15 +17,21 @@ const ROW_LABEL: Record<RowState, string> = {
   partial: "Finished, AI team failed",
 };
 
-function useElapsed(running: boolean): number {
-  const [start] = useState(() => Date.now());
-  const [now, setNow] = useState(start);
+/** Seconds the run has taken: the server's figure at the last poll, counted on locally while it runs, so a
+ * page opened mid-run (or reopened) shows the run's real time, not how long this page has been open. */
+function useElapsed(progress: Progress | null, running: boolean): number | null {
+  const [polled, setPolled] = useState<{ ms: number; at: number } | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (progress?.elapsed_ms != null) setPolled({ ms: progress.elapsed_ms, at: Date.now() });
+  }, [progress]);
   useEffect(() => {
     if (!running) return;
     const timer = window.setInterval(() => setNow(Date.now()), 250);
     return () => window.clearInterval(timer);
   }, [running]);
-  return Math.floor((now - start) / 1000);
+  if (!polled) return null;
+  return Math.floor((polled.ms + (running ? Math.max(0, now - polled.at) : 0)) / 1000);
 }
 
 const clock = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
@@ -34,7 +40,7 @@ export function RunScreen({ caseId }: { caseId: string }) {
   const [progress, setProgress] = useState<Progress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const running = !error && progress?.state !== "done" && progress?.state !== "failed";
-  const elapsed = useElapsed(running);
+  const elapsed = useElapsed(progress, running);
 
   useEffect(() => {
     let timer = 0;
@@ -87,7 +93,7 @@ export function RunScreen({ caseId }: { caseId: string }) {
           <p className="muted">{progress?.state === "done" ? "Finished" : progress?.state === "failed" ? "Stopped" : "Running"}</p>
           <h1 className="mono case-id">{caseId}</h1>
         </div>
-        <span className="mono muted elapsed" aria-label="Time elapsed">{clock(elapsed)}</span>
+        <span className="mono muted elapsed" aria-label="Time elapsed">{elapsed === null ? "--:--" : clock(elapsed)}</span>
       </div>
 
       <div

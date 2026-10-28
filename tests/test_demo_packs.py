@@ -58,16 +58,45 @@ def test_the_mock_service_holds_each_suppliers_record() -> None:
 
 def test_the_mock_service_holds_acmas_profile_as_the_team_issued_it() -> None:
     """ACMA's record is the team's ACRA profile (the sample), field for field, so uploading that PDF as a copy
-    differs from the original in nothing. Matthew Tan, who signs as CEO, is not on it: a new CEO ACRA does not
-    list yet, which the demo keeps rather than edit the profile."""
-    with pdfplumber.open(demo_packs.SAMPLE_DIR / "ACRA UPDATED.pdf") as pdf:
-        profile = _parse_acra_profile("ACRA UPDATED", [page.extract_text() or "" for page in pdf.pages])
+    differs from the original in nothing. It lists both officers: the chairman and Matthew Tan, the CEO who signs."""
+    with pdfplumber.open(demo_packs.SAMPLE_DIR / "ACMA ACRA.pdf") as pdf:
+        profile = _parse_acra_profile("ACMA ACRA", [page.extract_text() or "" for page in pdf.pages])
     record = official.company(profile.uen)
     assert record is not None
     issued = {"doc_id", "issued_on", "page", "source_quotes"}
     assert record.model_dump(exclude=issued) == profile.model_dump(exclude=issued)
-    assert [o.name for o in record.officers] == ["TAN BEE HUAT"]
+    assert [o.name for o in record.officers] == ["TAN BEE HUAT", "MATTHEW TAN"]
     assert record.officers[0].postal_code == "478236"  # the chairman's address, as the notice and the individual form give it
+
+
+def test_the_mock_service_holds_the_ceos_notice_as_the_team_issued_it() -> None:
+    """Matthew Tan, ACMA's CEO, guarantees the clean case: IRAS's record of him is his notice, figure for figure."""
+    from gldb.extract_stub import parse_pack
+    from gldb.intake import intake
+
+    path = demo_packs.SAMPLE_DIR / "acma_NOA (Matthew Tan).pdf"
+    issued = parse_pack("t", intake("t", [path]), [path], None).notices_of_assessment[0]
+    held = official.notice("S8294716J")
+    assert held is not None
+    fields = {"name", "id_number", "year_of_assessment", "income", "deductions", "chargeable_income", "tax_payable",
+              "postal_code"}
+    assert held.model_dump(include=fields) == issued.model_dump(include=fields)
+
+
+def test_the_clean_case_has_both_guarantors_each_with_an_individual_form_as_the_team_filled_it() -> None:
+    from gldb.extract_stub import parse_individual_self_cert
+    from gldb.intake import read_text
+
+    manifest = load_manifest(PACKS / "clean")
+    assert manifest is not None
+    assert [(g.name, g.id_number) for g in manifest.guarantors] == [("TAN BEE HUAT", "S2015888E"), ("MATTHEW TAN", "S8294716J")]
+    ceo = parse_individual_self_cert("ceo", PACKS / "clean" / "fatca_crs_individual_2.pdf")
+    home = ceo.residential_address
+    shown = (ceo.full_name, ceo.date_of_birth.strftime("%d/%m/%Y") if ceo.date_of_birth else None, home.block, home.street,
+             home.floor, home.unit, home.postal_code, ceo.declaration_id_number)
+    assert shown == ("MATTHEW TAN", "14/03/1979", "412", "Jurong West Street 42", "09", "318", "650412", "S8294716J")
+    team = "\n".join(read_text(demo_packs.SAMPLE_DIR / "ACMA INDIV (Matthew Tan).pdf"))
+    assert all(value in team for value in shown)  # every value is the one the team's (flattened) form prints
 
 
 def _trades(case: demo_packs.Case) -> list[demo_trade.Trade]:
@@ -79,7 +108,7 @@ def test_a_pack_is_the_samples_four_files_the_application_and_the_paperwork_of_i
     case = next(c for c in demo_packs.CASES if c.name == "inflated_financials")
     demo_packs.build_pack(case, tmp_path / case.name)
     trade_files = {name for t in _trades(case) for name in (
-        f"invoice_{t.invoice.number}.pdf", f"purchase_order_{t.invoice.po_number}.pdf", f"bill_of_lading_{t.bl_number}.pdf")}
+        f"invoice_{t.invoice.number}.pdf", f"purchase_order_{t.invoice.po_number}.pdf", f"bill_of_lading_{t.bill.number}.pdf")}
     assert len(trade_files) == 21
     assert sorted(p.name for p in (tmp_path / case.name).iterdir()) == sorted({
         "Submitted financials.xlsx", "application.json", "bank_statement.pdf", "fatca_crs_entity.pdf",
@@ -133,4 +162,5 @@ def test_the_api_offers_the_demo_packs() -> None:
     from gldb.api import app
 
     offered = TestClient(app).get("/api/packs").json()
-    assert offered == [{"name": c.name, "note": c.note} for c in sorted(demo_packs.CASES, key=lambda c: c.name)]
+    assert offered == [{"name": c.name, "note": c.note, "expected_path": c.expected_path}
+                       for c in sorted(demo_packs.CASES, key=lambda c: c.name)]

@@ -3,10 +3,10 @@ import { flushSync } from "react-dom";
 import { AGENT_TITLE, duration, SPECIALISTS, usd } from "../../catalogue";
 import type { AgentName, Evidence, ReviewPoint, ViewTarget } from "../../types";
 import type { StageProps } from "../workspace/StageDetail";
-import { aiLeads, clearChecks, observations, ruleConfirmed } from "../workspace/stageStatus";
+import { aiLeads, clearChecks, observations, ruleConfirmed, suspicions } from "../workspace/stageStatus";
 import { ErrorNote } from "../ui";
 import { findingTarget } from "./Findings";
-import { CollapsedLeads, KeptLeads, RuleConfirmations, WithheldLeads } from "./ai-team/Leads";
+import { CollapsedLeads, KeptLeads, RuleConfirmations, Suspicions, WithheldLeads } from "./ai-team/Leads";
 import { Trace } from "./ai-team/Trace";
 import { Fold, OffNote, Section } from "./common";
 
@@ -67,6 +67,7 @@ export function AiTeam({ kase, onView }: StageProps) {
   const cost = kase.cost?.usd_by_stage.ai_team;
   const leads = aiLeads(kase);
   const clear = clearChecks(kase);
+  const suspected = suspicions(kase);
   const unchecked = observations(kase);
   const confirmed = ruleConfirmed(kase);
   const withheld = team.leads.filter((l) => l.outcome === "withheld");
@@ -99,8 +100,9 @@ export function AiTeam({ kase, onView }: StageProps) {
         {team.status === "ran" && (
           <>
             <KeptLeads leads={leads} withheld={withheld.length} unchecked={unchecked.length + clear.length}
-              confirmed={confirmed.length} onCite={cite} {...leadProps} />
+              confirmed={confirmed.length} suspected={suspected.length} onCite={cite} {...leadProps} />
             {confirmed.length > 0 && <RuleConfirmations leads={confirmed} evidence={kase.evidence} />}
+            {suspected.length > 0 && <Suspicions leads={suspected} onCite={cite} {...leadProps} />}
           </>
         )}
       </Section>

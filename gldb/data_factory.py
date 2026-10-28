@@ -4,7 +4,7 @@ gldb/data_factory.py
 Generates the text-only synthetic PDF packs the test suite runs on (the demo
 packs, in the format of the team's sample, come from gldb.demo_packs). Their
 invoices, purchase orders and bills of lading are plain text lines; the demo
-packs' invoices are laid out as gldb.invoice_pdf prints them. These packs keep
+packs' are laid out as gldb.invoice_pdf and gldb.trade_pdf print them. These packs keep
 the trade checks and the AI team's trade patterns tested.
 
 Usage:

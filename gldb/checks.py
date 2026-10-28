@@ -30,6 +30,7 @@ from typing import Callable
 
 from gldb.config import (
     ACRA_FIGURES_UNIT,
+    BANK_DESCRIPTION_WORDS,
     BANK_RECENCY_DAYS,
     BANK_REVENUE_MIN_DAYS,
     BANK_REVENUE_RATIO_MAX,
@@ -44,6 +45,9 @@ from gldb.config import (
     MATCH_WINDOW_DAYS,
     META_MOD_GAP_HOURS,
     NON_SALES_CREDIT_WORDS,
+    PASS_THROUGH_DAYS,
+    PASS_THROUGH_MIN_SHARE,
+    PASS_THROUGH_MIN_VOLUME_SHARE,
     REQUIRED_BANK_MONTHS,
     SCREENING_MATCH_THRESHOLD,
     START_UP_MAX_MONTHS,
@@ -61,9 +65,7 @@ from gldb.ordering import TradeDates, breaks, violations
 from gldb.privacy import mask_id
 from gldb.reference import HighRiskCountry, high_risk_countries, watchlist
 from gldb.schemas import (
-    IRAS_DOC,
     AcraProfile,
-    RuleGroupReport,
     ApplicationManifest,
     BankStatement,
     DocMeta,
@@ -73,13 +75,16 @@ from gldb.schemas import (
     ExtractedPack,
     FinancialStatementSummary,
     Guarantor,
+    IRAS_DOC,
     Invoice,
     NoticeOfAssessment,
     PurchaseOrder,
+    RuleGroupReport,
     Severity,
     TimelineEvent,
+    Transaction,
 )
-from gldb.screening import high_risk_country, screen, screening_key, similarity
+from gldb.screening import birth_date_fits, high_risk_country, screen, screening_key, similarity
 from gldb.workbook import is_workbook
 
 # ---------------------------------------------------------------------------
@@ -227,17 +232,21 @@ def check_inv_arith(pack: ExtractedPack) -> list[Evidence]:
 # 2. BANK_RUNNING_BAL ----------------------------------------------------
 
 def check_bank_running_bal(pack: ExtractedPack) -> list[Evidence]:
-    """Walk each statement's transactions and verify running balance."""
+    """Walk each statement's transactions and verify running balance. Each
+    row is checked against the balance printed on the row before it, so one
+    edited figure is one finding, not a gap carried into every later row."""
     results: list[Evidence] = []
     for stmt in pack.bank_statements:
         doc = stmt.doc_id
-        running = stmt.opening_balance
+        previous = stmt.opening_balance
 
         for txn in stmt.transactions:
+            running = previous
             if txn.credit is not None:
                 running = money(running + txn.credit)
             if txn.debit is not None:
                 running = money(running - txn.debit)
+            previous = txn.balance
 
             if abs(running - txn.balance) > TOLERANCE_SGD:
                 quote = stmt.source_quotes.get(txn.description, txn.description)
@@ -251,17 +260,89 @@ def check_bank_running_bal(pack: ExtractedPack) -> list[Evidence]:
                     quote=quote,
                 ))
 
-        # Compare computed final balance against stated closing balance
-        if abs(running - stmt.closing_balance) > TOLERANCE_SGD:
+        # Compare the last printed balance against stated closing balance
+        if abs(previous - stmt.closing_balance) > TOLERANCE_SGD:
             results.append(_ev(
                 "BANK_RUNNING_BAL", "fraud_signal", "high", doc, stmt.page, 1.0,
                 f"Closing balance SGD {stmt.closing_balance} is inconsistent with "
-                f"the running total SGD {running}.",
-                expected=f"SGD {running}",
+                f"the running total SGD {previous}.",
+                expected=f"SGD {previous}",
                 observed=f"SGD {stmt.closing_balance}",
                 quote=stmt.source_quotes.get("Closing Balance"),
             ))
 
+    return results
+
+
+# BANK_PASS_THROUGH ------------------------------------------------------
+
+_NAME_WORD = re.compile(r"[A-Z][A-Z&']*")
+#: Fewest letters a party named in two bank descriptions has
+_PARTY_MIN_LETTERS = 3
+
+
+def party_words(description: str) -> list[str]:
+    """The words of a bank description that may name a party, in order."""
+    return [w for w in _NAME_WORD.findall(description.upper()) if w not in BANK_DESCRIPTION_WORDS]
+
+
+def shared_party(a: str, b: str) -> str | None:
+    """The party two bank descriptions both name: their longest common run of
+    party words, or None when they share none (or only a word too short to be
+    a name)."""
+    left, right = party_words(a), party_words(b)
+    best: list[str] = []
+    for i in range(len(left)):
+        for j in range(len(right)):
+            k = 0
+            while i + k < len(left) and j + k < len(right) and left[i + k] == right[j + k]:
+                k += 1
+            if k > len(best):
+                best = left[i:i + k]
+    name = " ".join(best)
+    return name if sum(ch.isalpha() for ch in name) >= _PARTY_MIN_LETTERS else None
+
+
+def check_bank_pass_through(pack: ExtractedPack) -> list[Evidence]:
+    """Money that only passes through the account: credits paid on to another
+    party within PASS_THROUGH_DAYS, keeping almost nothing (a genuine trader
+    keeps a margin), that make up most of what the account pays out (it has
+    little spending of its own: payroll, rent, suppliers it buys from). A
+    recognised money-laundering pattern, and a sign the trade exists on paper.
+    One finding per statement; money returned to the payer is a refund, not
+    a pass-through."""
+    results: list[Evidence] = []
+    days = f"{PASS_THROUGH_DAYS} day{'' if PASS_THROUGH_DAYS == 1 else 's'}"
+    for stmt in pack.bank_statements:
+        rows = stmt.transactions
+        used: set[int] = set()
+        pairs: list[tuple[Transaction, Transaction]] = []
+        for into in rows:
+            if not into.credit or into.credit <= 0:
+                continue
+            out = next((i for i, t in enumerate(rows) if i not in used and t.debit and t.debit > 0
+                        and into.date <= t.date <= into.date + timedelta(days=PASS_THROUGH_DAYS)
+                        and PASS_THROUGH_MIN_SHARE * into.credit <= t.debit <= into.credit
+                        and shared_party(into.description, t.description) is None), None)
+            if out is not None:
+                used.add(out)
+                pairs.append((into, rows[out]))
+        paid_out = sum((t.debit for t in rows if t.debit and t.debit > 0), Decimal(0))
+        passed = sum((t.debit or Decimal(0) for _, t in pairs), Decimal(0))
+        if not pairs or passed < PASS_THROUGH_MIN_VOLUME_SHARE * paid_out:
+            continue
+        received = sum((t.credit or Decimal(0) for t, _ in pairs), Decimal(0))
+        into, out = pairs[0]
+        results.append(_ev(
+            "BANK_PASS_THROUGH", "fraud_signal", "medium", stmt.doc_id, stmt.page, 0.7,
+            f"{len(pairs)} credit(s) were paid on to another party within {days}, keeping under "
+            f"{(1 - PASS_THROUGH_MIN_SHARE):.0%}: '{into.description}' SGD {into.credit} on {into.date} went out as "
+            f"'{out.description}' SGD {out.debit} on {out.date}. These payments are {passed / paid_out:.0%} of "
+            "everything the account paid out, so it shows little business of its own.",
+            expected="a margin kept, or spending of the account's own",
+            observed=f"SGD {passed} of SGD {received} ({passed / received:.0%}) paid on within {days}",
+            quote=stmt.source_quotes.get(out.description, out.description),
+        ))
     return results
 
 
@@ -614,7 +695,10 @@ def check_fs_acra(pack: ExtractedPack) -> list[Evidence]:
     """The submitted financial statements state the figures ACRA holds for the
     same year. ACRA prints its figures rounded (to a thousandth of its unit),
     so a figure agrees if it rounds to what ACRA prints. Statements for a
-    different year than ACRA's latest are noted, not compared."""
+    different year than ACRA's latest are noted, not compared. A difference
+    is critical: financials that contradict the statutory filing are a
+    falsified document on their own, however many figures differ (repeats on
+    one document score once)."""
     profile = acra_record(pack)
     filed = profile.financials if profile else None
     if filed is None:
@@ -636,7 +720,7 @@ def check_fs_acra(pack: ExtractedPack) -> list[Evidence]:
             rounding = max(Decimal(10) ** printed.as_tuple().exponent / 2 * ACRA_FIGURES_UNIT, TOLERANCE_SGD)
             if abs(submitted - expected) > rounding:
                 results.append(_ev(
-                    "FS_ACRA_MISMATCH", "fraud_signal", "high", fs.doc_id, fs.figure_pages.get(field, fs.page), 0.9,
+                    "FS_ACRA_MISMATCH", "fraud_signal", "critical", fs.doc_id, fs.figure_pages.get(field, fs.page), 0.9,
                     f"{label} in the submitted financial statements (SGD {submitted:,.2f}) differs from the "
                     f"ACRA profile (SGD {expected:,.2f}) for the year ended {fs.financial_year_end}.",
                     quote=fs.source_quotes.get(field),
@@ -868,7 +952,9 @@ def check_acra_signatories(pack: ExtractedPack) -> list[Evidence]:
 
 def check_meta_mod_after_create(pack: ExtractedPack) -> list[Evidence]:
     """Flag PDFs where mod_date - creation_date > META_MOD_GAP_HOURS. A
-    workbook is edited after it is created as a matter of course."""
+    workbook is edited after it is created as a matter of course. Low: benign
+    re-saves (annotating, signing, compressing, filling a form) are common, so
+    this corroborates a content finding rather than standing on its own."""
     results: list[Evidence] = []
     for doc in pack.docs:
         if doc.doc_type in FORM_DOC_TYPES or is_workbook(doc.filename):
@@ -878,7 +964,7 @@ def check_meta_mod_after_create(pack: ExtractedPack) -> list[Evidence]:
         delta_hours = (doc.mod_date - doc.creation_date).total_seconds() / 3600
         if delta_hours > META_MOD_GAP_HOURS:
             results.append(_ev(
-                "META_MOD_AFTER_CREATE", "fraud_signal", "high",
+                "META_MOD_AFTER_CREATE", "fraud_signal", "low",
                 doc.doc_id, 1, 0.7,
                 f"PDF modification date ({doc.mod_date.date()}) is "
                 f"{delta_hours:.0f} hours after creation date "
@@ -897,7 +983,8 @@ def check_meta_producer_mismatch(pack: ExtractedPack) -> list[Evidence]:
     """Within one document type, any doc whose producer differs from that
     type's majority triggers a flag. Different types come from different
     issuers (the bank, IRAS, the applicant's accounts software), so their
-    producers are never compared with each other."""
+    producers are never compared with each other. Low: a different tool
+    (a scan, a print to PDF) is common, so this only corroborates."""
     from collections import Counter
 
     results: list[Evidence] = []
@@ -911,7 +998,7 @@ def check_meta_producer_mismatch(pack: ExtractedPack) -> list[Evidence]:
         for doc in docs:
             if doc.producer != majority_producer:
                 results.append(_ev(
-                    "META_PRODUCER_MISMATCH", "fraud_signal", "medium",
+                    "META_PRODUCER_MISMATCH", "fraud_signal", "low",
                     doc.doc_id, 1, 0.5,
                     f"PDF producer '{doc.producer}' differs from '{majority_producer}', "
                     f"which made the other {doc.doc_type.replace('_', ' ')} documents in the pack. "
@@ -1611,12 +1698,15 @@ def check_forensic_mixed_font(pack: ExtractedPack) -> list[Evidence]:
 
 
 def check_forensic_incremental_update(pack: ExtractedPack) -> list[Evidence]:
+    """PDFs saved again after their first save. Low, like the metadata
+    checks: filling a form or signing appends a revision too, so this
+    corroborates a content finding rather than standing on its own."""
     results = []
     for doc_id, path in _forensic_docs(pack):
         revisions = incremental_updates(path)
         if revisions:
             results.append(_ev(
-                "FORENSIC_INCREMENTAL_UPDATE", "fraud_signal", "medium", doc_id, 1, 0.6,
+                "FORENSIC_INCREMENTAL_UPDATE", "fraud_signal", "low", doc_id, 1, 0.6,
                 f"{doc_id} was saved again after it was created ({revisions} later "
                 "revision(s)), so its content may have been changed.",
                 observed=f"{revisions} later revision(s)",
@@ -1733,7 +1823,7 @@ def _text_key(value: object) -> str:
 
 def _altered(doc_id: str, page: int, record: str, field: str, original: object, copy: object) -> Evidence:
     return _ev(
-        "XDOC_OFFICIAL_RECORD", "fraud_signal", "high", doc_id, page, 0.95,
+        "XDOC_OFFICIAL_RECORD", "fraud_signal", "critical", doc_id, page, 0.95,
         f"The {field.replace('_', ' ')} on {doc_id} is '{copy}', but {record} has '{original}'. The uploaded "
         "copy of an official record differs from the record itself.",
         quote=str(copy), expected=str(original), observed=str(copy),
@@ -1743,7 +1833,9 @@ def _altered(doc_id: str, page: int, record: str, field: str, original: object, 
 def check_official_copies(pack: ExtractedPack) -> list[Evidence]:
     """An ACRA profile or Notice of Assessment the applicant uploaded states
     what ACRA's or IRAS's own record states: a copy that differs was altered.
-    A notice for another year than IRAS's latest is noted, not compared."""
+    A notice for another year than IRAS's latest is noted, not compared. A
+    difference is critical: an edited government record is a falsified
+    document on its own, like financials that contradict ACRA's filing."""
     if pack.official is None or pack.official.error is not None:
         return []
     results: list[Evidence] = []
@@ -1757,7 +1849,7 @@ def check_official_copies(pack: ExtractedPack) -> list[Evidence]:
                     for f in _PROFILE_FIELDS if _text_key(getattr(copy, f)) != _text_key(getattr(original, f))]
         listed = {_id_key(o.id_number) for o in original.officers}
         results += [
-            _ev("XDOC_OFFICIAL_RECORD", "fraud_signal", "high", copy.doc_id, copy.page, 0.95,
+            _ev("XDOC_OFFICIAL_RECORD", "fraud_signal", "critical", copy.doc_id, copy.page, 0.95,
                 f"{copy.doc_id} lists '{o.name}' ({o.position}, {mask_id(o.id_number)}) as an officer; {where} does not.",
                 quote=o.name, expected=", ".join(x.name for x in original.officers) or "no officers",
                 observed=o.name)
@@ -1882,15 +1974,24 @@ def _screened_names(pack: ExtractedPack) -> dict[str, tuple[str, str, int, str]]
         mentions += [(g.name, PACK_DOC, 1, "guarantor") for g in m.guarantors]
     for i in pack.invoices:
         mentions += [(i.seller_name, i.doc_id, i.page, "seller"), (i.buyer_name, i.doc_id, i.page, "buyer")]
-    mentions += [(p.buyer_name, p.doc_id, p.page, "buyer") for p in pack.purchase_orders]
+    for p in pack.purchase_orders:
+        mentions += [(p.buyer_name, p.doc_id, p.page, "buyer"), (p.seller_name, p.doc_id, p.page, "seller")]
     for b in pack.bills_of_lading:
         mentions += [(b.shipper_name, b.doc_id, b.page, "shipper"),
                      (b.consignee_name, b.doc_id, b.page, "consignee")]
-    # The applicant's people as ACRA lists them, and as its forms name them
-    record = pack.official.applicant() if pack.official else None
-    if record is not None:
-        mentions += [(o.name, PACK_DOC, 1, f"officer ({o.position.lower()}) at ACRA") for o in record.officers]
-        mentions += [(h.name, PACK_DOC, 1, "shareholder at ACRA") for h in record.shareholders]
+    # The people of the applicant and of every company the documents name, as ACRA lists them
+    official = pack.official
+    records = official.companies if official else {}
+    applicant = official.applicant_uen if official else None
+    for uen, record in sorted(records.items(), key=lambda found: found[0] != applicant):
+        if record is None:
+            continue
+        of = "" if uen == applicant else f" of {record.company_name}"
+        mentions += [(o.name, PACK_DOC, 1, f"officer ({o.position.lower()}){of} at ACRA") for o in record.officers]
+        mentions += [(h.name, PACK_DOC, 1, f"shareholder{of} at ACRA") for h in record.shareholders]
+    # ... and as the applicant's forms name them: who controls it, who signs for it, who declares
+    for c in pack.entity_self_certs:
+        mentions += [(p.name, c.doc_id, p.page, "controlling person") for p in c.controlling_persons if p.name]
     mentions += [(s.name, c.doc_id, 1, "signatory") for c in pack.entity_self_certs for s in c.signatories if s.name]
     mentions += [(c.full_name, c.doc_id, 1, "declarant") for c in pack.individual_self_certs if c.full_name]
     names: dict[str, tuple[str, str, int, str]] = {}
@@ -1901,18 +2002,34 @@ def _screened_names(pack: ExtractedPack) -> dict[str, tuple[str, str, int, str]]
 
 def check_sanctions(pack: ExtractedPack) -> list[Evidence]:
     """Screen the applicant, its people (from the application, ACRA's record
-    and the forms) and its counterparties against the sanctions list. A hit
-    is a possible match for a person to dispose of."""
+    and the forms), its counterparties and their people at ACRA against the
+    sanctions list. A hit is a possible match for a person to dispose of.
+    Where the individual form gives the person's date of birth and the list
+    the entry's, a date that fits none of the entry's discounts the hit (kept
+    as information, so the analyst sees it was screened); one that fits is
+    said to."""
     wl = watchlist()
+    born = {screening_key(c.full_name): c.date_of_birth
+            for c in pack.individual_self_certs if c.full_name and c.date_of_birth}
     results = []
-    for name, doc_id, page, role in _screened_names(pack).values():
+    for key, (name, doc_id, page, role) in _screened_names(pack).items():
         for entry, score, matched in screen(name):
             listed = f"'{entry.name}'" + ("" if matched == entry.name else f" (alias '{matched}')")
+            fits = birth_date_fits(born.get(key), entry)
+            severity: Severity = "high"
+            then = "Confirm or dismiss the match before proceeding."
+            if fits is not None:
+                dates = f"born {born[key]:%d %b %Y} by the individual form; the entry lists {', '.join(entry.birth_dates)}"
+                if fits:
+                    then = f"The date of birth fits ({dates}). {then}"
+                else:
+                    severity, then = "info", (f"Discounted: {dates}. No action is needed unless other details "
+                                              f"(nationality, address, identity number) match the entry.")
             results.append(_ev(
-                "SANCTIONS_MATCH", "fraud_signal", "high", doc_id, page, round(score, 2),
+                "SANCTIONS_MATCH", "fraud_signal", severity, doc_id, page, round(score, 2),
                 f"The {role} '{name}' resembles {listed} on {entry.list} "
                 f"({entry.reference}), similarity {score:.2f}. Sanctions list {wl.version}, "
-                f"as of {wl.as_of}. Confirm or dismiss the match before proceeding.",
+                f"as of {wl.as_of}. {then}",
                 quote=name,
                 expected="no sanctions match",
                 observed=f"'{name}' ~ {listed} ({entry.list} {entry.reference})",
@@ -2147,7 +2264,8 @@ RULE_GROUPS: list[RuleGroup] = [
     RuleGroup(
         "Cross-Document",
         "Consistency of identity, amounts and quantities across invoices, purchase orders, "
-        "bills of lading, bank statements, financial statements and the ACRA profile.",
+        "bills of lading, bank statements, financial statements and the ACRA profile, and money "
+        "that only passes through the account.",
         [
             check_xdoc_identity,
             check_xdoc_invoice_bank,
@@ -2157,6 +2275,7 @@ RULE_GROUPS: list[RuleGroup] = [
             check_xdoc_bank_cash,
             check_xdoc_bank_debt,
             check_xdoc_bank_revenue,
+            check_bank_pass_through,
             check_acra_entity,
             check_acra_signatories,
             check_acra_persons,

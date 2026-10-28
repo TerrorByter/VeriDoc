@@ -28,21 +28,24 @@ from gldb.signal_library import RULE_VERSION, signal_for
 # Hard-rule triggers
 # ---------------------------------------------------------------------------
 
-#: check_id prefixes that force band "High" at severity high/critical
-_HARD_RULE_PREFIXES: tuple[str, ...] = ("META_",)
-
-#: Exact check_ids that force band "High" at severity high/critical
-_HARD_RULE_IDS: frozenset[str] = frozenset({"XDOC_IDENTITY"})
+#: check_ids that force band "High" at severity high/critical. Metadata
+#: (META_*) is left out: it corroborates a content finding, never stands alone
+HARD_RULE_IDS: frozenset[str] = frozenset({"XDOC_IDENTITY"})
 
 #: Severities considered serious enough to trigger hard rules / manual review
 _SERIOUS: frozenset[str] = frozenset({"high", "critical"})
 
 
-def _contribution(ev: Evidence) -> Contribution:
-    """One score line: the signal's fixed points if it has them, else the
-    severity weight the check reported."""
+def _points(ev: Evidence) -> int:
+    """The signal's fixed points if it has them, else the severity weight the
+    check reported."""
     signal = signal_for(ev.check_id)
-    points = signal.points if signal.points is not None else SEVERITY_WEIGHTS.get(ev.severity, 0)
+    return signal.points if signal.points is not None else SEVERITY_WEIGHTS.get(ev.severity, 0)
+
+
+def _contribution(ev: Evidence, hits: int) -> Contribution:
+    """One score line for *ev*, covering *hits* findings of its check on its document."""
+    signal = signal_for(ev.check_id)
     return Contribution(
         signal_id=signal.signal_id,
         check_id=ev.check_id,
@@ -50,19 +53,26 @@ def _contribution(ev: Evidence) -> Contribution:
         evidence_id=ev.evidence_id,
         document=ev.document,
         page=ev.page,
-        points=points,
+        points=_points(ev),
+        hits=hits,
     )
+
+
+def _contributions(fraud_signals: list[Evidence]) -> list[Contribution]:
+    """One line per check per document, in first-finding order: repeats of a
+    check on one document are one problem (one edited figure), so they score
+    once, at the highest-points finding, and the line counts them. The same
+    check on another document is separate evidence and scores again."""
+    groups: dict[tuple[str, str], list[Evidence]] = {}
+    for ev in fraud_signals:
+        groups.setdefault((ev.check_id, ev.document), []).append(ev)
+    lines = [_contribution(max(evs, key=_points), len(evs)) for evs in groups.values()]
+    return [c for c in lines if c.points]
 
 
 def _is_hard_rule_trigger(ev: Evidence) -> bool:
     """Return True if *ev* would trigger a hard band-High rule."""
-    if ev.severity not in _SERIOUS:
-        return False
-    if any(ev.check_id.startswith(p) for p in _HARD_RULE_PREFIXES):
-        return True
-    if ev.check_id in _HARD_RULE_IDS:
-        return True
-    return False
+    return ev.severity in _SERIOUS and ev.check_id in HARD_RULE_IDS
 
 
 # ---------------------------------------------------------------------------
@@ -77,13 +87,14 @@ def score(evidence: list[Evidence]) -> RiskResult:
     Compliance and completeness Evidence are ignored here.
 
     Algorithm:
-      1. raw  = sum of SEVERITY_WEIGHTS[ev.severity] for each fraud_signal.
+      1. raw  = sum of points over one line per check per document (repeats
+         of a check on one document score once, at their highest points).
       2. score = min(100, raw).
       3. band  = "Low" if score <= BAND_LOW_MAX,
                  "Medium" if score <= BAND_MEDIUM_MAX,
                  else "High".
-      4. Hard rule: any fraud_signal with check_id starting with "META_" or
-         equal to "XDOC_IDENTITY" at severity high or critical forces band "High".
+      4. Hard rule: an XDOC_IDENTITY fraud_signal at severity high or
+         critical forces band "High".
       5. manual_review_required = band == "High" OR any fraud_signal at
          severity high or critical.
       6. reasons: one line per non-info fraud_signal, plus a line for each
@@ -97,9 +108,9 @@ def score(evidence: list[Evidence]) -> RiskResult:
     """
     fraud_signals = [ev for ev in evidence if ev.category == "fraud_signal"]
 
-    # 1 & 2 — itemised sum (one line per finding, traced to its evidence and
-    # named by the signal library), capped at 100
-    contributions = [c for ev in fraud_signals if (c := _contribution(ev)).points]
+    # 1 & 2 — itemised sum (one line per check per document, traced to its
+    # evidence and named by the signal library), capped at 100
+    contributions = _contributions(fraud_signals)
     final_score = min(100, sum(c.points for c in contributions))
 
     # 3 — band from score

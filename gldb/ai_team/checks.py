@@ -17,7 +17,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Literal
 
-from gldb.checks import incorporation, is_purchase, matching_po
+from gldb.checks import incorporation, is_purchase, matching_po, party_words, shared_party
 from gldb.config import (
     GENERIC_PAYERS,
     MATCH_WINDOW_DAYS,
@@ -25,6 +25,8 @@ from gldb.config import (
     PAYER_MIN_LETTERS,
     PAYER_SAME_THRESHOLD,
     PAYMENT_CHANNELS,
+    ROUND_TRIP_AMOUNT_TOLERANCE,
+    ROUND_TRIP_WINDOW_DAYS,
     SCREENING_MATCH_THRESHOLD,
     TOLERANCE_SGD,
 )
@@ -288,6 +290,38 @@ def _paid(facts: dict[str, str], payment: Payment) -> dict[str, str]:
             "amount": str(payment.transaction.credit), "date": str(payment.transaction.date)}
 
 
+def _round_trip(lead: Lead, pack: ExtractedPack, evidence: list[Evidence]) -> Outcome:
+    """Money paid out that comes back from the same party. Anchored on the
+    payments out (debits) the lead names; every later credit in the case is
+    searched, so the case data decides, not the agent's choice of rows.
+    Verified if a credit from the party paid arrives within the window at
+    nearly the amount paid; contradicted if none does; unverified when the
+    lead names no payment out or its party cannot be read."""
+    rows = {row_id: txn for row_id, _, txn in bank_rows(pack)}
+    if (missing := next((r for r in lead.transaction_ids if r not in rows), None)) is not None:
+        return _unverified(f"bank row {missing} is not in the pack")
+    outs = [r for r in lead.transaction_ids if (rows[r].debit or 0) > 0]
+    if not outs:
+        return _unverified("round_trip needs a payment out (a debit)")
+    if not any(party_words(rows[r].description) for r in outs):
+        return _unverified("the party paid cannot be read from the description")
+    for out_id in outs:
+        out = rows[out_id]
+        window_end = out.date + timedelta(days=ROUND_TRIP_WINDOW_DAYS)
+        for back_id, back in rows.items():
+            if not (back.credit and back.credit > 0 and out.date <= back.date <= window_end):
+                continue
+            party = shared_party(out.description, back.description)
+            if party and abs(back.credit - out.debit) <= ROUND_TRIP_AMOUNT_TOLERANCE * out.debit:
+                return Outcome("verified", f"{out_id} paid {party} {out.debit}; {back_id} brought {back.credit} back "
+                               f"from {party} {(back.date - out.date).days} days later", {
+                                   "counterparty": party, "out_transaction": out_id, "out_amount": str(out.debit),
+                                   "out_date": str(out.date), "back_transaction": back_id,
+                                   "back_amount": str(back.credit), "back_date": str(back.date)})
+    return Outcome("contradicted", f"no credit from the party paid within {ROUND_TRIP_WINDOW_DAYS} days at nearly "
+                   "the amount paid", {"out_transaction": outs[0], "out_amount": str(rows[outs[0]].debit)})
+
+
 def _sequence_anomaly(lead: Lead, pack: ExtractedPack, evidence: list[Evidence]) -> Outcome:
     """The invoice's trade against the one ordering policy (gldb.ordering):
     a breach verifies (and names the rule finding that reports it), valid
@@ -367,12 +401,14 @@ _CHECKS: dict[Pattern, Callable[[Lead, ExtractedPack, list[Evidence]], Outcome]]
     "third_party_payment": _third_party_payment,
     "sequence_anomaly": _sequence_anomaly,
     "related_party": _related_party,
+    "round_trip": _round_trip,
 }
 #: Check id prefixes that read the same data as a pattern's check, so cannot corroborate it
 _SAME_SOURCE: dict[Pattern, tuple[str, ...]] = {
     "third_party_payment": ("XDOC_INVOICE_BANK", "BANK_"),
     "sequence_anomaly": ("TEMP_",),
     "related_party": ("REGISTRY_", "SANCTIONS_"),
+    "round_trip": ("BANK_",),
 }
 
 

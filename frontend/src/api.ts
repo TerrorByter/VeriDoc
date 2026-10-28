@@ -7,10 +7,12 @@ import type {
   EvidenceLocation,
   PageFinding,
   FlagDecision,
+  Identified,
   MlroDecision,
   PackInfo,
   Progress,
   ReasonCode,
+  RequestDraft,
   RunStarted,
 } from "./types";
 
@@ -46,6 +48,13 @@ export const createCaseFromPack = (name: string) =>
 
 export const createCase = (files: File[]) => request<RunStarted>("/api/cases", upload(files));
 
+/** What one file is, before a case is opened; the server keeps nothing */
+export const identifyDocument = (file: File) => {
+  const body = new FormData();
+  body.append("file", file);
+  return request<Identified>("/api/documents/identify", { method: "POST", body });
+};
+
 export const listCases = () => request<CaseSummary[]>("/api/cases");
 
 export const getProgress = (caseId: string) =>
@@ -54,6 +63,8 @@ export const getProgress = (caseId: string) =>
 export const getControls = () => request<Controls>("/api/controls");
 
 export const getCase = (caseId: string) => request<CaseView>(`/api/cases/${caseId}`);
+
+export const getRequestDraft = (caseId: string) => request<RequestDraft>(`/api/cases/${caseId}/request-draft`);
 
 export const getAudit = (caseId: string) =>
   request<AuditEvent[]>(`/api/cases/${caseId}/audit`);

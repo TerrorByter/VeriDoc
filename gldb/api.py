@@ -34,6 +34,7 @@ import logging
 import re
 import secrets
 import shutil
+import tempfile
 from collections import defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -53,24 +54,30 @@ from gldb.config import (
     AGENT_SPECIALIST_MODEL,
     AGENT_SUPERVISOR_MODEL,
     AGENTS_ENABLED,
+    BAND_LOW_MAX,
+    BAND_MEDIUM_MAX,
     BEDROCK_MODEL_ID,
     CASES_DIR,
     EXTRACTION_MODE,
     GUARDRAIL_ID,
     GUARDRAIL_VERSION,
+    HARD_FLAG_CHECK_IDS,
     OCR_ENABLED,
     PACKS_DIR,
     POLICY_VERSION,
     PROMPT_SCREEN_ENABLED,
+    QA_SAMPLE_PERCENT,
     SEVERITY_WEIGHTS,
     SHADOW_SCORE_ENABLED,
     SHADOW_SCORER_MODEL,
     UPLOADS_DIR,
 )
 from gldb.evaluate import Report, load_saved
+from gldb.rfi import RequestDraft, draft_request
+from gldb.scoring import HARD_RULE_IDS
 from gldb.extract_llm import ExtractionError
 from gldb.feedback import CheckFeedback, report
-from gldb.intake import IntakeError, document_paths, validate_file
+from gldb.intake import IntakeError, document_paths, intake, load_manifest, validate_file
 from gldb.jobs import Progress, StageProgress
 from gldb.pipeline import ASSESS_STAGES, OCR_LINES_FILE, run
 from gldb.reference import versions as reference_versions
@@ -86,6 +93,7 @@ from gldb.schemas import (
     CaseStatus,
     DocMeta,
     DocRef,
+    DocType,
     Evidence,
     GateDecision,
     InvestigationTask,
@@ -94,6 +102,7 @@ from gldb.schemas import (
     PromptAttackHit,
     ReadinessResult,
     ReasonCode,
+    ReviewPath,
     RiskResult,
     Routing,
     RuleGroupReport,
@@ -192,6 +201,22 @@ class CostSummary(BaseModel):
     usd_per_case: Decimal | None
 
 
+class ScoringPolicy(BaseModel):
+    """How a finding becomes points and a route: what the controls page states
+    so a reader can see how much each finding counts without the code."""
+
+    #: Points per fraud finding by its severity; each check scores once per document
+    severity_points: dict[str, int]
+    band_low_max: int
+    band_medium_max: int
+    #: Checks that force band High at high or critical severity
+    forces_high: list[str]
+    #: Checks that send a case to enhanced review whatever its score
+    forces_enhanced_review: list[str]
+    #: Share of fast-track cases an analyst samples
+    qa_sample_percent: int
+
+
 class Controls(BaseModel):
     """How the pipeline is governed: versions, capabilities, the signal
     library, spend, the latest evaluation and analyst override statistics."""
@@ -200,6 +225,7 @@ class Controls(BaseModel):
     rule_version: str
     reference_data: dict[str, str]
     capabilities: list[Capability]
+    scoring: ScoringPolicy
     signals: list[Signal]
     cost: CostSummary
     #: None until `python -m gldb.evaluate --save` has run
@@ -403,21 +429,24 @@ class PackInfo(BaseModel):
     name: str
     #: What the pack shows, from its ground truth; None where it says nothing
     note: str | None = None
+    #: The route its ground truth expects; None where it gives none
+    expected_path: ReviewPath | None = None
 
 
 def _pack_names() -> list[str]:
     return sorted(p.name for p in Path(PACKS_DIR).iterdir() if p.is_dir())
 
 
-def _note(folder: Path) -> str | None:
-    truth = folder / "ground_truth.json"
-    return json.loads(truth.read_text(encoding="utf-8")).get("note") if truth.is_file() else None
+def _pack_info(folder: Path) -> PackInfo:
+    path = folder / "ground_truth.json"
+    truth = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    return PackInfo(name=folder.name, note=truth.get("note"), expected_path=truth.get("expected_path"))
 
 
 @app.get("/api/packs")
 def list_packs() -> list[PackInfo]:
-    """The synthetic demo packs, each with what it shows."""
-    return [PackInfo(name=name, note=_note(Path(PACKS_DIR) / name)) for name in _pack_names()]
+    """The synthetic demo packs, each with what it shows and the route it should take."""
+    return [_pack_info(Path(PACKS_DIR) / name) for name in _pack_names()]
 
 
 @app.post("/api/cases/from-pack/{name}", status_code=202)
@@ -434,6 +463,40 @@ def create_case_from_pack(name: str, background: BackgroundTasks) -> RunStarted:
         if path.is_file():
             shutil.copy2(path, folder / path.name)
     return _start(case_id, background)
+
+
+class Identified(BaseModel):
+    """What one file is, read the way a run reads it."""
+
+    filename: str
+    #: "application" for the application data (application.json)
+    doc_type: DocType | Literal["application"]
+    #: Why a run could not use the file; None when it can
+    error: str | None = None
+
+
+@app.post("/api/documents/identify")
+def identify_document(file: UploadFile = File(...)) -> Identified:
+    """Identify one file before a case is opened, so the upload page can say
+    which required documents are still missing. Nothing is kept. A scan with
+    no text reads as unknown here; a run with OCR on reads it."""
+    name = Path(file.filename or "upload").name
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / name
+        with path.open("wb") as out:
+            shutil.copyfileobj(file.file, out)
+        if name == MANIFEST:
+            try:
+                load_manifest(tmp)
+            except ValueError:
+                return Identified(filename=name, doc_type="unknown",
+                                  error=f"{name} is not valid application data: a field is missing or malformed")
+            return Identified(filename=name, doc_type="application")
+        try:
+            (doc,) = intake("identify", [path])
+        except IntakeError as exc:
+            return Identified(filename=name, doc_type="unknown", error=str(exc))
+        return Identified(filename=name, doc_type=doc.doc_type)
 
 
 @app.post("/api/cases", status_code=202)
@@ -617,6 +680,13 @@ def get_page(case_id: str, doc_id: str, page: int) -> Response:
     return Response(render_page(path, page), media_type="image/png")
 
 
+@app.get("/api/cases/{case_id}/request-draft")
+def get_request_draft(case_id: str) -> RequestDraft:
+    """A request for information drafted from the case, for the analyst to
+    edit and send: applicant-safe findings and verified AI questions only."""
+    return draft_request(_load(case_id))
+
+
 @app.get("/api/cases/{case_id}/evidence/{evidence_id}/location")
 def get_evidence_location(case_id: str, evidence_id: str) -> EvidenceLocation:
     """Where a finding is: its document and page, and boxes around its quote
@@ -690,6 +760,11 @@ def get_controls() -> Controls:
             Capability(name="shadow_score", enabled=AGENTS_ENABLED and SHADOW_SCORE_ENABLED,
                        detail=SHADOW_SCORER_MODEL),
         ],
+        scoring=ScoringPolicy(
+            severity_points=SEVERITY_WEIGHTS, band_low_max=BAND_LOW_MAX, band_medium_max=BAND_MEDIUM_MAX,
+            forces_high=sorted(HARD_RULE_IDS), forces_enhanced_review=sorted(HARD_FLAG_CHECK_IDS),
+            qa_sample_percent=QA_SAMPLE_PERCENT,
+        ),
         signals=list(SIGNALS),
         cost=_cost_summary(),
         evaluation=load_saved(),

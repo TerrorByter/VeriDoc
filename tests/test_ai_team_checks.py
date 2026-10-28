@@ -29,6 +29,7 @@ from gldb.ai_team.checks import (
     counterparties,
     payment_context,
     resolved_findings,
+    shared_party,
     subject_locations,
 )
 from gldb.checks import check_temp_trade_sequence as check_trade_rules
@@ -262,6 +263,53 @@ def test_corroboration_documents_follow_the_patterns_own_subject_fields() -> Non
     widened = lead.model_copy(update={"counterparty": _party(pack, "Orchid Lane Retail Pte. Ltd.")})
     # The agent set a counterparty that third_party_payment does not use: it widens nothing
     assert corroborate(widened, verified, pack, [elsewhere]).status == "verified"
+
+
+# ---------------------------------------------------------------------------
+# round_trip
+# ---------------------------------------------------------------------------
+
+
+def _rt(rows: list[str]) -> Lead:
+    return _lead("round_trip", "transaction", transaction_ids=rows)
+
+
+def test_rt_supplier_payment_returning_as_a_receipt_is_verified() -> None:
+    pack, _ = _case("round_trip")
+    outcome = _check("round_trip", _rt(_rows(pack, "SUPPLIER PAYMENT HARBOURLINE")))
+    assert outcome.status == "verified"
+    assert outcome.facts == {
+        "counterparty": "HARBOURLINE LOGISTICS",
+        "out_transaction": _rows(pack, "SUPPLIER PAYMENT HARBOURLINE")[0], "out_amount": "15250.00",
+        "out_date": "2026-06-28",
+        "back_transaction": _rows(pack, "CUSTOMER RECEIPTS HARBOURLINE")[0], "back_amount": "15200.00",
+        "back_date": "2026-07-03",
+    }
+
+
+def test_rt_the_case_data_finds_the_return_not_the_agents_choice_of_rows() -> None:
+    """The lead names only the payment out; code searches every later credit."""
+    pack, _ = _case("round_trip")
+    rows = [*_rows(pack, "SUPPLIER PAYMENT HARBOURLINE"), *_rows(pack, "ORCHID LANE RETAIL INV-1001")]
+    assert _check("round_trip", _rt(rows)).status == "verified"
+
+
+def test_rt_a_payment_nothing_returns_from_is_contradicted() -> None:
+    pack, _ = _case("third_party_payment")
+    outcome = _check("third_party_payment", _rt(_rows(pack, "OFFICE RENT")[:1]))
+    assert outcome.status == "contradicted"
+
+
+def test_rt_without_a_payment_out_is_unverified() -> None:
+    pack, _ = _case("round_trip")
+    outcome = _check("round_trip", _rt(_rows(pack, "CUSTOMER RECEIPTS HARBOURLINE")))
+    assert (outcome.status, outcome.reason) == ("unverified", "round_trip needs a payment out (a debit)")
+
+
+def test_rt_a_legal_suffix_alone_is_not_the_same_party() -> None:
+    assert shared_party("TT DR ABC ELECTRONICS PTE LTD", "GIRO CR SUNNY PROPERTIES PTE LTD") is None
+    assert shared_party("SUPPLIER PAYMENT HARBOURLINE LOGISTICS",
+                        "GIRO CR CUSTOMER RECEIPTS HARBOURLINE LOGISTICS") == "HARBOURLINE LOGISTICS"
 
 
 @pytest.mark.parametrize(("pattern", "agent"), [("document_inconsistency", "forensics"),  # run 5's L02

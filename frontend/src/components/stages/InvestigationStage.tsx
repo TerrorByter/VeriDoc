@@ -6,6 +6,7 @@ import { LeadTags } from "./ai-team/Leads";
 import { Section } from "./common";
 import { Chains } from "./investigation/Chains";
 import { Queue } from "./investigation/Queue";
+import { RequestDraftPanel } from "./investigation/RequestDraftPanel";
 import { Timeline } from "./investigation/Timeline";
 
 type View = "queue" | "chains" | "timeline";
@@ -68,6 +69,7 @@ export function InvestigationStage(props: StageProps) {
         <>
           <Queue {...props} />
           <LeadsToReview {...props} />
+          <RequestDraftPanel caseId={kase.case_id} />
         </>
       )}
       {view === "chains" && <Chains {...props} />}

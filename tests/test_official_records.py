@@ -66,7 +66,7 @@ def test_a_company_record_is_read_into_the_profile_schema() -> None:
     record = official.company(ACMA)
     assert record is not None and record.doc_id == official.ACRA_DOC
     assert record.financials is not None and record.financials.revenue == Decimal("7.935")
-    assert [o.name for o in record.officers] == ["TAN BEE HUAT"]  # the new CEO is not on ACRA's profile yet
+    assert [o.name for o in record.officers] == ["TAN BEE HUAT", "MATTHEW TAN"]  # the chairman and the CEO
     assert official.company("199999999Z") is None
 
 

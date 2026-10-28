@@ -12,7 +12,8 @@ Rendering contract (must match data_factory.py exactly):
 
 An invoice may instead be laid out as gldb/invoice_pdf.py prints it (a
 letterhead, a details strip, a bill-to block, a numbered item table and a totals
-box); _parse_invoice reads either.
+box), and a purchase order or bill of lading as gldb/trade_pdf.py prints it;
+each parser reads either layout.
 
 This module also handles FATCA/CRS AcroForms via gldb/form_maps.py.
 """
@@ -129,45 +130,55 @@ def _parse_line_items(doc_id: str, lines: list[str], stop_prefix: str) -> list[L
 
 _STYLED_DAY = "%d %b %Y"
 _AMOUNT = r"(-?[\d,]+\.\d{2})"
+_STYLED_DATE = r"(\d{2} \w{3} \d{4})"
 #: invoice_pdf's details strip: number, issued, due, terms, purchase order
-_STYLED_STRIP = re.compile(r"^(\S+) (\d{2} \w{3} \d{4}) (\d{2} \w{3} \d{4}) (.+) (\S+)$")
+_STYLED_STRIP = re.compile(rf"^(\S+) {_STYLED_DATE} {_STYLED_DATE} (.+) (\S+)$")
+#: trade_pdf's purchase order strip: number, ordered, deliver by, terms, currency
+_ORDER_STRIP = re.compile(rf"^(\S+) {_STYLED_DATE} {_STYLED_DATE} (.+) SGD$")
+#: trade_pdf's bill of lading strip: number, shipped, voyage, invoice, freight
+_BILL_STRIP = re.compile(rf"^(\S+) {_STYLED_DATE} (\S+) (\S+) (\S+)$")
 _STYLED_ROW = re.compile(rf"^(\d+) (.+) (\d+) {_AMOUNT} {_AMOUNT}$")
+_CARGO_ROW = re.compile(r"^(\d+) (.+) (\d+) (\d+) ([A-Z]+) ([\d,]+\.\d) ([\d,]+\.\d{2})$")
 
 
-def _parse_invoice(doc_id: str, pages: list[str]) -> Invoice:
-    lines = [line for line in (pages[0] if pages else "").splitlines() if line.strip()]
-    if any(line.startswith("BILL TO") for line in lines):
-        return _parse_styled_invoice(doc_id, lines)
-    return _parse_plain_invoice(doc_id, lines)
+def _lines(pages: list[str]) -> list[str]:
+    return [line for line in (pages[0] if pages else "").splitlines() if line.strip()]
 
 
-def _parse_styled_invoice(doc_id: str, lines: list[str]) -> Invoice:
-    """An invoice as gldb/invoice_pdf.py prints it. Each text line holds one
-    thing, so the seller is the letterhead's first line, the details are the
-    line under their labels and the table is the numbered rows."""
+def _styled_day(text: str) -> date:
+    return datetime.strptime(text, _STYLED_DAY).date()
 
-    def after(label: str) -> str:
-        found = next((n for n, line in enumerate(lines) if line.startswith(label)), None)
-        if found is None or found + 1 == len(lines):
-            raise ValueError(f"{doc_id}: no '{label}' on the invoice")
-        return lines[found + 1]
 
-    def figure(label: str) -> tuple[Decimal, str]:
-        line = next((line for line in lines if re.fullmatch(rf"{re.escape(label)} {_AMOUNT}", line)), None)
-        if line is None:
-            raise ValueError(f"{doc_id}: no '{label}' figure on the invoice")
-        return _parse_money(line.rsplit(" ", 1)[1]), line
+def _after(doc_id: str, lines: list[str], label: str, what: str) -> str:
+    """The line under the first line starting with *label*: a value under its label, or a block's name."""
+    found = next((n for n, line in enumerate(lines) if line.startswith(label)), None)
+    if found is None or found + 1 == len(lines):
+        raise ValueError(f"{doc_id}: no '{label}' on the {what}")
+    return lines[found + 1]
 
-    strip = _STYLED_STRIP.match(after("INVOICE NO"))
-    uen = re.search(r"UEN: (\w+)", "\n".join(lines))
-    if strip is None or uen is None:
-        raise ValueError(f"{doc_id}: the invoice's details are not in the layout it is printed in")
-    number, issued, _due, _terms, po_number = strip.groups()
 
-    items: list[LineItem] = []
+def _strip(doc_id: str, lines: list[str], label: str, pattern: re.Pattern[str], what: str) -> tuple[str, ...]:
+    """The values of the details strip that *label* starts."""
+    found = pattern.match(_after(doc_id, lines, label, what))
+    if found is None:
+        raise ValueError(f"{doc_id}: the {what}'s details are not in the layout it is printed in")
+    return found.groups()
+
+
+def _styled_figure(doc_id: str, lines: list[str], label: str, what: str) -> tuple[Decimal, str]:
+    """A figure of the totals box, and its line as a quote."""
+    line = next((line for line in lines if re.fullmatch(rf"{re.escape(label)} {_AMOUNT}", line)), None)
+    if line is None:
+        raise ValueError(f"{doc_id}: no '{label}' figure on the {what}")
+    return _parse_money(line.rsplit(" ", 1)[1]), line
+
+
+def _styled_items(doc_id: str, lines: list[str], what: str) -> list[LineItem]:
+    """The numbered rows of the item table invoice_pdf prints, up to the subtotal."""
     table = next((n for n, line in enumerate(lines) if line.startswith("NO. DESCRIPTION")), None)
     if table is None:
-        raise ValueError(f"{doc_id}: no item table on the invoice")
+        raise ValueError(f"{doc_id}: no item table on the {what}")
+    items: list[LineItem] = []
     for line in lines[table + 1:]:
         if line.startswith("Subtotal"):
             break
@@ -177,12 +188,32 @@ def _parse_styled_invoice(doc_id: str, lines: list[str]) -> Invoice:
         _, description, quantity, unit_price, amount = row.groups()
         items.append(LineItem(description=description, quantity=int(quantity),
                               unit_price=_parse_money(unit_price), amount=_parse_money(amount)))
+    return items
 
+
+def _parse_invoice(doc_id: str, pages: list[str]) -> Invoice:
+    lines = _lines(pages)
+    if any(line.startswith("BILL TO") for line in lines):
+        return _parse_styled_invoice(doc_id, lines)
+    return _parse_plain_invoice(doc_id, lines)
+
+
+def _parse_styled_invoice(doc_id: str, lines: list[str]) -> Invoice:
+    """An invoice as gldb/invoice_pdf.py prints it. Each text line holds one
+    thing, so the seller is the letterhead's first line, the details are the
+    line under their labels and the table is the numbered rows."""
+    what = "invoice"
+    number, issued, _due, _terms, po_number = _strip(doc_id, lines, "INVOICE NO", _STYLED_STRIP, what)
+    uen = re.search(r"UEN: (\w+)", "\n".join(lines))
+    if uen is None:
+        raise ValueError(f"{doc_id}: the invoice's details are not in the layout it is printed in")
+    items = _styled_items(doc_id, lines, what)
     (subtotal, subtotal_line), (gst, gst_line), (total, total_line) = (
-        figure("Subtotal"), figure("GST (9%)"), figure("TOTAL (SGD)"))
+        _styled_figure(doc_id, lines, label, what) for label in ("Subtotal", "GST (9%)", "TOTAL (SGD)"))
     return Invoice(
-        doc_id=doc_id, invoice_number=number, invoice_date=datetime.strptime(issued, _STYLED_DAY).date(),
-        seller_name=lines[0].removesuffix(" TAX INVOICE"), seller_uen=uen.group(1), buyer_name=after("BILL TO"),
+        doc_id=doc_id, invoice_number=number, invoice_date=_styled_day(issued),
+        seller_name=lines[0].removesuffix(" TAX INVOICE"), seller_uen=uen.group(1),
+        buyer_name=_after(doc_id, lines, "BILL TO", what),
         po_number=po_number, line_items=items, subtotal=subtotal, gst=gst, total=total, page=1,
         source_quotes={"Subtotal": subtotal_line, "GST (9%)": gst_line, "Total": total_line},
     )
@@ -235,7 +266,9 @@ def _parse_plain_invoice(doc_id: str, lines: list[str]) -> Invoice:
 # ---------------------------------------------------------------------------
 
 def _parse_purchase_order(doc_id: str, pages: list[str]) -> PurchaseOrder:
-    lines = [l for l in (pages[0] if pages else "").splitlines() if l.strip()]
+    lines = _lines(pages)
+    if "VENDOR" in lines:
+        return _parse_styled_purchase_order(doc_id, lines)
 
     def _get(label: str) -> str:
         for l in lines:
@@ -260,12 +293,31 @@ def _parse_purchase_order(doc_id: str, pages: list[str]) -> PurchaseOrder:
     )
 
 
+def _parse_styled_purchase_order(doc_id: str, lines: list[str]) -> PurchaseOrder:
+    """A purchase order as gldb/trade_pdf.py prints it: the buyer's letterhead,
+    the details strip, the vendor block (name, then its UEN) and the item table."""
+    what = "purchase order"
+    number, ordered, _deliver_by, _terms = _strip(doc_id, lines, "PO NUMBER", _ORDER_STRIP, what)
+    vendor = lines.index("VENDOR")
+    uen = re.fullmatch(r"UEN: (\w+)", lines[vendor + 2]) if vendor + 2 < len(lines) else None
+    if uen is None:
+        raise ValueError(f"{doc_id}: the vendor's UEN is not under its name")
+    total, total_line = _styled_figure(doc_id, lines, "TOTAL (SGD)", what)
+    return PurchaseOrder(
+        doc_id=doc_id, po_number=number, po_date=_styled_day(ordered),
+        buyer_name=lines[0].removesuffix(" PURCHASE ORDER"), seller_name=lines[vendor + 1], seller_uen=uen.group(1),
+        line_items=_styled_items(doc_id, lines, what), total=total, page=1, source_quotes={"Total": total_line},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Bill of lading parser
 # ---------------------------------------------------------------------------
 
 def _parse_bill_of_lading(doc_id: str, pages: list[str]) -> BillOfLading:
-    lines = [l for l in (pages[0] if pages else "").splitlines() if l.strip()]
+    lines = _lines(pages)
+    if "SHIPPER" in lines:
+        return _parse_styled_bill_of_lading(doc_id, lines)
 
     def _get(label: str) -> str:
         for l in lines:
@@ -302,6 +354,41 @@ def _parse_bill_of_lading(doc_id: str, pages: list[str]) -> BillOfLading:
         source_quotes={
             f"Quantity {g.description}": f"{g.description} | {g.quantity}" for g in goods
         },
+    )
+
+
+def _parse_styled_bill_of_lading(doc_id: str, lines: list[str]) -> BillOfLading:
+    """A bill of lading as gldb/trade_pdf.py prints it: the carrier's
+    letterhead, the details strip, the party blocks, the vessel and port rows
+    and the cargo table up to its totals row."""
+    what = "bill of lading"
+    number, shipped, _voyage, invoice_ref, _freight = _strip(doc_id, lines, "B/L NO", _BILL_STRIP, what)
+
+    def row(label: str) -> str:
+        found = next((line for line in lines if line.startswith(f"{label} ")), None)
+        if found is None:
+            raise ValueError(f"{doc_id}: no '{label}' on the {what}")
+        return found.removeprefix(f"{label} ")
+
+    table = next((n for n, line in enumerate(lines) if line.startswith("NO. DESCRIPTION OF GOODS")), None)
+    if table is None:
+        raise ValueError(f"{doc_id}: no cargo table on the {what}")
+    goods: list[ShippedGoods] = []
+    quotes: dict[str, str] = {}
+    for line in lines[table + 1:]:
+        if line.startswith("TOTAL "):
+            break
+        cargo = _CARGO_ROW.match(line)
+        if cargo is None:
+            raise _row_error(doc_id, line)
+        description, quantity = cargo.group(2), int(cargo.group(3))
+        goods.append(ShippedGoods(description=description, quantity=quantity))
+        quotes[f"Quantity {description}"] = line
+    return BillOfLading(
+        doc_id=doc_id, bl_number=number, shipped_date=_styled_day(shipped),
+        shipper_name=_after(doc_id, lines, "SHIPPER", what), consignee_name=_after(doc_id, lines, "CONSIGNEE", what),
+        vessel=row("VESSEL"), port_of_loading=row("PORT OF LOADING"), port_of_discharge=row("PORT OF DISCHARGE"),
+        invoice_reference=invoice_ref, goods=goods, page=1, source_quotes=quotes,
     )
 
 
@@ -578,7 +665,8 @@ def parse_financial_workbook(doc_id: str, path: Path) -> FinancialStatementSumma
 _IRAS_REFERENCE = re.compile(r"Tax Reference Number\s*:\s*(\S+)")
 _IRAS_NAME = re.compile(r"^Please quote the Tax Reference Number.*\n(.+)$", re.M)
 _IRAS_YEAR = re.compile(r"YEAR OF ASSESSMENT\s+(\d{4})")
-_IRAS_FIGURES = re.compile(r"^([\d,]+\.\d\d) ([\d,]+\.\d\d) ([\d,]+\.\d\d)$", re.M)
+#: Income, deductions and chargeable income: on a line of their own under the "+ - =" signs, or after each sign
+_IRAS_FIGURES = re.compile(r"^(?:\+ )?([\d,]+\.\d\d) (?:- )?([\d,]+\.\d\d) (?:= INCOME )?([\d,]+\.\d\d)$", re.M)
 _IRAS_PAYABLE = re.compile(r"^Tax Payable\nby [^\n]+\n\$([\d,]+\.\d\d)$", re.M)
 #: A Singapore postal code, looked for in the address lines under a name
 _POSTAL_CODE = re.compile(r"\b\d{6}\b")
@@ -637,7 +725,12 @@ _ACRA_SHAREHOLDER = re.compile(
     rf"^(?P<name>.+?) (?=\S*\d)\S{{8,}} [A-Za-z ]+? (?P<shares>[\d,]{{4,}}) {_ACRA_DATE}$", re.M,
 )
 #: Positions an officer's line can end in, longest first; the nationality precedes them
-_ACRA_POSITIONS = ("ALTERNATE DIRECTOR", "MANAGING DIRECTOR", "DIRECTOR", "CHAIRMAN", "SECRETARY", "CEO", "AUDITOR")
+_ACRA_POSITIONS = ("CHIEF EXECUTIVE OFFICER", "ALTERNATE DIRECTOR", "MANAGING DIRECTOR", "DIRECTOR", "CHAIRMAN",
+                   "SECRETARY", "CEO", "AUDITOR")
+#: A line the nationality and position columns wrap onto, under an officer's line (the address has digits)
+_ACRA_WRAPPED = re.compile(r"^[A-Z][A-Z/ ]*$")
+#: What the nationality column wraps ("SINGAPORE" / "CITIZEN"); the rest of a wrapped line is the position's
+_ACRA_NATIONALITY_WRAP = "CITIZEN"
 
 
 #: AcraFinancials field -> the label ACRA prints before the figures (the label
@@ -681,6 +774,18 @@ def _parse_acra_financials(text: str) -> AcraFinancials | None:
         period_start=_parse_acra_date(period[1]), period_end=_parse_acra_date(period[2]), currency=currency[1],
         **{field: _acra_figure(text, label) for field, label in _ACRA_FIGURES.items()},
     )
+
+
+def _acra_position(text: str, rest: str, end: int) -> str:
+    """An officer's position: the end of its line (*rest*, after the identity number), with the words the
+    position column wraps onto the lines under it (which end at *end*), the nationality's wrap left out."""
+    words = rest.split()
+    for line in text[end:].splitlines()[1:_ADDRESS_LINES]:
+        if not _ACRA_WRAPPED.match(line):
+            break
+        words += [word for word in line.split() if word != _ACRA_NATIONALITY_WRAP]
+    written = " ".join(words)
+    return next((role for role in _ACRA_POSITIONS if written.endswith(role)), rest)
 
 
 def _acra_postal_code(text: str, end: int) -> str | None:
@@ -730,7 +835,7 @@ def _parse_acra_profile(doc_id: str, pages: list[str]) -> AcraProfile:
             AcraOfficer(
                 name=m["name"], id_number=m["id"], appointed=_parse_acra_date(m["appointed"]),
                 postal_code=_acra_postal_code(text, m.end()),
-                position=next((role for role in _ACRA_POSITIONS if m["rest"].endswith(role)), m["rest"]),
+                position=_acra_position(text, m["rest"], m.end()),
             )
             for m in _ACRA_OFFICER.finditer(text)
         ],
@@ -922,6 +1027,7 @@ def parse_entity_self_cert(doc_id: str, path: Path) -> EntitySelfCert:
                 slot=slot_num,
                 name=name,
                 types_ticked=types,
+                page=form.pages.get(name_key, 1),
             ))
 
     # Part 7 — signatories

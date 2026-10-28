@@ -1,8 +1,8 @@
 """
 gldb/demo_packs.py
 ------------------
-Builds the demo packs in the format of the team's sample (the four files of
-"clean data sample/" kept in data/templates/sample/): for each case, edited
+Builds the demo packs in the format of the team's sample (four of the files
+in data/templates/sample/): for each case, edited
 copies of the sample's fillable bank statement, FATCA/CRS entity and
 individual forms and financial workbook, plus application.json. The ACRA
 profile and Notice of Assessment are not in a pack: the bank fetches them,
@@ -15,10 +15,11 @@ the cent; a case may make one of them disagree.
 
 Every company is the ACMA sample at another scale (every amount times one
 factor, so the documents still agree with each other and with ACRA), and every
-case changes it in exactly the ways its story needs. The sample itself has one
-difference left on purpose: its CEO, who signs, is new and not yet in ACRA's
-record, so ACMA's packs carry that flag. ground_truth.json
-says what the pipeline should find.
+case changes it in exactly the ways its story needs. ACMA's own records are the
+team's sample as issued (its ACRA profile lists the chairman and the CEO, and
+each has a Notice of Assessment), so its clean case raises nothing.
+ground_truth.json says what the pipeline should find; only the evaluation reads
+it, never the pipeline.
 
 Run:  python -m gldb.demo_packs
 """
@@ -115,8 +116,6 @@ class Company:
     status: str = "LIVE COMPANY"
     #: How ACRA prints the registered office, if not as the forms give it
     acra_office: str | None = None
-    #: False for a CEO ACRA does not list yet, who still signs
-    ceo_in_acra: bool = True
 
 
 @dataclass(frozen=True)
@@ -141,8 +140,8 @@ class Case:
     form_postal: str | None = None
     #: The name the individual form gives the chairman (None: their own)
     declared_name: str | None = None
-    #: A second guarantor, with no notice at IRAS
-    extra_guarantor: Person | None = None
+    #: Guarantors besides the chairman, each with an individual form of their own
+    extra_guarantors: tuple[Person, ...] = ()
     #: (partner on the statement, demo_trade fault): a trade whose documents disagree
     trade_faults: tuple[tuple[str, str], ...] = ()
     tampers: tuple[dict[str, Any], ...] = field(default_factory=tuple)
@@ -157,13 +156,20 @@ ACMA = Company(
     office=Address("67", "19 JURONG PORT ROAD", "25", "550", "JURONG TOWER 2", "619093"),
     chairman=Person("TAN BEE HUAT", "S2015888E", "CHAIRMAN", "2020-10-11", "20/05/1982",
                     _home("123", "HOUGANG AVENUE 3", "15", "243", "478236")),
-    ceo=Person("MATTHEW TAN", "S7712345F", "CHIEF EXECUTIVE OFFICER", "2021-03-01", "14/02/1977",
-               _home("8", "BISHAN STREET 22", "07", "112", "579787"), tax=None),
+    # As the team's ACRA profile, individual form and Notice of Assessment give him
+    ceo=Person("MATTHEW TAN", "S8294716J", "CHIEF EXECUTIVE OFFICER", "2020-10-11", "14/03/1979",
+               _home("412", "Jurong West Street 42", "09", "318", "650412"),
+               tax=("119177.95", "16298.86", "5781.10")),
     shareholders=(("BOBBY DARYL LEE", 25000000),), scale=Decimal(1), account="111-234-567-890",
     branch="Tampines Branch",
-    # The team's ACRA profile prints the street and postal code alone, and lists no CEO: Matthew Tan is new
-    acra_office="19 JURONG PORT ROAD (619093)", ceo_in_acra=False,
+    # The team's ACRA profile prints the street and postal code alone
+    acra_office="19 JURONG PORT ROAD (619093)",
 )
+
+
+#: A guarantor IRAS has no Notice of Assessment for (the incomplete case)
+UNASSESSED = Person("ONG KAH HENG", "S8011234D", "GUARANTOR", "2026-07-10", "02/09/1980",
+                    _home("55", "TAMPINES STREET 21", "06", "214", "520055"), tax=None)
 
 
 def _company(name: str, uen: str, incorporated: str, office: Address, chairman: tuple[str, str, Address, str],
@@ -216,17 +222,18 @@ OAKRIDGE = _company(
 
 CASES: tuple[Case, ...] = (
     Case("clean", ACMA,
-         "ACMA's documents agree with each other and with ACRA and IRAS, but its new CEO, who signs, is not on ACRA yet.",
-         "Medium", "standard_review", "Complete", ("REGISTRY_SIGNATORY_NOT_OFFICER", "XDOC_ACRA_SIGNATORY")),
+         "ACMA's documents agree with each other and with ACRA and IRAS: its chairman and CEO sign and guarantee, "
+         "and both are ACRA officers with a notice at IRAS. Expect nothing to be raised.",
+         "Low", "fast_track", "Complete", extra_guarantors=(ACMA.ceo,)),
     Case("incomplete", ACMA,
-         "Three months of statements, and a second guarantor IRAS has no notice for. Expect an incomplete case.",
-         "Medium", "standard_review", "Incomplete", ("REGISTRY_SIGNATORY_NOT_OFFICER", "XDOC_ACRA_SIGNATORY"),
+         "Three months of statements, and a third guarantor IRAS has no notice for. Expect an incomplete case.",
+         "Low", "standard_review", "Incomplete",
          expected_compliance_check_ids=("BANK_COVERAGE", "CHECKLIST_MISSING_DOC"),
-         statement_until=date(2026, 3, 31), extra_guarantor=ACMA.ceo,
+         statement_until=date(2026, 3, 31), extra_guarantors=(ACMA.ceo, UNASSESSED),
          tampers=({"doc": "bank_statement", "type": "months_missing", "check_ids": ["BANK_COVERAGE"],
                    "detail": "statement covers January to March only"},
                   {"doc": "pack", "type": "guarantor_without_notice", "check_ids": ["CHECKLIST_MISSING_DOC"],
-                   "detail": "IRAS holds no notice for the second guarantor"})),
+                   "detail": "IRAS holds no notice for the third guarantor"})),
     Case("inflated_financials", BRIGHTWAVE,
          "The submitted financials double what Brightwave filed with ACRA; the bank shows the real revenue.",
          "High", "enhanced_review", "Complete", ("FS_ACRA_MISMATCH", "XDOC_BANK_REVENUE"),
@@ -383,9 +390,14 @@ def _entity_form(case: Case, out: Path) -> None:
     })
 
 
-def _individual_form(case: Case, out: Path) -> None:
-    person, home = case.company.chairman, case.company.chairman.home
-    name = case.declared_name or person.name
+def _guarantors(case: Case) -> list[Person]:
+    return [case.company.chairman, *case.extra_guarantors]
+
+
+def _individual_form(case: Case, person: Person, out: Path) -> None:
+    """*person*'s individual form; the chairman's gives the name the case declares for them, if any."""
+    home = person.home
+    name = (case.declared_name if person == case.company.chairman else None) or person.name
     _write_form(INDIVIDUAL_FORM, out, {
         "Full Legal Name as per NRICPassport": name, "Date of Birth DDMMYYYY": person.born,
         "Block": home.block, "Street": home.street, "Floor": home.floor, "Unit": home.unit,
@@ -421,7 +433,7 @@ def _workbook(case: Case, out: Path) -> None:
 
 def _manifest(case: Case) -> dict[str, Any]:
     company = case.company
-    guarantors = [company.chairman, *([case.extra_guarantor] if case.extra_guarantor else [])]
+    guarantors = _guarantors(case)
     return {
         "application_id": f"APP-2026-{case.name.upper()}", "application_date": APPLICATION_DATE.isoformat(),
         "company_name": company.name, "uen": company.uen, "country_of_incorporation": "SINGAPORE",
@@ -441,7 +453,7 @@ def acra_record(company: Company) -> dict[str, Any]:
         "issued_on": demo_trade.RECORDS_ISSUED_ON,
         "officers": [{"name": p.name, "id_number": p.id_number, "position": p.position, "appointed": p.appointed,
                       "postal_code": p.home.postal}
-                     for p in (company.chairman, *([company.ceo] if company.ceo_in_acra else []))],
+                     for p in (company.chairman, company.ceo)],
         "shareholders": [{"name": n, "shares": s} for n, s in company.shareholders],
         "financials": {"period_start": "2025-01-01", "period_end": "2025-12-31", "currency": "SGD", **figures},
     }
@@ -483,7 +495,8 @@ def build_pack(case: Case, folder: Path) -> None:
     folder.mkdir(parents=True)
     _statement(case, folder / "bank_statement.pdf")
     _entity_form(case, folder / "fatca_crs_entity.pdf")
-    _individual_form(case, folder / "fatca_crs_individual.pdf")
+    for n, person in enumerate(_guarantors(case), start=1):
+        _individual_form(case, person, folder / f"fatca_crs_individual{'' if n == 1 else f'_{n}'}.pdf")
     _workbook(case, folder / "Submitted financials.xlsx")
     for trade in demo_trade.plan(seller_of(case.company), _scaled_rows(case.company, case.statement_until)[1], case.trade_faults):
         demo_trade.write(folder, trade)

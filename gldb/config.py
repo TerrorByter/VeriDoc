@@ -241,6 +241,24 @@ PAYMENT_CHANNELS: tuple[str, ...] = ("GIRO", "FAST", "TT", "IBG", "MEPS")
 GENERIC_PAYERS: tuple[str, ...] = ("CUSTOMER RECEIPTS", "CASH DEPOSIT", "TRANSFER", "INTEREST", "REVERSAL")
 #: Fewest letters a payer's name has
 PAYER_MIN_LETTERS: int = 2
+#: Words of a bank description that name no party: entry types, channels and
+#: legal suffixes (two companies are not one because both are "PTE LTD")
+BANK_DESCRIPTION_WORDS: frozenset[str] = frozenset({
+    *PAYMENT_CHANNELS, "CR", "DR", "INV", "PART", "PAYMENT", "PAYMENTS", "SUPPLIER", "SUPPLIERS", "CUSTOMER",
+    "RECEIPT", "RECEIPTS", "SALES", "REVENUE", "TRANSFER", "REFUND", "PTE", "LTD", "LIMITED", "CO", "COMPANY",
+    "INC", "CORP", "CORPORATION", "LLC", "PLC", "SDN", "BHD", "THE", "AND", "OF", "TO", "FROM",
+})
+#: round_trip: money paid out comes back from the same party within this many
+#: days, at an amount within this fraction of what went out (our assumption)
+ROUND_TRIP_WINDOW_DAYS: int = 30
+ROUND_TRIP_AMOUNT_TOLERANCE: Decimal = Decimal("0.05")
+#: BANK_PASS_THROUGH: a credit paid on to another party within this many days,
+#: keeping at most a margin of 1 - PASS_THROUGH_MIN_SHARE, is passed through;
+#: the account is flagged when such payments are at least this share of all it
+#: pays out (little business of its own). Our assumptions, not bank policy
+PASS_THROUGH_DAYS: int = 1
+PASS_THROUGH_MIN_SHARE: Decimal = Decimal("0.98")
+PASS_THROUGH_MIN_VOLUME_SHARE: Decimal = Decimal("0.5")
 
 # ---------------------------------------------------------------------------
 # Environment / runtime settings (with safe defaults)

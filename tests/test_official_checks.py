@@ -115,7 +115,7 @@ def test_an_altered_acra_profile_is_caught_field_by_field() -> None:
     copy = acra(**{**fields, "status": "LIVE COMPANY", "registered_address": "1 RAFFLES PLACE (048616)",
                    "financials": financials})
     findings = check_official_copies(_fetched(acra_profiles=[copy]))
-    assert {(f.check_id, f.document, f.severity) for f in findings} == {("XDOC_OFFICIAL_RECORD", "ACMA_ACRA", "high")}
+    assert {(f.check_id, f.document, f.severity) for f in findings} == {("XDOC_OFFICIAL_RECORD", "ACMA_ACRA", "critical")}
     assert sorted(f.observed for f in findings) == ["1 RAFFLES PLACE (048616)", "17.935"]
 
 
@@ -124,6 +124,7 @@ def test_an_acra_profile_with_officers_acra_does_not_list_is_caught() -> None:
     officers = [*fields["officers"], {**fields["officers"][0], "name": "MATTHEW TAN", "id_number": "S1111111A"}]
     (finding,) = check_official_copies(_fetched(acra_profiles=[acra(**{**fields, "officers": officers})]))
     assert "MATTHEW TAN" in finding.explanation and "S1111111A" not in finding.explanation
+    assert finding.severity == "critical"
 
 
 def test_a_true_copy_of_the_notice_passes() -> None:
@@ -137,7 +138,7 @@ def test_a_notice_with_inflated_income_is_caught() -> None:
                tax_payable=Decimal("6522.03"), postal_code="478236")
     findings = check_official_copies(_fetched(notices_of_assessment=[copy]))
     assert sorted(f.observed for f in findings) == ["209322.00", "231862.00"]
-    assert {(f.check_id, f.document) for f in findings} == {("XDOC_OFFICIAL_RECORD", "acma_NOA")}
+    assert {(f.check_id, f.document, f.severity) for f in findings} == {("XDOC_OFFICIAL_RECORD", "acma_NOA", "critical")}
 
 
 def test_a_notice_for_another_year_is_noted_not_compared() -> None:

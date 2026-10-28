@@ -25,9 +25,14 @@ export const aiLeads = (kase: CaseView) =>
 export const ruleConfirmed = (kase: CaseView) =>
   keptLeads(kase).filter((l) => verifiedByCode(l) && l.check_facts.rule_finding);
 
-/** What the AI suspects but code could not establish: for the analyst to see, never a flag or a question */
+/** What the AI found but code could not establish: in front of the analyst to check by hand, never a flag,
+ * a question or a score */
+export const suspicions = (kase: CaseView) =>
+  keptLeads(kase).filter((l) => l.evidence_status === "unverified" && l.investigation_status === "supported");
+
+/** What the AI could not settle and code could not establish: on the record, never a flag or a question */
 export const observations = (kase: CaseView) =>
-  keptLeads(kase).filter((l) => l.evidence_status === "unverified" && l.investigation_status !== "refuted");
+  keptLeads(kase).filter((l) => l.evidence_status === "unverified" && l.investigation_status === "unresolved");
 
 /** Checks that came back clear, by the agent's own tests or by code: a record, never a flag */
 export const clearChecks = (kase: CaseView) =>

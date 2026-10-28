@@ -3,7 +3,9 @@ gldb/invoice_pdf.py
 -------------------
 Renders a tax invoice the way a company's accounts system would print it: a
 letterhead with the seller's logo, an invoice details strip, the bill-to
-block, an item table, totals, payment details and terms.
+block, an item table, totals, payment details and terms. The letterhead,
+strip, item table and totals are shared with the purchase order and bill of
+lading (gldb.trade_pdf), so a trade's paperwork is one family.
 
 Rules the rest of the system relies on:
 - Every piece of text is visible (never white or tiny), and a label and its
@@ -63,24 +65,12 @@ RULE = (0.80, 0.82, 0.85)
 Colour = tuple[float, float, float]
 
 
-@dataclass(frozen=True)
-class InvoiceSheet:
-    """Everything printed on an invoice."""
+@dataclass(frozen=True, kw_only=True)
+class Priced:
+    """A document that prices goods: its items, and the figures that follow from them."""
 
-    seller: str
-    seller_uen: str
-    seller_address: tuple[str, ...]
-    seller_contact: str
-    buyer: str
-    buyer_address: tuple[str, ...]
     number: str
-    issued: date
-    due: date
-    terms: str
-    po_number: str
     items: tuple[LineItem, ...]
-    bank: str
-    account_no: str
     rounding: Decimal = Decimal(0)
 
     def __post_init__(self) -> None:
@@ -101,6 +91,24 @@ class InvoiceSheet:
     @property
     def total(self) -> Decimal:
         return self.subtotal + self.gst + self.rounding
+
+
+@dataclass(frozen=True, kw_only=True)
+class InvoiceSheet(Priced):
+    """Everything printed on an invoice."""
+
+    seller: str
+    seller_uen: str
+    seller_address: tuple[str, ...]
+    seller_contact: str
+    buyer: str
+    buyer_address: tuple[str, ...]
+    issued: date
+    due: date
+    terms: str
+    po_number: str
+    bank: str
+    account_no: str
 
 
 def items_for_total(total: Decimal, descriptions: tuple[str, str], quantity: int) -> tuple[tuple[LineItem, ...], Decimal]:
@@ -125,21 +133,21 @@ def brand_colour(name: str) -> Colour:
     return colorsys.hls_to_rgb(hue, 0.30, 0.55)
 
 
-def _tint(colour: Colour, strength: float = 0.08) -> Colour:
+def tint(colour: Colour, strength: float = 0.08) -> Colour:
     """*colour* washed out towards white: the background of a strip or header."""
     r, g, b = (1 - (1 - c) * strength for c in colour)
     return r, g, b
 
 
-def _money(value: Decimal) -> str:
+def fmt_money(value: Decimal) -> str:
     return f"{value:,.2f}"
 
 
-def _day(value: date) -> str:
+def fmt_day(value: date) -> str:
     return f"{value:%d %b %Y}"
 
 
-class _Page:
+class Page:
     """Drawing helpers over one canvas: text in a font, size and colour."""
 
     def __init__(self, path: Path) -> None:
@@ -161,116 +169,129 @@ class _Page:
     def rule(self, y: float, colour: Colour = RULE, x0: float = MARGIN, x1: float = RIGHT) -> None:
         self.box(x0, y, x1 - x0, 0.6, colour)
 
+    def lines(self, x: float, top: float, values: tuple[str, ...] | list[str], *, size: float = 9,
+              colour: Colour = INK, leading: float = 12) -> float:
+        """*values* one under another from *top*; the y of the last."""
+        for n, value in enumerate(values):
+            self.text(x, top - leading * n, value, size=size, colour=colour)
+        return top - leading * (len(values) - 1)
 
-def _logo(page: _Page, x: float, y: float, size: float, colour: Colour) -> None:
-    """The seller's mark: a rounded tile in its colour with three rising bars."""
+    def save(self) -> None:
+        self.c.showPage()
+        self.c.save()
+
+
+def _logo(page: Page, x: float, y: float, size: float, colour: Colour) -> None:
+    """The issuer's mark: a rounded tile in its colour with three rising bars."""
     page.box(x, y, size, size, colour, radius=size * 0.22)
     for n, height in enumerate((0.36, 0.56, 0.78)):
         page.box(x + size * (0.20 + 0.22 * n), y + size * 0.18, size * 0.14, size * height * 0.8, (1, 1, 1))
 
 
-def _name_size(name: str) -> float:
+def _name_size(name: str, title: str, title_size: float) -> float:
     """The size to set *name* at beside the title: full size if it fits, else the size that does."""
-    free = RIGHT - stringWidth(TITLE, BOLD, TITLE_SIZE) - NAME_GAP - NAME_X
+    free = RIGHT - stringWidth(title, BOLD, title_size) - NAME_GAP - NAME_X
     size = min(NAME_SIZE, NAME_SIZE * free / stringWidth(name, BOLD, NAME_SIZE))
     if size < MIN_NAME_SIZE:
         raise ValueError(f"{name}: too long for a letterhead (at most {free / MIN_NAME_SIZE * NAME_SIZE:.0f}pt at {NAME_SIZE}pt)")
     return size
 
 
-def _letterhead(page: _Page, sheet: InvoiceSheet, colour: Colour) -> None:
+def letterhead(page: Page, name: str, lines: tuple[str, ...], title: str, colour: Colour,
+               title_size: float = TITLE_SIZE) -> None:
+    """The issuer's logo, name and *lines* (address, contact, registration) beside the document's *title*."""
     page.box(0, PAGE_H - 8, PAGE_W, 8, colour)
     _logo(page, MARGIN, PAGE_H - 66, 40, colour)
-    size = _name_size(sheet.seller)
+    size = _name_size(name, title, title_size)
     # The name and the title share a text line, so their tops are level whatever the name's size
-    page.text(NAME_X, PAGE_H - 44 + TOP_ABOVE_BASELINE * (TITLE_SIZE - size), sheet.seller, font=BOLD, size=size)
-    lines = (*sheet.seller_address, sheet.seller_contact, f"UEN: {sheet.seller_uen}  |  GST Reg. No.: {sheet.seller_uen}")
-    for n, line in enumerate(lines):
-        page.text(NAME_X, PAGE_H - 53 - 11 * n, line, size=8, colour=MUTED)
-    page.text(RIGHT, PAGE_H - 44, TITLE, font=BOLD, size=TITLE_SIZE, colour=colour, align="right")
+    page.text(NAME_X, PAGE_H - 44 + TOP_ABOVE_BASELINE * (title_size - size), name, font=BOLD, size=size)
+    page.lines(NAME_X, PAGE_H - 53, lines, size=8, colour=MUTED, leading=11)
+    page.text(RIGHT, PAGE_H - 44, title, font=BOLD, size=title_size, colour=colour, align="right")
     page.box(MARGIN, PAGE_H - 108, RIGHT - MARGIN, 1.4, colour)
 
 
-def _details_strip(page: _Page, sheet: InvoiceSheet, colour: Colour) -> None:
+def details_strip(page: Page, cells: tuple[tuple[str, str], ...], colour: Colour) -> None:
+    """The document's key facts under the letterhead: one row of labels, one of values."""
     top = PAGE_H - 122
-    page.box(MARGIN, top - 38, RIGHT - MARGIN, 38, _tint(colour), radius=4)
-    cells = (("INVOICE NO", sheet.number), ("INVOICE DATE", _day(sheet.issued)), ("DUE DATE", _day(sheet.due)),
-             ("TERMS", sheet.terms), ("PO REFERENCE", sheet.po_number))
+    page.box(MARGIN, top - 38, RIGHT - MARGIN, 38, tint(colour), radius=4)
     for n, (label, value) in enumerate(cells):
         x = MARGIN + 14 + n * 106
         page.text(x, top - 14, label, font=BOLD, size=7, colour=MUTED)
         page.text(x, top - 29, value, font=BOLD, size=9.5)
 
 
-def _bill_to(page: _Page, sheet: InvoiceSheet) -> None:
-    top = PAGE_H - 182
-    page.text(MARGIN, top, "BILL TO", font=BOLD, size=7, colour=MUTED)
-    page.text(MARGIN, top - 15, sheet.buyer, font=BOLD, size=11)
-    for n, line in enumerate(sheet.buyer_address):
-        page.text(MARGIN, top - 28 - 12 * n, line, size=9)
+def block(page: Page, top: float, label: str, name: str, lines: tuple[str, ...]) -> float:
+    """A labelled party (BILL TO, VENDOR, SHIPPER...): its name in bold, then *lines*; the y of the last line."""
+    page.text(MARGIN, top, label, font=BOLD, size=7, colour=MUTED)
+    page.text(MARGIN, top - 15, name, font=BOLD, size=11)
+    return page.lines(MARGIN, top - 28, lines) if lines else top - 15
 
 
-def _items(page: _Page, sheet: InvoiceSheet, colour: Colour) -> float:
-    """The item table; the y just below its last row."""
-    top = PAGE_H - 232
-    page.box(MARGIN, top - 22, RIGHT - MARGIN, 22, _tint(colour, 0.12))
+def item_table(page: Page, items: tuple[LineItem, ...], colour: Colour, top: float) -> float:
+    """The priced item table from *top*; the y just below its last row."""
+    page.box(MARGIN, top - 22, RIGHT - MARGIN, 22, tint(colour, 0.12))
     columns = (("NO.", MARGIN + 8, "left"), ("DESCRIPTION", MARGIN + 36, "left"), ("QTY", 340, "right"),
                ("UNIT PRICE (SGD)", 450, "right"), ("AMOUNT (SGD)", RIGHT - 8, "right"))
     for label, x, align in columns:
         page.text(x, top - 14.5, label, font=BOLD, size=7, colour=MUTED, align=align)
     y = top - 22
-    for n, item in enumerate(sheet.items, start=1):
+    for n, item in enumerate(items, start=1):
         y -= ROW_H
-        cells = (str(n), item.description, str(item.quantity), _money(item.unit_price), _money(item.amount))
+        cells = (str(n), item.description, str(item.quantity), fmt_money(item.unit_price), fmt_money(item.amount))
         for (_, x, align), value in zip(columns, cells):
             page.text(x, y + 8, value, align=align)
         page.rule(y)
     return y
 
 
-def _totals(page: _Page, sheet: InvoiceSheet, colour: Colour, below: float) -> float:
+def totals(page: Page, priced: Priced, colour: Colour, below: float) -> float:
+    """Subtotal, GST, any rounding and the total, under the item table; the y below the total."""
     left, y = 350.0, below - 22
-    figures = [("Subtotal", sheet.subtotal), (GST_LABEL, sheet.gst), *([("Rounding", sheet.rounding)] if sheet.rounding else [])]
+    figures = [("Subtotal", priced.subtotal), (GST_LABEL, priced.gst),
+               *([("Rounding", priced.rounding)] if priced.rounding else [])]
     for label, value in figures:
         page.text(left + 12, y, label, colour=MUTED)
-        page.text(RIGHT - 8, y, _money(value), align="right")
+        page.text(RIGHT - 8, y, fmt_money(value), align="right")
         y -= 20
-    page.box(left, y - 9, RIGHT - left, 26, _tint(colour, 0.12), radius=3)
+    page.box(left, y - 9, RIGHT - left, 26, tint(colour, 0.12), radius=3)
     page.text(left + 12, y, "TOTAL (SGD)", font=BOLD, size=10, colour=colour)
-    page.text(RIGHT - 8, y, _money(sheet.total), font=BOLD, size=11, align="right")
+    page.text(RIGHT - 8, y, fmt_money(priced.total), font=BOLD, size=11, align="right")
     return y - 9
 
 
-def _payment_and_terms(page: _Page, sheet: InvoiceSheet, below: float) -> None:
+def paragraph(page: Page, top: float, label: str, text: str) -> float:
+    """A labelled paragraph of small print; the y of its last line."""
+    page.text(MARGIN, top, label, font=BOLD, size=7, colour=MUTED)
+    return page.lines(MARGIN, top - 13, simpleSplit(text, REGULAR, 8, RIGHT - MARGIN), size=8, colour=MUTED, leading=11)
+
+
+def footer(page: Page, note: str) -> None:
+    page.rule(62)
+    page.text(PAGE_W / 2, 48, note, size=7.5, colour=MUTED, align="centre")
+    page.text(PAGE_W / 2, 37, "Page 1 of 1", size=7.5, colour=MUTED, align="centre")
+
+
+def _payment_and_terms(page: Page, sheet: InvoiceSheet, below: float) -> None:
     y = below - 30
     page.text(MARGIN, y, "PAYMENT DETAILS", font=BOLD, size=7, colour=MUTED)
-    for n, line in enumerate((f"Account Name: {sheet.seller}", f"Bank: {sheet.bank}",
-                              f"Account No.: {sheet.account_no}", f"Reference: {sheet.number}")):
-        page.text(MARGIN, y - 14 - 12 * n, line, size=9)
-    y -= 78
-    page.text(MARGIN, y, "TERMS AND CONDITIONS", font=BOLD, size=7, colour=MUTED)
-    terms = (f"Payment is due on or before the due date shown above. Please quote the invoice number with your payment. "
-             f"Goods remain the property of {sheet.seller} until paid in full.")
-    for n, line in enumerate(simpleSplit(terms, REGULAR, 8, RIGHT - MARGIN)):
-        page.text(MARGIN, y - 13 - 11 * n, line, size=8, colour=MUTED)
-
-
-def _footer(page: _Page) -> None:
-    page.rule(62)
-    page.text(PAGE_W / 2, 48, "This is a computer-generated invoice and requires no signature.", size=7.5, colour=MUTED,
-              align="centre")
-    page.text(PAGE_W / 2, 37, "Page 1 of 1", size=7.5, colour=MUTED, align="centre")
+    page.lines(MARGIN, y - 14, (f"Account Name: {sheet.seller}", f"Bank: {sheet.bank}",
+                                f"Account No.: {sheet.account_no}", f"Reference: {sheet.number}"))
+    paragraph(page, y - 78, "TERMS AND CONDITIONS",
+              f"Payment is due on or before the due date shown above. Please quote the invoice number with your payment. "
+              f"Goods remain the property of {sheet.seller} until paid in full.")
 
 
 def render_invoice(path: Path, sheet: InvoiceSheet) -> None:
     """Write *sheet* to *path* as a one-page PDF."""
     if len(sheet.items) > MAX_ITEMS:
         raise ValueError(f"{sheet.number}: {len(sheet.items)} items do not fit one page (at most {MAX_ITEMS})")
-    page, colour = _Page(path), brand_colour(sheet.seller)
-    _letterhead(page, sheet, colour)
-    _details_strip(page, sheet, colour)
-    _bill_to(page, sheet)
-    _payment_and_terms(page, sheet, _totals(page, sheet, colour, _items(page, sheet, colour)))
-    _footer(page)
-    page.c.showPage()
-    page.c.save()
+    page, colour = Page(path), brand_colour(sheet.seller)
+    letterhead(page, sheet.seller, (*sheet.seller_address, sheet.seller_contact,
+                                    f"UEN: {sheet.seller_uen}  |  GST Reg. No.: {sheet.seller_uen}"), TITLE, colour)
+    details_strip(page, (("INVOICE NO", sheet.number), ("INVOICE DATE", fmt_day(sheet.issued)),
+                         ("DUE DATE", fmt_day(sheet.due)), ("TERMS", sheet.terms), ("PO REFERENCE", sheet.po_number)),
+                  colour)
+    block(page, PAGE_H - 182, "BILL TO", sheet.buyer, sheet.buyer_address)
+    _payment_and_terms(page, sheet, totals(page, sheet, colour, item_table(page, sheet.items, colour, PAGE_H - 232)))
+    footer(page, "This is a computer-generated invoice and requires no signature.")
+    page.save()

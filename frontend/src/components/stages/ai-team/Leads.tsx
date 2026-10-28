@@ -160,9 +160,12 @@ function LeadCard({ lead, evidence, subjects, onCite, onView }: LeadProps & { le
   );
 }
 
-/** Flags: kept leads code verified or corroborated. With none, a calm line saying so. */
-export function KeptLeads({ leads, withheld, unchecked, confirmed, ...props }: LeadProps & {
+/** Flags: kept leads code verified or corroborated. With none, a line saying so, which points to the AI's
+ * unverified suspicions when there are any. */
+export function KeptLeads({ leads, withheld, unchecked, confirmed, suspected, ...props }: LeadProps & {
   leads: Lead[];
+  /** How many leads the AI supports that code could not verify: shown below, to check by hand */
+  suspected: number;
   /** How many verified leads only confirm an existing rule finding */
   confirmed: number;
   /** How many leads the verifier withheld, to tell "none raised" from "none passed" */
@@ -170,6 +173,17 @@ export function KeptLeads({ leads, withheld, unchecked, confirmed, ...props }: L
   /** How many kept leads code did not verify (observations and clear checks) */
   unchecked: number;
 }) {
+  if (leads.length === 0 && suspected) {
+    return (
+      <p className="calm check">
+        <Icon name="flag" size={16} />
+        <span>
+          <strong>No verified AI lead.</strong> {suspected === 1 ? "1 suspicion" : `${suspected} suspicions`} the AI
+          supports but code could not check {suspected === 1 ? "is" : "are"} below: check by hand.
+        </span>
+      </p>
+    );
+  }
   if (leads.length === 0) {
     const why = confirmed ? "The only leads code verified confirm rule findings that already stand (below)."
       : unchecked ? "Code could not verify any lead; what the AI team recorded is further down."
@@ -185,6 +199,21 @@ export function KeptLeads({ leads, withheld, unchecked, confirmed, ...props }: L
     <ul className="leads">
       {leads.map((lead) => <LeadCard key={lead.lead_id} lead={lead} {...props} />)}
     </ul>
+  );
+}
+
+/** The AI's suspicions code could not check: open, for the analyst to check by hand, yet never a flag. */
+export function Suspicions({ leads, ...props }: LeadProps & { leads: Lead[] }) {
+  return (
+    <>
+      <h4 className="memo-head">
+        AI suspects, not verified by code{" "}
+        <span className="muted small">(check by hand: never a flag, a question or a score)</span>
+      </h4>
+      <ul className="leads">
+        {leads.map((lead) => <LeadCard key={lead.lead_id} lead={lead} {...props} />)}
+      </ul>
+    </>
   );
 }
 

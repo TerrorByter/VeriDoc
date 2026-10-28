@@ -33,7 +33,8 @@ function useTheme(): [Theme, () => void] {
 }
 
 const NAV: { label: string; to: Route; active: (r: Route) => boolean }[] = [
-  { label: "Cases", to: { screen: "cases" }, active: (r) => r.screen !== "controls" },
+  { label: "New case", to: { screen: "new" }, active: (r) => r.screen === "new" },
+  { label: "Past cases", to: { screen: "cases" }, active: (r) => ["cases", "run", "case"].includes(r.screen) },
   { label: "Model & controls", to: { screen: "controls" }, active: (r) => r.screen === "controls" },
 ];
 
@@ -41,7 +42,7 @@ export function TopBar({ route }: { route: Route }) {
   const [theme, toggle] = useTheme();
   return (
     <header className="topbar">
-      <a className="logo" href={href({ screen: "cases" })}>
+      <a className="logo" href={href({ screen: "new" })}>
         <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
           <rect x="1" y="1" width="20" height="20" rx="5" fill="var(--brand)" />
           <path d="M7 6h5.5L15 8.5V16H7z" stroke="var(--on-brand)" strokeWidth="1.4" strokeLinejoin="round" />

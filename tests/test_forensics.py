@@ -189,6 +189,19 @@ def test_incremental_save_is_counted(tmp_path: Path) -> None:
     assert forensics.incremental_updates(edited) == 1
 
 
+def test_an_incremental_save_is_low(tmp_path: Path) -> None:
+    """A re-save only corroborates, like the metadata checks: filling a form
+    or signing appends a revision too."""
+    original = _pdf(tmp_path, lambda c: None)
+    edited = tmp_path / "edited.pdf"
+    edited.write_bytes(original.read_bytes())
+    writer = pypdf.PdfWriter(edited, incremental=True)
+    writer.add_metadata({"/Title": "edited later"})
+    writer.write(edited)
+    (ev,) = check_forensic_incremental_update(_pack(edited))
+    assert (ev.check_id, ev.severity) == ("FORENSIC_INCREMENTAL_UPDATE", "low")
+
+
 def test_linearized_file_is_not_an_incremental_update(tmp_path: Path) -> None:
     path = tmp_path / "lin.pdf"
     path.write_bytes(b"%PDF-1.4\n1 0 obj<</Linearized 1>>endobj\n%%EOF\n%%EOF\n")

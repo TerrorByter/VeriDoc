@@ -47,6 +47,7 @@ PATTERN_SUBJECTS: dict[Pattern, tuple[str, ...]] = {
     "third_party_payment": ("invoice_number", "transaction_ids"),
     "sequence_anomaly": ("invoice_number",),
     "related_party": ("counterparty",),
+    "round_trip": ("transaction_ids",),
 }
 
 

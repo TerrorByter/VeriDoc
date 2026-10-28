@@ -42,6 +42,8 @@ export interface Contribution {
   document: string;
   page: number;
   points: number;
+  /** Findings of this check on this document the line covers: repeats are scored once */
+  hits: number;
 }
 
 export interface Risk {
@@ -453,6 +455,16 @@ export interface OfficialRecords {
 export interface PackInfo {
   name: string;
   note: string | null;
+  /** The route the pack's ground truth expects */
+  expected_path: ReviewPath | null;
+}
+
+/** What one file is, read the way a run reads it: a document type, or "application" for application.json */
+export interface Identified {
+  filename: string;
+  doc_type: string;
+  /** Why a run could not use the file; null when it can */
+  error: string | null;
 }
 
 export interface RunStarted {
@@ -469,6 +481,10 @@ export interface Progress {
   /** What the running stage is doing now, e.g. an AI team tool call */
   detail: string | null;
   error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  /** How long the run has taken, by the server's clock; null for a run rebuilt from a stored result */
+  elapsed_ms: number | null;
 }
 
 export interface CaseSummary {
@@ -603,11 +619,43 @@ export interface CheckFeedback {
   reasons: Record<string, number>;
 }
 
+/** One thing the applicant is asked for, on one document */
+export interface RequestItem {
+  /** The findings behind it: for the analyst, never in the letter */
+  evidence_ids: string[];
+  document: string;
+  text: string;
+}
+
+/** A request for information drafted from the case: applicant-safe findings and verified AI questions only */
+export interface RequestDraft {
+  items: RequestItem[];
+  questions: string[];
+  /** Open findings never shared with the applicant (screening, forensics, money-laundering patterns) */
+  withheld: number;
+  /** The letter, ready to edit; empty when there is nothing to ask */
+  text: string;
+}
+
+/** How a finding becomes points and a route */
+export interface ScoringPolicy {
+  /** Points per fraud finding by severity; each check scores once per document */
+  severity_points: Record<Severity, number>;
+  band_low_max: number;
+  band_medium_max: number;
+  /** Checks that force band High at high or critical severity */
+  forces_high: string[];
+  /** Checks that send a case to enhanced review whatever its score */
+  forces_enhanced_review: string[];
+  qa_sample_percent: number;
+}
+
 export interface Controls {
   policy_version: string;
   rule_version: string;
   reference_data: Record<string, string>;
   capabilities: Capability[];
+  scoring: ScoringPolicy;
   signals: Signal[];
   cost: { cases: number; usd_total: Usd; usd_per_case: Usd | null };
   evaluation: EvaluationReport | null;

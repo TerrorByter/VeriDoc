@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getControls } from "../../api";
 import { duration, PATH_LABEL, usd, when } from "../../catalogue";
-import type { AgentEvalRow, Capability, Controls, EvaluationReport, ReviewPath, SignalFamily } from "../../types";
+import type { AgentEvalRow, Capability, Controls, EvaluationReport, ReviewPath, ScoringPolicy, Severity, SignalFamily } from "../../types";
 import { Metric, Section } from "../stages/common";
 import { Empty, ErrorNote, Pill } from "../ui";
 
@@ -100,6 +100,34 @@ function Evaluation({ report }: { report: EvaluationReport }) {
           </table>
         </div>
       </Section>
+    </>
+  );
+}
+
+const SEVERITIES: Severity[] = ["low", "medium", "high", "critical"];
+
+/** How findings become points, a band and a route: the policy the server runs with */
+function Scoring({ policy }: { policy: ScoringPolicy }) {
+  return (
+    <>
+      <div className="metrics wide">
+        {SEVERITIES.map((s) => (
+          <Metric key={s} label={sentence(s)} value={`+${policy.severity_points[s]}`} note="points per finding" />
+        ))}
+      </div>
+      <ul className="reasons small">
+        <li>Only fraud signals score. Compliance and completeness findings make a pack incomplete, which forces at least standard review but adds no points.</li>
+        <li>Each check scores once per document, at its most severe finding; repeats are counted, not added. The total is capped at 100.</li>
+        <li>
+          Low up to {policy.band_low_max} goes to fast track ({policy.qa_sample_percent}% sampled for QA), medium up to{" "}
+          {policy.band_medium_max} to standard review, high from {policy.band_medium_max + 1} to enhanced review.
+        </li>
+        <li>
+          Forces band High at high severity: <span className="mono">{policy.forces_high.join(", ") || "none"}</span>.
+          Forces enhanced review whatever the score: <span className="mono">{policy.forces_enhanced_review.join(", ")}</span>.
+        </li>
+        <li>Each check sets a finding's severity from what it found; the weights are judgement-based assumptions, not calibrated on real cases.</li>
+      </ul>
     </>
   );
 }
@@ -243,6 +271,10 @@ export function ControlsScreen() {
         </Section>
       </div>
 
+      <Section title="How scoring works" aside="The policy this server runs with">
+        <Scoring policy={controls.scoring} />
+      </Section>
+
       <Section title="Signal library" aside={`${controls.signals.length} signals, each mapped to one check`}>
         <div className="families">
           {families.map(([family, list]) => (
@@ -258,7 +290,12 @@ export function ControlsScreen() {
                   {list.map((s) => (
                     <tr key={s.signal_id}>
                       <td className="mono nowrap">{s.signal_id}</td>
-                      <td>{s.name}<span className="muted small block">{s.remedy}</span></td>
+                      <td>
+                        {s.name}
+                        {controls.scoring.forces_enhanced_review.includes(s.check_id) && <> <Pill tone="high">Forces enhanced review</Pill></>}
+                        {controls.scoring.forces_high.includes(s.check_id) && <> <Pill tone="high">Forces High at high severity</Pill></>}
+                        <span className="muted small block">{s.remedy}</span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

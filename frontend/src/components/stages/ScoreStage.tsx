@@ -79,7 +79,7 @@ export function ScoreStage({ kase, onView }: StageProps) {
         </p>
       </div>
 
-      <Section title="Why this score" aside="Every point names its signal and finding">
+      <Section title="Why this score" aside="Every point names its signal and finding; a check repeating on one document scores once">
         {risk.contributions.length === 0 ? (
           <p className="muted">No fraud signals: nothing adds to the score.</p>
         ) : (
@@ -97,7 +97,10 @@ export function ScoreStage({ kase, onView }: StageProps) {
                 {risk.contributions.map((c) => (
                   <tr key={c.evidence_id}>
                     <td className="mono">{c.signal_id}</td>
-                    <td>{c.name} <span className="muted mono small">{c.evidence_id}</span></td>
+                    <td>
+                      {c.name} <span className="muted mono small">{c.evidence_id}</span>
+                      {c.hits > 1 && <span className="muted small block">{c.hits} findings on this document, scored once</span>}
+                    </td>
                     <td>
                       {c.document === "pack" ? (
                         <span className="muted">Application data</span>

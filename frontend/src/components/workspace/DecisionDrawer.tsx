@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { addDocuments, decideAsMlro, decideCase } from "../../api";
+import { addDocuments, decideAsMlro, decideCase, getRequestDraft } from "../../api";
 import { STATUS_LABEL } from "../../catalogue";
 import type { AnalystDecision, CaseView } from "../../types";
 import { ErrorNote, Icon } from "../ui";
@@ -111,6 +111,18 @@ export function DecisionDrawer({
                 onChange={(e) => setReason(e.target.value)}
               />
             </label>
+            {actions.some((a) => a.key === "request_info") && (
+              <button
+                type="button"
+                className="link"
+                disabled={saving}
+                onClick={() => getRequestDraft(kase.case_id)
+                  .then((d) => setReason(d.text || reason))
+                  .catch((e: Error) => setError(e.message))}
+              >
+                Use the drafted request for information
+              </button>
+            )}
           </>
         )}
 

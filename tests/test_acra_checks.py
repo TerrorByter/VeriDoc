@@ -35,7 +35,7 @@ def test_a_figure_that_differs_is_cited_at_its_row() -> None:
     pack = _pack(financial_statements=[_fs(revenue=D("9935000"))], acra_profiles=[_acra(financials=_acra_financials())])
     (finding,) = check_fs_acra(pack)
     assert (finding.check_id, finding.category, finding.severity, finding.document) == (
-        "FS_ACRA_MISMATCH", "fraud_signal", "high", "Submitted financials",
+        "FS_ACRA_MISMATCH", "fraud_signal", "critical", "Submitted financials",
     )
     assert (finding.page, finding.quote) == (1, "Total Revenue 7.935")
     assert finding.expected == "SGD 7,935,000.00" and finding.observed == "SGD 9,935,000.00"

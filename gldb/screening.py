@@ -7,13 +7,17 @@ Names are normalised (case, punctuation, legal suffixes such as Pte/Ltd/
 Limited, word order) and compared with a similarity ratio, against each listed
 name and its aliases. Unlike an LLM judgement, the same names always give the
 same score, so every hit can be explained and reproduced. A hit is a possible
-match for a person to dispose of, never a conclusion.
+match for a person to dispose of, never a conclusion. Where the case gives a
+person's date of birth and the list gives the entry's, the two settle a name
+match either way (birth_date_fits).
 """
 
 from __future__ import annotations
 
+import re
 import string
 import unicodedata
+from datetime import date
 from difflib import SequenceMatcher
 from functools import lru_cache
 from typing import NamedTuple
@@ -79,6 +83,33 @@ def screen(name: str) -> list[Match]:
         if score >= SCREENING_MATCH_THRESHOLD and score > (best[entry.reference].score if entry.reference in best else 0):
             best[entry.reference] = Match(entry, score, listed)
     return list(best.values())
+
+
+_LISTED_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
+_LISTED_YEARS = re.compile(r"(\d{4})(?:-(\d{4}))?")
+
+
+def _born_as_listed(born: date, listed: str) -> bool:
+    """Whether *born* fits one date of birth as the UN gives it: a day, a year
+    (often approximate, so one either side fits) or a range of years. A form
+    it does not know fits, so it never discounts a match."""
+    if _LISTED_DAY.fullmatch(listed):
+        return born.isoformat() == listed
+    years = _LISTED_YEARS.fullmatch(listed)
+    if years is None:
+        return True
+    first, last = years.groups()
+    if last is None:
+        return abs(born.year - int(first)) <= 1
+    return int(first) <= born.year <= int(last)
+
+
+def birth_date_fits(born: date | None, entry: WatchlistEntry) -> bool | None:
+    """True when *born* fits one of the entry's dates of birth, False when it
+    fits none, None when either side has no date to compare."""
+    if born is None or not entry.birth_dates:
+        return None
+    return any(_born_as_listed(born, listed) for listed in entry.birth_dates)
 
 
 def country_key(text: str) -> str:

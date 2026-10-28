@@ -1,44 +1,42 @@
 import { useEffect, useState } from "react";
-import { createCase, createCaseFromPack, listPacks } from "../../api";
+import { createCase, createCaseFromPack, identifyDocument, listPacks } from "../../api";
+import { DOC_TYPE_LABEL } from "../../catalogue";
+import { ACCEPTED, REQUIRED_DOCUMENTS } from "../../requiredDocuments";
 import { navigate } from "../../route";
-import type { PackInfo, RunStarted } from "../../types";
-import { OTHER_SLOT, UPLOAD_SLOTS, type UploadSlot } from "../../uploadSlots";
+import type { Identified, PackInfo, RunStarted } from "../../types";
 import { DropArea } from "../DropArea";
-import { ErrorNote, Icon } from "../ui";
+import { ErrorNote, Icon, PathPill, tabKeys } from "../ui";
 
-const SLOTS = [...UPLOAD_SLOTS, OTHER_SLOT];
+type Source = "demo" | "upload";
+const SOURCES: readonly Source[] = ["demo", "upload"];
+const SOURCE_LABEL: Record<Source, string> = { demo: "Demo pack", upload: "Upload documents" };
 
-const extension = (file: File) => file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+/** "invoice_mismatch" -> "Invoice mismatch" */
+const packTitle = (name: string) => name.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+
+const typeLabel = (type: string) => (type === "application" ? "Application data" : DOC_TYPE_LABEL[type] ?? type);
+
+/** The order files are listed in: unusable ones first (they block the run), then the required documents,
+ * the application data, the trade paperwork and anything unrecognised; files still being checked last. */
+const ORDER = [...REQUIRED_DOCUMENTS.map((d) => d.type), "application", "invoice", "purchase_order", "bill_of_lading"];
+const rank = ({ found }: Held) =>
+  found === null ? ORDER.length + 2 : found.error ? -1 : ORDER.includes(found.doc_type) ? ORDER.indexOf(found.doc_type) : ORDER.length + 1;
+
+/** A file the analyst added, and what the server read it as (null while it is being checked) */
+interface Held {
+  file: File;
+  found: Identified | null;
+}
 
 export function NewCaseScreen() {
   const [packs, setPacks] = useState<PackInfo[]>([]);
-  const [held, setHeld] = useState<Record<string, File[]>>({});
   const [starting, setStarting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const files = SLOTS.flatMap((slot) => held[slot.id] ?? []);
-  const typesAdded = UPLOAD_SLOTS.filter((slot) => held[slot.id]?.length).length;
+  const [source, setSource] = useState<Source>("demo");
 
   useEffect(() => {
     listPacks().then(setPacks).catch(() => setPacks([]));
   }, []);
-
-  /** Put files in a slot. A file name is used once in the case: the server keeps files by name. */
-  const add = (slot: UploadSlot, incoming: File[]) => {
-    if (incoming.length === 0) return;
-    const accepted = slot.accept.split(",");
-    const wrong = incoming.filter((file) => !accepted.includes(extension(file)));
-    if (wrong.length) return setError(`${wrong.map((f) => f.name).join(", ")}: ${slot.title} takes ${accepted.join(" or ")} files.`);
-    if (!slot.multiple && incoming.length > 1) return setError(`${slot.title} takes one file.`);
-    const kept = slot.multiple ? (held[slot.id] ?? []) : [];
-    const taken = new Set([...SLOTS.filter((s) => s.id !== slot.id).flatMap((s) => held[s.id] ?? []), ...kept].map((f) => f.name));
-    const repeated = incoming.filter((file) => taken.has(file.name));
-    if (repeated.length) return setError(`Already added: ${repeated.map((f) => f.name).join(", ")}.`);
-    setError(null);
-    setHeld({ ...held, [slot.id]: [...kept, ...incoming] });
-  };
-
-  const remove = (slot: UploadSlot, file: File) =>
-    setHeld({ ...held, [slot.id]: (held[slot.id] ?? []).filter((f) => f !== file) });
 
   const start = (label: string, begin: () => Promise<RunStarted>) => {
     setStarting(label);
@@ -56,100 +54,166 @@ export function NewCaseScreen() {
       <div className="page-head">
         <div>
           <h1>New case</h1>
-          <p className="muted">Run a document set through the pipeline. You can follow each stage as it runs.</p>
+          <p className="muted">Run a loan application's documents through the checks, and follow each stage as it runs.</p>
+        </div>
+        <div className="segmented" role="tablist" aria-label="Start from" onKeyDown={tabKeys(SOURCES, source, setSource)}>
+          {SOURCES.map((key) => (
+            <button
+              key={key}
+              id={`source-tab-${key}`}
+              type="button"
+              role="tab"
+              aria-selected={source === key}
+              aria-controls={`source-panel-${key}`}
+              tabIndex={source === key ? 0 : -1}
+              onClick={() => setSource(key)}
+            >
+              {SOURCE_LABEL[key]}
+            </button>
+          ))}
         </div>
       </div>
 
       {error && <ErrorNote>{error}</ErrorNote>}
 
-      <section className="panel" aria-labelledby="demo-title">
-        <h2 id="demo-title">Start from a demo pack</h2>
-        <p className="muted">
-          Synthetic applicants in the format of the team's sample, each built to show one kind of risk.
-        </p>
-        <ul className="pack-grid">
-          {packs.map(({ name, note }) => (
-            <li key={name}>
-              <button
-                type="button"
-                className="pack"
-                disabled={starting !== null}
-                onClick={() => start(name, () => createCaseFromPack(name))}
-              >
-                <span className="pack-name mono">{name}</span>
-                <span className="muted">{note ?? "Synthetic document set."}</span>
-                {starting === name && <span className="spinner" aria-label="Starting" />}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </section>
+      {source === "demo" && (
+        <section className="panel" id="source-panel-demo" role="tabpanel" aria-labelledby="source-tab-demo">
+          <p className="muted">
+            Synthetic applicants in the format of the team's sample. Each shows one kind of risk; pick one to run it.
+          </p>
+          <ul className="pack-grid">
+            {packs.map(({ name, note, expected_path }) => (
+              <li key={name}>
+                <button
+                  type="button"
+                  className="pack"
+                  disabled={starting !== null}
+                  onClick={() => start(name, () => createCaseFromPack(name))}
+                >
+                  <span className="pack-head">
+                    <span className="pack-name">{packTitle(name)}</span>
+                    {starting === name ? <span className="spinner" aria-label="Starting" /> : <Icon name="right" size={14} />}
+                  </span>
+                  <span className="pack-note muted">{note ?? "Synthetic document set."}</span>
+                  {expected_path && (
+                    <span className="pack-expect">
+                      <span className="muted small">Expected route</span> <PathPill path={expected_path} />
+                    </span>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
-      <section className="panel" aria-labelledby="upload-title">
-        <h2 id="upload-title">Upload documents</h2>
-        <p className="muted">
-          Add each document of the application to its place. The pipeline reads what a file contains, not
-          where it was put. The ACRA profile and the guarantors' Notices of Assessment are not uploaded: the
-          pipeline fetches them from ACRA and IRAS.
-        </p>
-        <ul className="slot-grid">
-          {UPLOAD_SLOTS.map((slot) => (
-            <li key={slot.id}>
-              <Slot slot={slot} files={held[slot.id] ?? []} onFiles={add} onRemove={remove} />
-            </li>
-          ))}
-        </ul>
-        <Slot slot={OTHER_SLOT} files={held[OTHER_SLOT.id] ?? []} onFiles={add} onRemove={remove} />
-        <div className="actions">
-          <span className="muted slot-count">
-            {typesAdded} of {UPLOAD_SLOTS.length} document types added
-          </span>
-          {files.length > 0 && (
-            <button type="button" className="btn ghost" disabled={starting !== null} onClick={() => setHeld({})}>
-              Clear
-            </button>
-          )}
-          <button
-            type="button"
-            className="btn primary"
-            disabled={starting !== null || files.length === 0}
-            onClick={() => start("upload", () => createCase(files))}
-          >
-            {starting === "upload"
-              ? "Starting…"
-              : files.length
-                ? `Run ${files.length} file${files.length === 1 ? "" : "s"}`
-                : "Run files"}
-          </button>
-        </div>
-      </section>
+      {source === "upload" && (
+        <Upload starting={starting === "upload"} onError={setError}
+          onRun={(files) => start("upload", () => createCase(files))} />
+      )}
     </main>
   );
 }
 
-function Slot({ slot, files, onFiles, onRemove }: {
-  slot: UploadSlot;
-  files: File[];
-  onFiles: (slot: UploadSlot, files: File[]) => void;
-  onRemove: (slot: UploadSlot, file: File) => void;
+/** One drop area for every file of the application. Each file is identified by the server as it is added,
+ * and the run waits until every required document is there and every file is usable. */
+function Upload({ starting, onError, onRun }: {
+  starting: boolean;
+  onError: (message: string | null) => void;
+  onRun: (files: File[]) => void;
 }) {
+  const [held, setHeld] = useState<Held[]>([]);
+
+  const identified = (file: File, found: Identified) =>
+    setHeld((now) => now.map((h) => (h.file === file ? { ...h, found } : h)));
+
+  /** A file name is used once in a case: the server keeps files by name. */
+  const add = (incoming: File[]) => {
+    const taken = new Set(held.map((h) => h.file.name));
+    const repeated = incoming.filter((f) => taken.has(f.name));
+    const fresh = incoming.filter((f) => !taken.has(f.name));
+    onError(repeated.length ? `Already added: ${repeated.map((f) => f.name).join(", ")}.` : null);
+    setHeld((now) => [...now, ...fresh.map((file) => ({ file, found: null }))]);
+    for (const file of fresh) {
+      identifyDocument(file)
+        .then((found) => identified(file, found))
+        .catch((e: Error) => identified(file, { filename: file.name, doc_type: "unknown", error: `Could not be checked: ${e.message}` }));
+    }
+  };
+
+  const remove = (file: File) => setHeld((now) => now.filter((h) => h.file !== file));
+
+  const usable = held.filter((h) => h.found && !h.found.error);
+  const ofType = (type: string) => usable.filter((h) => h.found?.doc_type === type).length;
+  const missing = REQUIRED_DOCUMENTS.filter((d) => ofType(d.type) === 0);
+  const checking = held.some((h) => h.found === null);
+  const unusable = held.filter((h) => h.found?.error);
+  const ready = held.length > 0 && missing.length === 0 && !checking && unusable.length === 0;
+  const waiting = checking
+    ? "Checking files…"
+    : unusable.length
+      ? `Remove ${unusable.length === 1 ? "the file" : `${unusable.length} files`} that cannot be used`
+      : missing.length
+        ? `${missing.length} required document${missing.length === 1 ? "" : "s"} missing`
+        : null;
+
   return (
-    <DropArea slot={slot} filled={files.length > 0} onFiles={(incoming) => onFiles(slot, incoming)}>
-      {files.length > 0 && (
-        <ul className="file-list" aria-label={`${slot.title}: selected files`}>
-          {files.map((file) => (
-            <li key={file.name}>
-              <Icon name="doc" size={14} />
-              <span className="mono">{file.name}</span>
-              <span className="muted">{Math.max(1, Math.round(file.size / 1024))} KB</span>
-              <button type="button" className="btn ghost small" aria-label={`Remove ${file.name}`}
-                onClick={() => onRemove(slot, file)}>
-                <Icon name="close" size={14} />
-              </button>
-            </li>
-          ))}
+    <section className="panel upload" id="source-panel-upload" role="tabpanel" aria-labelledby="source-tab-upload">
+      <div className="upload-files">
+        <DropArea accept={ACCEPTED} onFiles={add} />
+        {held.length > 0 && (
+          <ul className="file-list" aria-label="Files added">
+            {[...held].sort((a, b) => rank(a) - rank(b) || a.file.name.localeCompare(b.file.name)).map(({ file, found }) => (
+              <li key={file.name} className={found?.error ? "bad" : undefined}>
+                <Icon name="doc" size={14} />
+                <span className="file-name">
+                  <span className="mono">{file.name}</span>
+                  {found?.error && <span className="file-error">{found.error}</span>}
+                  {found && !found.error && found.doc_type === "unknown" && (
+                    <span className="muted small">Not recognised: read with OCR when the case runs</span>
+                  )}
+                </span>
+                <span className="file-type">
+                  {found === null ? <span className="spinner" aria-label="Checking" /> : found.error ? "Cannot use" : typeLabel(found.doc_type)}
+                </span>
+                <button type="button" className="btn ghost small" aria-label={`Remove ${file.name}`} onClick={() => remove(file)}>
+                  <Icon name="close" size={14} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <aside className="upload-check" aria-label="Required documents">
+        <h2>Required documents</h2>
+        <ul className="required-list" aria-live="polite">
+          {REQUIRED_DOCUMENTS.map((d) => {
+            const n = ofType(d.type);
+            return (
+              <li key={d.type} className={n ? "done" : undefined}>
+                <span className="tick" aria-hidden="true">{n ? <Icon name="check" size={14} /> : null}</span>
+                <span>
+                  {d.label} {n > 1 && <span className="muted">· {n} files</span>}
+                  <span className="muted small block">{d.hint}</span>
+                </span>
+                <span className="sr-only">{n ? "added" : "missing"}</span>
+              </li>
+            );
+          })}
         </ul>
-      )}
-    </DropArea>
+        <p className="muted small">
+          The ACRA profile and the guarantors' Notices of Assessment are fetched from ACRA and IRAS. Add
+          application.json and any invoices, purchase orders or bills of lading too.
+        </p>
+      </aside>
+
+      <div className="upload-run">
+        <p className="muted small" role="status">{waiting ?? "Every required document is here."}</p>
+        <button type="button" className="btn primary" disabled={!ready || starting} onClick={() => onRun(held.map((h) => h.file))}>
+          {starting ? "Starting…" : held.length ? `Run ${held.length} file${held.length === 1 ? "" : "s"}` : "Run"}
+        </button>
+      </div>
+    </section>
   );
 }

@@ -1,7 +1,7 @@
 """
 tests/test_clean_data_sample.py
 -------------------------------
-The team's clean data sample (copies kept in data/templates/sample/): one
+The team's clean data sample (kept in data/templates/sample/): one
 case's documents in the format cases will arrive in. No AWS calls.
 """
 
@@ -31,10 +31,12 @@ from gldb.schemas import ExtractedPack
 
 SAMPLE = Path(__file__).parent.parent / "data" / "templates" / "sample"
 NOA = SAMPLE / "acma_NOA.pdf"
+#: The CEO's Notice of Assessment and individual form (the form is flattened: its values are printed, not fields)
+CEO_NOA, CEO_INDIV = SAMPLE / "acma_NOA (Matthew Tan).pdf", SAMPLE / "ACMA INDIV (Matthew Tan).pdf"
 STATEMENT = SAMPLE / "ACMA BANK 1.pdf"
 WORKBOOK = SAMPLE / "Submitted financials.xlsx"
 #: One case: the sample's statement, forms, ACRA profile, workbook and Notice of Assessment
-CASE = [STATEMENT, SAMPLE / "ACMA ENTITY.pdf", SAMPLE / "ACMA INDIV.pdf", SAMPLE / "ACRA UPDATED.pdf", WORKBOOK, NOA]
+CASE = [STATEMENT, SAMPLE / "ACMA ENTITY.pdf", SAMPLE / "ACMA INDIV.pdf", SAMPLE / "ACMA ACRA.pdf", WORKBOOK, NOA]
 
 
 def test_every_document_is_recognised() -> None:
@@ -42,7 +44,7 @@ def test_every_document_is_recognised() -> None:
         "ACMA BANK 1.pdf": "bank_statement",
         "ACMA ENTITY.pdf": "fatca_crs_entity",
         "ACMA INDIV.pdf": "fatca_crs_individual",
-        "ACRA UPDATED.pdf": "acra_profile",
+        "ACMA ACRA.pdf": "acra_profile",
         "Submitted financials.xlsx": "financial_statements",
         "acma_NOA.pdf": "notice_of_assessment",
     }
@@ -69,6 +71,18 @@ def test_the_notice_of_assessment_is_read() -> None:
     assert notice.income - notice.deductions == notice.chargeable_income
 
 
+def test_the_ceos_notice_is_read_though_its_totals_share_a_line_with_the_signs() -> None:
+    """Matthew Tan's notice prints "+ 119,177.95 - 16,298.86 = INCOME 102,879.09" on one line, where the
+    chairman's prints the signs above the totals: both are how IRAS lays a notice out."""
+    notice = parse_pack("t", intake("t", [CEO_NOA]), [CEO_NOA], None).notices_of_assessment[0]
+    assert (notice.name, notice.id_number, notice.year_of_assessment, notice.postal_code) == (
+        "MR MATTHEW TAN", "S8294716J", 2025, "650412")
+    assert (notice.income, notice.deductions, notice.chargeable_income, notice.tax_payable) == (
+        Decimal("119177.95"), Decimal("16298.86"), Decimal("102879.09"), Decimal("5781.10"),
+    )
+    assert notice.income - notice.deductions == notice.chargeable_income
+
+
 @pytest.mark.skipif(not INDIVIDUAL_TEMPLATE.exists(), reason="GLDB AcroForm templates not present")
 def test_the_individual_form_is_read() -> None:
     cert = parse_individual_self_cert("ACMA INDIV", SAMPLE / "ACMA INDIV.pdf")
@@ -78,10 +92,13 @@ def test_the_individual_form_is_read() -> None:
 
 
 def test_the_acra_profile_is_read() -> None:
-    path = SAMPLE / "ACRA UPDATED.pdf"
+    path = SAMPLE / "ACMA ACRA.pdf"
     profile = parse_pack("t", intake("t", [path]), [path], None).acra_profiles[0]
     assert (profile.company_name, profile.uen, profile.incorporation_date) == ("ACMA LTD.", "196500233E", date(1965, 10, 9))
-    assert [(o.name, o.id_number, o.position) for o in profile.officers] == [("TAN BEE HUAT", "S2015888E", "CHAIRMAN")]
+    # The CEO's position wraps over three lines beside the nationality, which wraps too
+    assert [(o.name, o.id_number, o.position, o.postal_code) for o in profile.officers] == [
+        ("TAN BEE HUAT", "S2015888E", "CHAIRMAN", "478236"),
+        ("MATTHEW TAN", "S8294716J", "CHIEF EXECUTIVE OFFICER", "650412")]
     assert [(s.name, s.shares) for s in profile.shareholders] == [("BOBBY DARYL LEE", 25_000_000)]
 
 

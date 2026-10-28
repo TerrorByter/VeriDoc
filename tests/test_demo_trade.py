@@ -90,7 +90,8 @@ def test_an_invoice_is_issued_before_its_payment_within_the_matching_window() ->
 
 def test_the_order_comes_before_the_invoice_and_the_shipment_before_the_invoice() -> None:
     for trade in _trades():
-        assert trade.order_date < trade.shipped_date < trade.invoice.issued
+        assert trade.order.issued < trade.bill.shipped < trade.invoice.issued
+        assert trade.bill.shipped <= trade.order.deliver_by
 
 
 def test_the_seller_of_a_sale_is_the_company_and_the_buyer_of_a_purchase_is_the_company() -> None:
@@ -102,13 +103,32 @@ def test_the_seller_of_a_sale_is_the_company_and_the_buyer_of_a_purchase_is_the_
 
 def test_every_number_in_a_pack_is_its_own() -> None:
     trades = _trades()
-    for numbers in ([t.invoice.number for t in trades], [t.invoice.po_number for t in trades], [t.bl_number for t in trades]):
+    for numbers in ([t.invoice.number for t in trades], [t.invoice.po_number for t in trades], [t.bill.number for t in trades]):
         assert len(set(numbers)) == len(numbers) == 7
 
 
 def test_goods_ship_and_the_service_line_is_not_shipped() -> None:
     for trade in _trades():
-        assert trade.shipped == ((trade.invoice.items[0].description, trade.invoice.items[0].quantity),)
+        assert [(c.description, c.quantity) for c in trade.bill.goods] == [
+            (trade.invoice.items[0].description, trade.invoice.items[0].quantity)]
+
+
+def test_the_order_prices_what_the_invoice_bills_and_totals_what_was_paid() -> None:
+    for trade in _trades():
+        order = trade.order
+        assert (order.number, order.items, order.total) == (trade.invoice.po_number, trade.invoice.items, trade.invoice.total)
+        assert (order.buyer, order.seller, order.seller_uen) == (trade.invoice.buyer, trade.invoice.seller, trade.invoice.seller_uen)
+        assert order.buyer_uen == ("196500233E" if trade.purchase else "")  # a customer is never looked up
+
+
+def test_the_bill_of_lading_carries_the_goods_from_seller_to_buyer_for_the_invoice() -> None:
+    for trade in _trades():
+        bill = trade.bill
+        assert (bill.shipper, bill.consignee, bill.invoice_ref) == (trade.invoice.seller, trade.invoice.buyer, trade.invoice.number)
+        (cargo,) = bill.goods
+        packing = trade.partner.packing
+        assert cargo.packages == -(-cargo.quantity // packing.per_package) and cargo.kind == packing.kind
+        assert (bill.packages, bill.weight_kg, bill.volume_cbm) == (cargo.packages, cargo.weight_kg, cargo.volume_cbm)
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +158,7 @@ def test_a_trade_is_written_as_an_invoice_an_order_and_a_bill_of_lading(tmp_path
     demo_trade.write(tmp_path, trade)
     assert sorted(p.name for p in tmp_path.iterdir()) == sorted([
         f"invoice_{trade.invoice.number}.pdf", f"purchase_order_{trade.invoice.po_number}.pdf",
-        f"bill_of_lading_{trade.bl_number}.pdf"])
+        f"bill_of_lading_{trade.bill.number}.pdf"])
     assert sorted(classify(read_text(p)) for p in tmp_path.iterdir()) == ["bill_of_lading", "invoice", "purchase_order"]
 
 
@@ -152,11 +172,24 @@ def test_what_is_written_reads_back_as_planned(tmp_path: Path) -> None:
         (invoice,), (order,), (bill,) = pack.invoices, pack.purchase_orders, pack.bills_of_lading
         assert (invoice.invoice_number, invoice.total, invoice.po_number) == (
             trade.invoice.number, trade.invoice.total, trade.invoice.po_number)
-        assert (order.po_number, order.total, order.buyer_name, order.seller_name, order.seller_uen) == (
-            trade.invoice.po_number, trade.invoice.total, trade.invoice.buyer, trade.invoice.seller, trade.invoice.seller_uen)
-        assert (bill.bl_number, bill.invoice_reference, bill.shipper_name, bill.consignee_name) == (
-            trade.bl_number, trade.invoice.number, trade.invoice.seller, trade.invoice.buyer)
-        assert [(g.description, g.quantity) for g in bill.goods] == list(trade.shipped)
+        assert (order.po_number, order.po_date, order.total, order.buyer_name, order.seller_name, order.seller_uen) == (
+            trade.invoice.po_number, trade.order.issued, trade.invoice.total, trade.invoice.buyer, trade.invoice.seller,
+            trade.invoice.seller_uen)
+        assert sum(i.amount for i in order.line_items) == trade.order.subtotal
+        assert (bill.bl_number, bill.shipped_date, bill.invoice_reference, bill.shipper_name, bill.consignee_name) == (
+            trade.bill.number, trade.bill.shipped, trade.invoice.number, trade.invoice.seller, trade.invoice.buyer)
+        assert [(g.description, g.quantity) for g in bill.goods] == [(c.description, c.quantity) for c in trade.bill.goods]
+
+
+def test_every_order_written_adds_up_on_the_page(tmp_path: Path) -> None:
+    from tests.test_invoice_pdf import _assert_adds_up
+
+    for trade in _trades():
+        demo_trade.write(tmp_path, trade)
+    orders = sorted(tmp_path.glob("purchase_order_*.pdf"))
+    assert len(orders) == 7
+    for path in orders:
+        _assert_adds_up(path)
 
 
 def test_nothing_it_writes_trips_a_forensic_check(tmp_path: Path) -> None:
@@ -176,8 +209,8 @@ def test_a_documents_dates_in_the_file_are_the_day_it_was_made(tmp_path: Path) -
     made = {p.name.split("_")[0]: pypdf.PdfReader(str(p)).metadata for p in tmp_path.iterdir()}
     assert made["invoice"]["/CreationDate"] == made["invoice"]["/ModDate"]
     assert made["invoice"]["/CreationDate"].startswith(f"D:{trade.invoice.issued:%Y%m%d}")
-    assert made["purchase"]["/CreationDate"].startswith(f"D:{trade.order_date:%Y%m%d}")
-    assert made["bill"]["/CreationDate"].startswith(f"D:{trade.shipped_date:%Y%m%d}")
+    assert made["purchase"]["/CreationDate"].startswith(f"D:{trade.order.issued:%Y%m%d}")
+    assert made["bill"]["/CreationDate"].startswith(f"D:{trade.bill.shipped:%Y%m%d}")
 
 
 # ---------------------------------------------------------------------------
@@ -187,14 +220,16 @@ def test_a_documents_dates_in_the_file_are_the_day_it_was_made(tmp_path: Path) -
 def test_an_overbilled_invoice_is_dearer_than_its_order_and_its_payment() -> None:
     trade = _by_partner(_trades((("EFG Company", "overbilled"),)))["EFG Company"]
     assert trade.invoice.total == (SALES["EFG Company"] * Decimal("1.25")).quantize(Decimal("0.01"))
-    assert trade.order_total == SALES["EFG Company"]
-    assert trade.invoice.items[0].quantity == trade.shipped[0][1]  # the same goods, at a higher price
+    assert trade.order.total == SALES["EFG Company"]
+    assert trade.invoice.items[0].quantity == trade.bill.goods[0].quantity  # the same goods, at a higher price
 
 
 def test_a_short_shipped_invoice_bills_more_goods_than_the_bill_of_lading_shows() -> None:
     trade = _by_partner(_trades((("Metallica Inc.", "short_shipped"),)))["Metallica Inc."]
-    assert trade.shipped[0][1] < trade.invoice.items[0].quantity
-    assert trade.invoice.total == SALES["Metallica Inc."]  # it still matches its order and its payment
+    (cargo,) = trade.bill.goods
+    assert cargo.quantity == 18 < trade.invoice.items[0].quantity == 25
+    assert (cargo.packages, cargo.weight_kg) == (18, Decimal("34200.0"))  # packed and weighed as shipped
+    assert trade.invoice.total == trade.order.total == SALES["Metallica Inc."]  # it still matches its order and payment
 
 
 def test_an_invoice_with_no_order_names_one_that_was_never_issued(tmp_path: Path) -> None:

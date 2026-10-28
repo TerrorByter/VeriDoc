@@ -183,3 +183,117 @@ def test_the_people_acra_and_the_forms_name_are_screened() -> None:
     assert (hit.document, hit.quote) == ("ACMA ENTITY", "Amira Solenko") and "signatory" in hit.explanation
     (hit,) = check_sanctions(pack(individual_self_certs=[indiv(full_name="Amira Solenko")]))
     assert hit.document == "ACMA INDIV" and "declarant" in hit.explanation
+
+
+# ---------------------------------------------------------------------------
+# Everyone the case names is screened, and a date of birth decides a name match
+# ---------------------------------------------------------------------------
+
+def test_a_controlling_person_on_the_entity_form_is_screened() -> None:
+    from gldb.schemas import ControllingPerson
+    from tests.acma_records import cert, pack
+
+    controller = ControllingPerson(slot=2, name="Viktor Aldane", types_ticked=["legal_ownership"], page=3)
+    (hit,) = check_sanctions(pack(entity_self_certs=[cert(controlling_persons=[controller])]))
+    assert (hit.document, hit.page, hit.quote, hit.severity) == ("ACMA ENTITY", 3, "Viktor Aldane", "high")
+    assert "controlling person" in hit.explanation
+
+
+def test_the_people_acra_lists_for_a_counterparty_are_screened() -> None:
+    from datetime import datetime, timezone
+
+    from gldb.schemas import AcraShareholder, OfficialRecords
+    from tests.acma_records import acra, pack
+
+    applicant = acra()
+    supplier = acra(uen="200709981R", company_name="STEELMEN PTE LTD.",
+                    officers=[applicant.officers[0].model_copy(update={"name": "AMIRA SOLENKO"})],
+                    shareholders=[AcraShareholder(name="VIKTOR ALDANE", shares=100)])
+    official = OfficialRecords(retrieved_at=datetime.now(timezone.utc), applicant_uen=applicant.uen,
+                               companies={applicant.uen: applicant, supplier.uen: supplier})
+    hits = check_sanctions(pack(official=official))
+    assert sorted(h.quote or "" for h in hits) == ["AMIRA SOLENKO", "VIKTOR ALDANE"]
+    assert all("of STEELMEN PTE LTD. at ACRA" in h.explanation for h in hits)
+
+
+def test_the_seller_on_a_purchase_order_is_screened() -> None:
+    from datetime import date
+    from decimal import Decimal
+
+    from gldb.schemas import PurchaseOrder
+    from tests.acma_records import pack
+
+    order = PurchaseOrder(doc_id="purchase_order_PO-1", po_number="PO-1", po_date=date(2026, 1, 1), buyer_name="ACMA LTD.",
+                          seller_name="Red Lantern Shipping Co", seller_uen="1", line_items=[], total=Decimal(1))
+    (hit,) = check_sanctions(pack(purchase_orders=[order]))
+    assert (hit.document, hit.quote) == ("purchase_order_PO-1", "Red Lantern Shipping Co") and "seller" in hit.explanation
+
+
+@pytest.fixture
+def listed_with_birth_dates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A bank watchlist whose one person is listed with dates of birth: a day, a year and a range."""
+    path = tmp_path / "watchlist.json"
+    path.write_text(json.dumps({"source": "test", "version": "TEST-BORN", "as_of": "2026-10-01", "entries": [
+        {"name": "Viktor Aldane", "kind": "individual", "list": "UN-SYN", "reference": "SYN-I-0311",
+         "birth_dates": ["1971-03-02", "1968", "1980-1982"]}]}))
+    monkeypatch.setattr(reference, "WATCHLIST_PATH", str(path))
+
+
+@pytest.mark.parametrize(("born", "fits"), [
+    ("1971-03-02", True), ("1968-11-30", True), ("1969-01-01", True), ("1981-06-15", True),
+    ("1971-03-03", False), ("1990-05-05", False), ("1966-12-31", False),
+])
+def test_a_date_of_birth_fits_a_listed_day_a_year_give_or_take_one_or_a_range(born: str, fits: bool) -> None:
+    from datetime import date
+
+    from gldb.reference import WatchlistEntry
+
+    entry = WatchlistEntry(name="X", kind="individual", list="L", reference="R",
+                           birth_dates=["1971-03-02", "1968", "1980-1982"])
+    assert screening.birth_date_fits(date.fromisoformat(born), entry) is fits
+
+
+def test_an_unknown_date_of_birth_decides_nothing() -> None:
+    from datetime import date
+
+    from gldb.reference import WatchlistEntry
+
+    entry = WatchlistEntry(name="X", kind="individual", list="L", reference="R")
+    assert screening.birth_date_fits(None, entry) is None
+    assert screening.birth_date_fits(date(1971, 3, 2), entry) is None
+
+
+@pytest.mark.usefixtures("listed_with_birth_dates")
+def test_a_name_match_whose_date_of_birth_differs_is_discounted_not_dropped() -> None:
+    from datetime import date
+
+    from gldb.routing import hard_flags
+    from tests.acma_records import indiv, pack
+
+    (hit,) = check_sanctions(pack(individual_self_certs=[indiv(full_name="Viktor Aldane", date_of_birth=date(1990, 5, 5))]))
+    assert hit.severity == "info" and "Discounted" in hit.explanation and "05 May 1990" in hit.explanation
+    assert hard_flags([hit]) == []
+
+
+@pytest.mark.usefixtures("listed_with_birth_dates")
+def test_a_name_match_whose_date_of_birth_fits_stands_and_says_so() -> None:
+    from datetime import date
+
+    from tests.acma_records import indiv, pack
+
+    (hit,) = check_sanctions(pack(individual_self_certs=[indiv(full_name="Viktor Aldane", date_of_birth=date(1971, 3, 2))]))
+    assert hit.severity == "high" and "fits" in hit.explanation
+
+
+@pytest.mark.usefixtures("listed_with_birth_dates")
+def test_the_declarants_date_of_birth_decides_for_the_same_person_named_elsewhere() -> None:
+    from datetime import date
+
+    from tests.acma_records import indiv, pack
+    from tests.test_checks import _make_manifest
+
+    case = pack(manifest=_make_manifest(authorised_signatories=[], guarantors=[
+                    _make_manifest().guarantors[0].model_copy(update={"name": "VIKTOR ALDANE"})]),
+                individual_self_certs=[indiv(full_name="Viktor Aldane", date_of_birth=date(1990, 5, 5))])
+    (hit,) = check_sanctions(case)
+    assert "guarantor" in hit.explanation and hit.severity == "info"

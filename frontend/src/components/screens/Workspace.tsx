@@ -77,7 +77,7 @@ export function Workspace({ caseId, stage }: { caseId: string; stage: RailStageI
       <main className="page">
         {error ? (
           <ErrorNote>
-            Could not open {caseId}: {error}. <a href={href({ screen: "cases" })}>Back to cases</a>
+            Could not open {caseId}: {error}. <a href={href({ screen: "cases" })}>Back to past cases</a>
           </ErrorNote>
         ) : (
           <div className="skeleton block-skeleton" aria-busy="true" aria-label="Loading case" />

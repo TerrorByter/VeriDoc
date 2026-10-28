@@ -1,14 +1,11 @@
 {
   "pack": "clean",
   "company": "ACMA LTD.",
-  "note": "ACMA's documents agree with each other and with ACRA and IRAS, but its new CEO, who signs, is not on ACRA yet.",
-  "expected_band": "Medium",
-  "expected_path": "standard_review",
+  "note": "ACMA's documents agree with each other and with ACRA and IRAS: its chairman and CEO sign and guarantee, and both are ACRA officers with a notice at IRAS. Expect nothing to be raised.",
+  "expected_band": "Low",
+  "expected_path": "fast_track",
   "expected_readiness": "Complete",
-  "expected_check_ids": [
-    "REGISTRY_SIGNATORY_NOT_OFFICER",
-    "XDOC_ACRA_SIGNATORY"
-  ],
+  "expected_check_ids": [],
   "expected_check_ids_ocr": [],
   "expected_compliance_check_ids": [],
   "expected_leads": [],

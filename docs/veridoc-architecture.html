@@ -1,0 +1,939 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VeriDoc Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Hanken+Grotesk:wght@400;500;600&display=swap">
+<style>
+  /* Layout concept: a case file. Narrow reading column, wide ledger tables and figures, hairline rules, paper and ink.
+     Tokens are the project's own (DESIGN.md / frontend styles.css) so the page matches the UI it describes. */
+  :root {
+    --bg: hsl(40 13% 92%);
+    --surface: hsl(42 20% 95.5%);
+    --sunken: hsl(40 12% 88.5%);
+    --border: hsl(38 9% 80%);
+    --border-strong: hsl(38 8% 50%);
+    --text: hsl(222 28% 13%);
+    --muted: hsl(222 9% 33%);
+    --faint: hsl(222 7% 41%);
+    --brand: hsl(224 44% 30%);
+    --brand-soft: hsl(224 26% 88%);
+    --aws: hsl(28 70% 26%);
+    --aws-soft: hsl(34 50% 86%);
+    --gate: hsl(150 38% 24%);
+    --gate-soft: hsl(145 20% 86%);
+    --warn: hsl(34 72% 24%);
+    --warn-soft: hsl(40 52% 84%);
+    --font: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: hsl(222 16% 11%);
+      --surface: hsl(222 14% 14.5%);
+      --sunken: hsl(222 16% 9.5%);
+      --border: hsl(222 10% 23%);
+      --border-strong: hsl(222 9% 45%);
+      --text: hsl(40 14% 89%);
+      --muted: hsl(222 8% 69%);
+      --faint: hsl(222 7% 60%);
+      --brand: hsl(224 55% 78%);
+      --brand-soft: hsl(224 28% 21%);
+      --aws: hsl(34 80% 68%);
+      --aws-soft: hsl(30 35% 17%);
+      --gate: hsl(150 40% 68%);
+      --gate-soft: hsl(150 24% 16%);
+      --warn: hsl(38 75% 68%);
+      --warn-soft: hsl(38 35% 16%);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: hsl(222 16% 11%);
+    --surface: hsl(222 14% 14.5%);
+    --sunken: hsl(222 16% 9.5%);
+    --border: hsl(222 10% 23%);
+    --border-strong: hsl(222 9% 45%);
+    --text: hsl(40 14% 89%);
+    --muted: hsl(222 8% 69%);
+    --faint: hsl(222 7% 60%);
+    --brand: hsl(224 55% 78%);
+    --brand-soft: hsl(224 28% 21%);
+    --aws: hsl(34 80% 68%);
+    --aws-soft: hsl(30 35% 17%);
+    --gate: hsl(150 40% 68%);
+    --gate-soft: hsl(150 24% 16%);
+    --warn: hsl(38 75% 68%);
+    --warn-soft: hsl(38 35% 16%);
+    color-scheme: dark;
+  }
+
+  html { scroll-behavior: auto; }
+  @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+  body { background: var(--bg); color: var(--text); font: 400 15.5px/1.62 var(--font); -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1060px; margin-inline: auto; padding-inline: 16px; }
+  @media (min-width: 720px) { .wrap { padding-inline: 32px; } }
+
+  /* ---------- header ---------- */
+  .hero { padding-block: 40px 28px; }
+  .eyebrow { margin: 0 0 10px; font: 500 12px/1.4 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  h1 { margin: 0 0 14px; font: 600 clamp(30px, 5.2vw, 46px)/1.08 var(--font); letter-spacing: -.02em; text-wrap: balance; }
+  .lede { margin: 0 0 18px; max-width: 62ch; font-size: 18px; line-height: 1.55; color: var(--text); }
+  .creed { margin: 0 0 26px; padding: 10px 14px; max-width: 62ch; background: var(--brand-soft); color: var(--brand); border-radius: 4px; font: 500 13.5px/1.55 var(--mono); }
+  .facts { display: flex; flex-wrap: wrap; gap: 0; margin: 0 0 8px; padding: 0; border-block: 1px solid var(--border); }
+  .facts div { flex: 1 1 130px; padding: 12px 16px 12px 0; margin-right: 16px; }
+  .facts dt { font: 500 11.5px/1.3 var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+  .facts dd { margin: 2px 0 0; font: 500 22px/1.2 var(--mono); font-variant-numeric: tabular-nums; }
+  .asof { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+
+  /* ---------- nav ---------- */
+  nav.toc { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); border-bottom: 1px solid var(--border); }
+  nav.toc ul { display: flex; gap: 4px; margin: 0; padding: 8px 0; list-style: none; overflow-x: auto; scrollbar-width: none; }
+  nav.toc a { display: block; padding: 5px 10px; border-radius: 4px; color: var(--muted); font: 500 13px/1.3 var(--font); text-decoration: none; white-space: nowrap; }
+  nav.toc a:hover { background: var(--sunken); color: var(--text); }
+  a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+  /* ---------- sections ---------- */
+  section { padding-block: 44px 8px; scroll-margin-top: 52px; }
+  section + section { border-top: 1px solid var(--border); margin-top: 36px; }
+  h2 { margin: 0 0 6px; font: 600 26px/1.2 var(--font); letter-spacing: -.012em; text-wrap: balance; }
+  .kicker { margin: 0 0 18px; font: 500 12px/1.4 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  h3 { margin: 30px 0 8px; font: 600 17px/1.3 var(--font); letter-spacing: -.005em; }
+  p { margin: 0 0 14px; max-width: 70ch; }
+  ul.tight { margin: 0 0 16px; padding-left: 20px; max-width: 70ch; }
+  ul.tight li { margin-bottom: 6px; }
+  code, .m { font: 400 .9em/1.4 var(--mono); }
+  code { padding: 1px 5px; background: var(--sunken); border-radius: 3px; }
+  strong { font-weight: 600; }
+
+  /* ---------- tags + callouts ---------- */
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 3px; font: 500 11.5px/1.6 var(--mono); white-space: nowrap; }
+  .tag.code { background: var(--brand-soft); color: var(--brand); }
+  .tag.aws  { background: var(--aws-soft); color: var(--aws); }
+  .tag.gate { background: var(--gate-soft); color: var(--gate); }
+  .tag.warn { background: var(--warn-soft); color: var(--warn); }
+  .tag.off  { background: var(--sunken); color: var(--muted); }
+  .pattern { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 20px 0 16px; padding: 14px 16px; background: var(--sunken); border-radius: 4px; max-width: 78ch; }
+  .pattern > .tag { align-self: start; margin-top: 3px; background: var(--brand); color: var(--bg); }
+  .pattern p { margin: 0; max-width: none; font-size: 14.5px; }
+  @media (max-width: 560px) { .pattern { grid-template-columns: 1fr; } }
+  .callout { margin: 18px 0; padding: 14px 16px; background: var(--warn-soft); color: var(--text); border-radius: 4px; max-width: 78ch; font-size: 14.5px; }
+  .callout p { margin: 0 0 8px; max-width: none; }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout .tag { margin-right: 6px; }
+
+  /* ---------- pipeline steps ---------- */
+  .phase { margin: 38px 0 6px; padding-top: 4px; font: 500 12px/1.5 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--text); max-width: none; }
+  .phase .tag { margin-left: 8px; text-transform: none; letter-spacing: 0; }
+  .stage { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 0 16px; padding: 18px 0 16px; border-top: 1px solid var(--border); }
+  .stage .num { font: 500 20px/1.3 var(--mono); color: var(--faint); font-variant-numeric: tabular-nums; }
+  .stage h4 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0 0 10px; font: 600 17px/1.35 var(--font); letter-spacing: -.005em; }
+  .stage h4 .m { font-size: 12.5px; font-weight: 500; color: var(--muted); }
+  .stage dl { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 8px 16px; margin: 0; }
+  .stage dt { padding-top: 3px; font: 500 11.5px/1.4 var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+  .stage dd { margin: 0; max-width: 68ch; }
+  @media (max-width: 600px) {
+    .stage { grid-template-columns: 30px minmax(0, 1fr); gap: 0 10px; }
+    .stage dl { grid-template-columns: 1fr; gap: 2px 0; }
+    .stage dt { padding-top: 8px; }
+  }
+
+  /* ---------- tables ---------- */
+  .tbl { overflow-x: auto; margin: 14px 0 20px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 680px; font-size: 14px; line-height: 1.5; }
+  th { padding: 9px 14px; text-align: left; font: 500 11.5px/1.3 var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: var(--sunken); border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 10px 14px; vertical-align: top; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: 0; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  td .m { white-space: nowrap; }
+  td p { margin: 0; max-width: none; }
+  td p + p { margin-top: 4px; }
+
+  /* ---------- figures ---------- */
+  figure { margin: 22px 0 26px; }
+  .fig { overflow-x: auto; padding: 18px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; }
+  .fig svg { display: block; width: 100%; min-width: 860px; height: auto; color: var(--text); }
+  figcaption { margin-top: 10px; max-width: 74ch; font-size: 13.5px; line-height: 1.55; color: var(--muted); }
+  figcaption strong { color: var(--text); }
+
+  /* svg parts: every colour is a page token, so both themes work */
+  .nd { fill: var(--bg); stroke: var(--border-strong); stroke-width: 1.2; }
+  .nd-code { fill: var(--brand-soft); stroke: var(--brand); stroke-width: 1.3; }
+  .nd-aws { fill: var(--aws-soft); stroke: var(--aws); stroke-width: 1.3; }
+  .nd-gate { fill: var(--gate-soft); stroke: var(--gate); stroke-width: 1.3; }
+  .nd-human { fill: var(--text); stroke: var(--text); }
+  .nd-prop { fill: var(--bg); stroke: var(--border-strong); stroke-width: 1.3; stroke-dasharray: 5 4; }
+  .nd-key { stroke-width: 2.4; }
+  .t  { fill: var(--text); font: 600 13.5px var(--font); }
+  .tm { fill: var(--text); font: 500 13px var(--mono); }
+  .s  { fill: var(--muted); font: 400 12px var(--font); }
+  .sm { fill: var(--muted); font: 400 11.5px var(--mono); }
+  .lab { fill: var(--muted); font: 500 12px var(--font); }
+  .cap { fill: var(--muted); font: 500 11.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+  .t-on { fill: var(--bg); font: 600 13.5px var(--font); }
+  .s-on { fill: var(--bg); font: 400 12px var(--font); opacity: .82; }
+  .halo { paint-order: stroke; stroke: var(--surface); stroke-width: 5px; stroke-linejoin: round; }
+  .ln { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+  .ln-aws { stroke: var(--aws); }
+  .ln-gate { stroke: var(--gate); }
+  .dash { stroke-dasharray: 6 4; }
+  .wall { stroke: var(--border-strong); stroke-width: 1.5; stroke-dasharray: 2 6; fill: none; }
+  .ah { fill: var(--muted); }
+  .ah-aws { fill: var(--aws); }
+  .ah-gate { fill: var(--gate); }
+
+  /* ---------- misc ---------- */
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 6px 0 0; padding: 0; list-style: none; font-size: 13px; color: var(--muted); }
+  footer { margin-top: 56px; padding-block: 22px 40px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
+  footer p { max-width: 80ch; }
+</style>
+<style>
+  :root { color-scheme: light; }
+  body { margin: 0; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah"/></marker>
+    <marker id="ah-aws" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah-aws"/></marker>
+    <marker id="ah-gate" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ah-gate"/></marker>
+  </defs>
+</svg>
+
+<header class="hero wrap">
+  <p class="eyebrow">Green Link Digital Bank · agentic fraud detection for corporate loan documents</p>
+  <h1>VeriDoc architecture</h1>
+  <p class="lede">A loan officer uploads a trade-finance pack. Rules read it, score it and route it. A team of AI agents investigates what the rules cannot state. Code checks every claim the agents make. A person decides.</p>
+  <p class="creed">AI investigates. Specialists stay in their lanes. Code verifies. Rules score. Humans decide.</p>
+  <dl class="facts">
+    <div><dt>Pipeline stages</dt><dd>12</dd></div>
+    <div><dt>Rule checks</dt><dd>36</dd></div>
+    <div><dt>Rule groups</dt><dd>6</dd></div>
+    <div><dt>Named signals</dt><dd>42</dd></div>
+    <div><dt>AI roles</dt><dd>5 + scorer</dd></div>
+    <div><dt>Demo packs</dt><dd>12</dd></div>
+    <div><dt>Tests</dt><dd>831</dd></div>
+  </dl>
+  <p class="asof">Read from the code on 2026-10-08, branch <span class="m">feat/multi-agent-forensics-ui</span>. A prototype on synthetic data only.</p>
+</header>
+
+<nav class="toc" aria-label="Sections">
+  <div class="wrap">
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#flow">Flow</a></li>
+      <li><a href="#stages">Stages</a></li>
+      <li><a href="#rules">Rules</a></li>
+      <li><a href="#ai-team">AI team</a></li>
+      <li><a href="#proof">Proof</a></li>
+      <li><a href="#human">Human</a></li>
+      <li><a href="#controls">Controls</a></li>
+      <li><a href="#aws">AWS and data</a></li>
+      <li><a href="#app">App</a></li>
+      <li><a href="#status">Status</a></li>
+    </ul>
+  </div>
+</nav>
+
+<main class="wrap">
+
+<!-- ====================================================== OVERVIEW -->
+<section id="overview">
+  <h2>What it is</h2>
+  <p class="kicker">The product, in one page</p>
+  <p>The sponsor, Green Link Digital Bank, wants a loan officer to upload a set of corporate loan documents and get a fraud analysis back. The brief asks for four things: extract the key fields, detect tampering, cross-check documents against each other, and give an overall risk score.</p>
+  <p>VeriDoc reads invoices, purchase orders, bills of lading, bank statements, financial statements, notices of assessment and FATCA/CRS forms. It runs 36 deterministic checks, scores the risk and routes the case to a review path. An AI team on Amazon Bedrock then looks for patterns the rules cannot express, such as a stranger paying someone else's invoice. Code verifies each of those claims against the case data before an analyst sees them as flags.</p>
+  <p>It never approves or declines a loan. The bank's own answers (2026-10-07) shaped the design: fraud is found by inconsistency across documents, no thresholds are fixed, and explainability and few false flags matter. So the effort goes into evidence and into proving claims, not into a cleverer model.</p>
+
+  <h3>What is in the repository</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Path</th><th>What it holds</th></tr></thead>
+    <tbody>
+      <tr><td><span class="m">gldb/</span></td><td>The Python backend, about 11,800 lines: intake, extraction, the 36 checks, scoring, routing, lifecycle, audit, usage metering and the FastAPI app.</td></tr>
+      <tr><td><span class="m">gldb/ai_team/</span></td><td>The Supervisor and four specialists: their tools, the tool-use loop, the verifier, the code checks and the shadow scorer.</td></tr>
+      <tr><td><span class="m">frontend/</span></td><td>React 19, TypeScript and Vite. Screens are addressed by URL hash, for example <span class="m">#/cases/&lt;id&gt;/&lt;stage&gt;</span>. The dev server proxies <span class="m">/api</span> to port 8000.</td></tr>
+      <tr><td><span class="m">data/</span></td><td>Twelve synthetic packs with ground truth, a synthetic company register and sanctions list, blank FATCA/CRS form templates, and runtime uploads and case results.</td></tr>
+      <tr><td><span class="m">infra/guardrail.yaml</span></td><td>CloudFormation for the Bedrock guardrail that screens document text for prompt attacks.</td></tr>
+      <tr><td><span class="m">tests/</span></td><td>39 files, 831 tests, offline by default. The live AWS smoke tests need <span class="m">RUN_LIVE=1</span>.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ====================================================== FLOW -->
+<section id="flow">
+  <h2>How the pieces fit</h2>
+  <p class="kicker">One wall between the rules and the AI</p>
+
+  <figure>
+    <div class="fig">
+      <svg viewBox="0 0 1000 362" role="img" aria-label="Two lanes. In the top lane, rules read the upload, run 36 checks, then score and route the case before any AI runs, and hand it to an analyst. In the bottom lane, the AI team receives a read-only copy of the case, its claims are checked by code, and the result goes to the analyst only as proposals. Nothing flows from the AI lane back to the score or route.">
+        <text class="cap" x="0" y="16">Rules decide · deterministic Python, versioned</text>
+
+        <!-- top lane -->
+        <rect class="nd" x="0" y="30" width="140" height="64" rx="4"/>
+        <text class="t" x="70" y="56" text-anchor="middle">Upload</text>
+        <text class="s" x="70" y="73" text-anchor="middle">PDFs, scans,</text>
+        <text class="s" x="70" y="87" text-anchor="middle">application.json</text>
+
+        <rect class="nd-code" x="215" y="30" width="140" height="64" rx="4"/>
+        <text class="t" x="285" y="56" text-anchor="middle">Read the pack</text>
+        <text class="s" x="285" y="73" text-anchor="middle">OCR, intake, screen,</text>
+        <text class="s" x="285" y="87" text-anchor="middle">extract fields</text>
+
+        <rect class="nd-code" x="430" y="30" width="140" height="64" rx="4"/>
+        <text class="t" x="500" y="56" text-anchor="middle">36 rule checks</text>
+        <text class="s" x="500" y="73" text-anchor="middle">6 rule groups in parallel</text>
+        <text class="s" x="500" y="87" text-anchor="middle">emit Evidence E01…</text>
+
+        <rect class="nd-code nd-key" x="645" y="30" width="140" height="64" rx="4"/>
+        <text class="t" x="715" y="56" text-anchor="middle">Score + route</text>
+        <text class="s" x="715" y="73" text-anchor="middle">plus readiness,</text>
+        <text class="s" x="715" y="87" text-anchor="middle">fixed before any AI</text>
+
+        <rect class="nd-human" x="860" y="30" width="140" height="64" rx="4"/>
+        <text class="t-on" x="930" y="56" text-anchor="middle">Analyst</text>
+        <text class="s-on" x="930" y="73" text-anchor="middle">confirms or dismisses,</text>
+        <text class="s-on" x="930" y="87" text-anchor="middle">then decides</text>
+
+        <path class="ln" d="M140 62 H209" marker-end="url(#ah)"/>
+        <path class="ln" d="M355 62 H424" marker-end="url(#ah)"/>
+        <path class="ln" d="M570 62 H639" marker-end="url(#ah)"/>
+        <path class="ln" d="M785 62 H854" marker-end="url(#ah)"/>
+        <text class="lab" x="177" y="53" text-anchor="middle">files</text>
+        <text class="lab" x="390" y="53" text-anchor="middle">typed fields</text>
+        <text class="lab" x="605" y="53" text-anchor="middle">findings</text>
+        <text class="lab" x="820" y="53" text-anchor="middle">path</text>
+
+        <!-- the one-way crossing -->
+        <path class="ln" d="M500 94 V244" marker-end="url(#ah)"/>
+        <text class="lab halo" x="510" y="140">read-only copy of</text>
+        <text class="lab halo" x="510" y="156">the pack and findings</text>
+
+        <!-- wall -->
+        <path class="wall" d="M0 200 H1000"/>
+        <text class="lab halo" x="0" y="172">One-way wall. The AI reads the case;</text>
+        <text class="lab halo" x="0" y="188">nothing it writes reaches the score or route.</text>
+
+        <text class="cap" x="0" y="224">AI proposes · Amazon Bedrock, its output is data</text>
+
+        <!-- bottom lane -->
+        <rect class="nd-aws" x="430" y="250" width="140" height="64" rx="4"/>
+        <text class="t" x="500" y="276" text-anchor="middle">AI team</text>
+        <text class="s" x="500" y="293" text-anchor="middle">Supervisor +</text>
+        <text class="s" x="500" y="307" text-anchor="middle">4 specialists</text>
+
+        <rect class="nd-gate" x="645" y="250" width="140" height="64" rx="4"/>
+        <text class="t" x="715" y="276" text-anchor="middle">Code verifies</text>
+        <text class="s" x="715" y="293" text-anchor="middle">checks every claim</text>
+        <text class="s" x="715" y="307" text-anchor="middle">against case data</text>
+
+        <rect class="nd-prop" x="860" y="250" width="140" height="64" rx="4"/>
+        <text class="t" x="930" y="276" text-anchor="middle">Proposals</text>
+        <text class="s" x="930" y="293" text-anchor="middle">leads, memo,</text>
+        <text class="s" x="930" y="307" text-anchor="middle">shadow route</text>
+
+        <path class="ln ln-aws" d="M570 282 H639" marker-end="url(#ah-aws)"/>
+        <path class="ln ln-gate" d="M785 282 H854" marker-end="url(#ah-gate)"/>
+        <text class="lab" x="605" y="273" text-anchor="middle">leads</text>
+        <text class="lab" x="820" y="273" text-anchor="middle">flags only</text>
+
+        <path class="ln dash" d="M930 250 V102" marker-end="url(#ah)"/>
+        <text class="lab halo" x="922" y="150" text-anchor="end">shown as proposals,</text>
+        <text class="lab halo" x="922" y="166" text-anchor="end">never as decisions</text>
+
+        <!-- legend -->
+        <rect class="nd-code" x="0" y="252" width="14" height="14" rx="2"/><text class="lab" x="22" y="263.5">Deterministic code</text>
+        <rect class="nd-aws" x="0" y="274" width="14" height="14" rx="2"/><text class="lab" x="22" y="285.5">Calls an AWS model or service</text>
+        <rect class="nd-gate" x="0" y="296" width="14" height="14" rx="2"/><text class="lab" x="22" y="307.5">Code gate on AI output</text>
+        <rect class="nd-human" x="0" y="318" width="14" height="14" rx="2"/><text class="lab" x="22" y="329.5">A person</text>
+        <path class="ln dash" d="M0 347 H14" /><text class="lab" x="22" y="351">Proposal, not a decision</text>
+      </svg>
+    </div>
+    <figcaption><strong>The score, readiness and route are fixed before any model forms an opinion.</strong> The AI lane receives a read-only copy of the case and can only add leads and a memo to its own record. The analyst sees both lanes, and the AI lane is always labelled as a proposal.</figcaption>
+  </figure>
+
+  <p>The top lane is ordinary Python. It turns files into fields, fields into Evidence, Evidence into a score and the score into a review path. The bottom lane starts afterwards. In <span class="m">pipeline.assess()</span> the score, readiness and route stages run before the AI stage, and none of them reads its output, so the wall can be confirmed by reading one function.</p>
+
+  <div class="pattern"><span class="tag">Banking pattern</span><p>Measurement is kept apart from policy, and a model still being validated runs in shadow. Banks treat credit and fraud models the same way: the model of record decides, a challenger is observed beside it, and it is promoted only on evidence.</p></div>
+</section>
+
+<!-- ====================================================== STAGES -->
+<section id="stages">
+  <h2>The twelve steps, one by one</h2>
+  <p class="kicker">What each step does, and what it is for</p>
+  <p>A case moves through these steps in this order. Each is timed and recorded as ran, failed or off, with the version that ran it (model, guardrail, rule set or policy), and the browser polls <span class="m">GET /api/cases/{id}/progress</span> to draw the live run screen. Steps that call AWS are off by default in config and switched on in <span class="m">.env</span>. The four phases match the lanes in the figure above.</p>
+
+  <!-- ---------- phase 1 -->
+  <p class="phase">Phase 1 · Read the pack <span class="tag code">turn files into trustworthy data</span></p>
+
+  <article class="stage">
+    <div class="num" aria-hidden="true">01</div>
+    <div>
+      <h4>Read every page <span class="m">ocr</span> <span class="tag aws">Textract</span> <span class="tag off">OCR_ENABLED</span></h4>
+      <dl>
+        <dt>Does</dt>
+        <dd>Splits each PDF into single pages and sends them to Textract. Keeps the text, a confidence score per page and the position of every line. Fillable forms are skipped.</dd>
+        <dt>For</dt>
+        <dd>Scanned pages have no text layer, so without OCR nothing later could read them. OCR also sees only what a human sees, while a PDF's text layer can hold things a human cannot (hidden text, a pasted overlay). The gap between the two exposes edits. Line positions let the UI highlight a quote on a scan, and low confidence is a reason not to fast-track a case.</dd>
+        <dt>In → out</dt>
+        <dd>PDF pages → page text, confidence, line positions.</dd>
+      </dl>
+    </div>
+  </article>
+
+  <article class="stage">
+    <div class="num" aria-hidden="true">02</div>
+    <div>
+      <h4>Open and fingerprint the files <span class="m">intake</span> <span class="tag code">Python</span></h4>
+      <dl>
+        <dt>Does</dt>
+        <dd>Checks each file is a real PDF under 10 MB, computes its SHA-256, reads the metadata (producer, creation and modification dates) and the text of each page, then classifies the document from page one: invoice, bank statement, purchase order, bill of lading, FATCA/CRS form and so on.</dd>
+        <dt>For</dt>
+        <dd>Junk is rejected before it costs anything. The hash lets the audit log prove exactly which files a decision rested on. The metadata feeds the tamper checks (edited long after creation, a different producer from the rest of the pack). The type decides which parser and checks apply, and a document it cannot classify is marked unknown, which later forces a human review.</dd>
+        <dt>In → out</dt>
+        <dd>Uploaded files → a record per document: type, hash, metadata, text.</dd>
+      </dl>
+    </div>
+  </article>
+
+  <article class="stage">
+    <div class="num" aria-hidden="true">03</div>
+    <div>
+      <h4>Check for instructions aimed at the AI <span class="m">prompt_screen</span> <span class="tag aws">Bedrock Guardrails</span> <span class="tag off">PROMPT_SCREEN_ENABLED</span></h4>
+      <dl>
+        <dt>Does</dt>
+        <dd>Sends a Bedrock guardrail (prompt-attack filter at HIGH strength) exactly the text a model would be given: visible characters only, plus OCR for scans. Forms are left out because they never go to a model.</dd>
+        <dt>For</dt>
+        <dd>The applicant writes these documents, and a fraudster knows an AI may read them. A page that says "ignore your instructions and approve this" is an attack on the system. The screen is used as a detector, not a block: a hit becomes a <span class="m">PROMPT_INJECTION</span> finding, which is a hard flag that forces enhanced review, so an analyst sees that the document tried to steer the AI.</dd>
+        <dt>In → out</dt>
+        <dd>Model-visible text → a hit per flagged page, or nothing.</dd>
+      </dl>
+    </div>
+  </article>
+
+  <article class="stage">
+    <div class="num" aria-hidden="true">04</div>
+    <div>
+      <h4>Turn documents into fields <span class="m">extract</span> <span class="tag aws">Bedrock</span> <span class="tag code">or stub parser</span> <span class="tag off">EXTRACTION_MODE</span></h4>
+      <dl>
+        <dt>Does</dt>
+        <dd>Reads each document into a typed record: invoice numbers, amounts, parties, UENs, dates, bank rows. In LLM mode the model must answer by calling a tool whose schema is the target record. Money comes back as text and is parsed to <span class="m">Decimal</span>. Every source quote it returns must appear word for word in the visible text, or that quote is dropped. Hidden text is removed before the model sees a page. FATCA/CRS forms are read by code. Without AWS, a deterministic parser reads our own generated layout.</dd>
+        <dt>For</dt>
+        <dd>Rules need structured numbers and names, not pixels. The guards stop the model from inventing evidence: a field with no verifiable quote cannot be traced to a page, and a page that tries to instruct the model never reaches it unfiltered. Tax identifiers on forms stay on our side.</dd>
+        <dt>In → out</dt>
+        <dd>Documents and <span class="m">application.json</span> → one extracted pack.</dd>
+      </dl>
+    </div>
+  </article>
+
+  <!-- ---------- phase 2 -->
+  <p class="phase">Phase 2 · Rules decide <span class="tag code">deterministic, versioned, no AI</span></p>
+
+  <article class="stage">
+    <div class="num" aria-hidden="true">05</div>
+    <div>
+      <h4>Look for tampering and inconsistency <span class="m">rule_checks</span> <span class="tag code">Python</span></h4>
+      <dl>
+        <dt>Does</dt>
+        <dd>Runs six rule groups and their 36 checks in parallel, then merges the results in a fixed order and numbers them <span class="m">E01</span>, <span class="m">E02</span> and so on. A check that crashes emits <span class="m">SYSTEM_CHECK_ERROR</span> instead of stopping the run. The checks are listed in the next section.</dd>
+        <dt>For</dt>
+        <dd>This is where the brief's detection happens: wrong arithmetic, edited metadata, hidden text, mismatches between an invoice and its purchase order, bill of lading and bank credit, unregistered or sanctioned parties, impossible dates, missing paperwork. Every finding is Evidence that names a document and page, so an analyst can check it against the source, and the same pack always gives the same findings.</dd>
+        <dt>In → out</dt>
+        <dd>The extracted pack → a list of Evidence, plus each agent's timing.</dd>
+      </dl>
+    </div>
+  </article>
+
+  <article class="stage">
+    <div class="num" aria-hidden="true">06</div>
+    <div>
+      <h4>Put a number on fraud risk <span class="m">score</span> <span class="tag code">Python</span></h4>
+      <dl>
+        <dt>Does</dt>
+        <dd>Adds points for fraud signals only, using the severity weights or the fixed points a signal carries, caps the total at 100, picks a band and applies the hard rules.</dd>
+        <dt>For</dt>
+        <dd>One comparable number for triage and for tracking over time, with every point traceable to the finding that earned it. Only fraud signals count, so a missing form cannot make a company look fraudulent. No model sets it, which keeps the number explainable and repeatable.</dd>
+        <dt>In → out</dt>
+        <dd>Evidence → score, band and an itemised "why this score?".</dd>
+      </dl>
+    </div>
+  </article>
+
+  <article class="stage">
+    <div class="num" aria-hidden="true">07</div>
+    <div>
+      <h4>Is the application complete? <span class="m">readiness</span> <span class="tag code">Python</span></h4>
+      <dl>
+        <dt>Does</dt>
+        <dd>Looks only at compliance and completeness findings, and ticks off a checklist: the FATCA/CRS form, six months of bank statements, a Notice of Assessment for every guarantor.</dd>
+        <dt>For</dt>
+        <dd>It keeps "fraud suspected" apart from "paperwork missing". An incomplete application goes back to the applicant with a request for information instead of being scored as risky, which matches the bank's advice to ask when unsure.</dd>
+        <dt>In → out</dt>
+        <dd>Evidence and pack → Complete or Incomplete, with the checklist.</dd>
+      </dl>
+    </div>
+  </article>
+
+  <article class="stage">
+    <div class="num" aria-hidden="true">08</div>
+    <div>
+      <h4>Decide who looks at it <span class="m">route</span> <span class="tag code">Python</span></h4>
+      <dl>
+        <dt>Does</dt>
+        <dd>Maps the band to a review path, then lets signals only raise it: hard flags force enhanced review, and low extraction confidence or an incomplete application forces at least standard review. It also draws the 5% QA sample of fast-track cases.</dd>
+        <dt>For</dt>
+        <dd>It turns a measurement into a work queue. Clean cases move quickly, risky ones get more scrutiny and enhanced due diligence, and nothing is fast-tracked on data that may be unreliable. The route records the policy version that produced it. The system routes; it never approves or declines.</dd>
+        <dt>In → out</dt>
+        <dd>Score, evidence and readiness → a review path with its reasons.</dd>
+      </dl>
+    </div>
+  </article>
+
+  <!-- ---------- phase 3 -->
+  <p class="phase">Phase 3 · AI proposes <span class="tag aws">after the route is fixed, nothing flows back</span></p>
+
+  <article class="stage">
+    <div class="num" aria-hidden="true">09</div>
+    <div>
+      <h4>Investigate what rules cannot state <span class="m">ai_team</span> <span class="tag aws">Bedrock</span> <span class="tag off">AGENTS_ENABLED</span></h4>
+      <dl>
+        <dt>Does</dt>
+        <dd>A Supervisor briefs four specialists (forensics, transaction, KYC and timeline). They work in parallel with read-only tools and record leads. Three code gates then check those leads, and the Supervisor writes a memo from the verified flags alone. The next sections cover this in full.</dd>
+        <dt>For</dt>
+        <dd>Some fraud is a story across documents: someone else paying an invoice, one invoice settled in odd parts, a counterparty sharing a director with the applicant. A rule needs a fixed shape, while an investigator can follow a thread. The AI adds breadth, and code verification keeps false flags down, which the bank named as a priority. It runs after the route so it cannot change it.</dd>
+        <dt>In → out</dt>
+        <dd>The case data → leads with an evidence status, a memo, and a numbered trail of every tool call.</dd>
+      </dl>
+    </div>
+  </article>
+
+  <article class="stage">
+    <div class="num" aria-hidden="true">10</div>
+    <div>
+      <h4>Take a second opinion, and only log it <span class="m">shadow_score</span> <span class="tag aws">Bedrock</span> <span class="tag off">SHADOW_SCORE_ENABLED</span></h4>
+      <dl>
+        <dt>Does</dt>
+        <dd>One model call proposes a route from the case and its verified flags. Code validates the answer and compares it with the rule route. A gate then records the route it would take.</dd>
+        <dt>For</dt>
+        <dd>It answers a question before anyone has to trust the AI: would it have caught a case the rules fast-tracked, or cleared noise they flagged? The record of agreements and misses is the evidence for or against ever letting it influence a route. Today nothing reads it.</dd>
+        <dt>In → out</dt>
+        <dd>Case context and flags → a proposed route and a would-route decision, both logged only.</dd>
+      </dl>
+    </div>
+  </article>
+
+  <!-- ---------- phase 4 -->
+  <p class="phase">Phase 4 · Present and record <span class="tag code">for the analyst and the auditor</span></p>
+
+  <article class="stage">
+    <div class="num" aria-hidden="true">11</div>
+    <div>
+      <h4>Arrange the evidence for a person <span class="m">projections</span> <span class="tag code">Python</span></h4>
+      <dl>
+        <dt>Does</dt>
+        <dd>Builds three views. <strong>Transaction chains</strong> trace each invoice through its purchase order, bill of lading and bank payment, marking each link matched, contradicted, missing or not provided. A <strong>timeline</strong> lists every dated fact with its document and page. An <strong>investigation queue</strong> orders the tasks by urgency, gives each signal's remedy, and works out what would change if it were resolved by re-running scoring and routing without those findings.</dd>
+        <dt>For</dt>
+        <dd>Analysts think in trades and dates, not check ids. These are views over existing findings, never new rules, so they cannot disagree with the decision layer. The queue tells the analyst what to resolve first and how. It is guidance only and never closes a finding.</dd>
+        <dt>In → out</dt>
+        <dd>Evidence and pack → chains, timeline and queue.</dd>
+      </dl>
+    </div>
+  </article>
+
+  <article class="stage">
+    <div class="num" aria-hidden="true">12</div>
+    <div>
+      <h4>Write it down <span class="m">record</span> <span class="tag code">Python</span></h4>
+      <dl>
+        <dt>Does</dt>
+        <dd>Saves <span class="m">result.json</span> (archiving any earlier result as <span class="m">result.vN.json</span>), keeps the OCR line positions and the AI tool trail beside it, and appends a <span class="m">pipeline_completed</span> audit event: score, band, route, every version, every model and prompt hash, evidence coverage and the hash of each document.</dd>
+        <dt>For</dt>
+        <dd>It makes every run replayable and auditable. A reviewer can see which rules, models, prompts and reference data produced a result, and a re-assessment never overwrites history. Evidence coverage is the share of risk findings that point to a page and a quote the reader can check; the code treats anything below 1.0 as a defect, not a statistic.</dd>
+        <dt>In → out</dt>
+        <dd>The finished case → files on disk and one line in the audit log.</dd>
+      </dl>
+    </div>
+  </article>
+</section>
+
+<!-- ====================================================== RULES -->
+<section id="rules">
+  <h2>The rule engine</h2>
+  <p class="kicker">Evidence, score, readiness, route</p>
+
+  <h3>Everything is Evidence</h3>
+  <p>Each check is a pure function from the extracted pack to a list of Evidence. An Evidence item carries a check id, a category (<span class="m">fraud_signal</span>, <span class="m">compliance</span> or <span class="m">completeness</span>), a severity from info to critical, the document and page, a confidence and a plain explanation. Nothing exists outside Evidence. If a check crashes, it emits <span class="m">SYSTEM_CHECK_ERROR</span> instead of taking the run down, and that forces at least standard review.</p>
+
+  <div class="tbl"><table>
+    <thead><tr><th>Rule group</th><th class="n">Checks</th><th>What it catches</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Document Integrity</strong></td><td class="n">6</td><td>Invoice arithmetic, bank running balance and continuity, financial-statement balance, a PDF modified long after creation, and a producer that differs from the rest of the pack (compared only within one document type).</td></tr>
+      <tr><td><strong>Forensics</strong></td><td class="n">5</td><td>Hidden text (white, tiny or off-page, where injected instructions live), a figure whose digits mix fonts, a PDF re-saved after creation, visible figures that differ from the text layer, and instructions aimed at an AI model.</td></tr>
+      <tr><td><strong>Cross-Document</strong></td><td class="n">4</td><td>Identity (UEN and names) across documents, invoice against bank credit, invoice against purchase order, invoice against bill of lading.</td></tr>
+      <tr><td><strong>Registry &amp; Screening</strong></td><td class="n">3</td><td>Companies and signatories against the company register, and names against the sanctions list (similarity threshold 0.90).</td></tr>
+      <tr><td><strong>Timeline</strong></td><td class="n">2</td><td>Trading before the company existed, and purchase orders, shipments and invoices out of sequence.</td></tr>
+      <tr><td><strong>Compliance &amp; Completeness</strong></td><td class="n">16</td><td>Bank statement coverage (six months, 45-day recency), missing documents against the checklist, and 14 FATCA/CRS entity-form checks. These feed readiness, not the score.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Score, readiness and route</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Step</th><th>Rule</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Score</strong></td><td>Only <span class="m">fraud_signal</span> Evidence counts. Severity weights are low 5, medium 15, high 30, critical 50, summed and capped at 100. A signal in the library (42 of them, in families DOC, FIN, TXN, REG, TEMP, COMP and SYS) can fix its own points and carries a remedy. Every score line names its finding and signal, so "why this score?" is itemised.</td></tr>
+      <tr><td><strong>Band</strong></td><td>0 to 19 Low, 20 to 49 Medium, 50 to 100 High. Hard rule: a <span class="m">META_*</span> finding or <span class="m">XDOC_IDENTITY</span> at high or critical forces High whatever the sum.</td></tr>
+      <tr><td><strong>Readiness</strong></td><td>Compliance and completeness findings only. Complete if none are open, otherwise Incomplete, with a checklist of FATCA/CRS form, six months of bank statements and a Notice of Assessment for every guarantor.</td></tr>
+      <tr><td><strong>Route</strong></td><td>Low goes to fast track, Medium to standard review, High to enhanced review with enhanced due diligence. Signals only ever raise the path. A hard flag (sanctions match, entity not in the register, hidden text, prompt injection) forces enhanced review. Low extraction confidence (unknown document type, a crashed check, OCR below 80%) or an incomplete application forces at least standard review.</td></tr>
+      <tr><td><strong>QA sample</strong></td><td>5% of fast-track cases also go to an analyst. The draw is a hash of the case id, so an auditor can reproduce it.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout"><p><span class="tag warn">Assumption</span>Every threshold above (SGD 1.00 tolerance, 45-day recency, score bands, 0.90 match) is the team's own. The bank said it has no fixed thresholds. They live in <span class="m">gldb/config.py</span> and every route records the <span class="m">POLICY_VERSION</span> that produced it, so they stay labelled as assumptions.</p></div>
+
+  <div class="pattern"><span class="tag">Banking pattern</span><p>Policy is versioned like a credit policy, so a past decision can be replayed against the policy in force that day. Hard flags follow the risk-based approach: some findings trigger enhanced due diligence regardless of score. QA sampling is post-decision quality control.</p></div>
+</section>
+
+<!-- ====================================================== AI TEAM -->
+<section id="ai-team">
+  <h2>The AI investigation team</h2>
+  <p class="kicker">Hub and spoke, with a code gate at every handoff</p>
+  <p>Rules catch what a rule can state. They miss patterns that live across documents, such as an invoice paid by a company that is not its buyer. A Supervisor and four specialists look for those. Our code is the switchboard: no agent talks to another, so every handoff is a logged record.</p>
+
+  <figure>
+    <div class="fig">
+      <svg viewBox="0 0 1000 556" role="img" aria-label="The Supervisor writes four briefs. Four specialists work in parallel with read-only tools and record leads. Gate 1, the verifier, withholds ungrounded leads. Gate 2, the pattern check, re-derives each kept lead from the case data and sets an evidence status. Only verified or corroborated leads become flags. The Supervisor writes a memo from the flags alone, and a third gate checks every point in it.">
+        <!-- supervisor -->
+        <rect class="nd-aws" x="330" y="10" width="340" height="56" rx="4"/>
+        <text class="t" x="500" y="33" text-anchor="middle">Supervisor, step 1: plan</text>
+        <text class="s" x="500" y="51" text-anchor="middle">reads the case, writes one brief per specialist</text>
+        <text class="sm" x="690" y="35">tools: get_case_overview, get_score</text>
+        <path class="ln" d="M500 66 V100"/>
+        <path class="ln" d="M116 100 H884"/>
+        <path class="ln" d="M116 100 V118" marker-end="url(#ah)"/>
+        <path class="ln" d="M372 100 V118" marker-end="url(#ah)"/>
+        <path class="ln" d="M628 100 V118" marker-end="url(#ah)"/>
+        <path class="ln" d="M884 100 V118" marker-end="url(#ah)"/>
+        <text class="lab halo" x="510" y="89">brief + case index, delivered by code</text>
+
+        <!-- specialists -->
+        <rect class="nd-aws" x="0" y="124" width="232" height="112" rx="4"/>
+        <text class="t" x="14" y="148">Forensics specialist</text>
+        <text class="sm" x="14" y="168">document_inconsistency</text>
+        <text class="s" x="14" y="196">tools: get_page_text,</text>
+        <text class="s" x="14" y="211">get_forensic_facts</text>
+
+        <rect class="nd-aws" x="256" y="124" width="232" height="112" rx="4"/>
+        <text class="t" x="270" y="148">Transaction specialist</text>
+        <text class="sm" x="270" y="168">third_party_payment</text>
+        <text class="sm" x="270" y="183">round_trip, split_payment</text>
+        <text class="s" x="270" y="204">tools: get_chain, get_document_fields,</text>
+        <text class="s" x="270" y="219">search_bank_transactions</text>
+
+        <rect class="nd-aws" x="512" y="124" width="232" height="112" rx="4"/>
+        <text class="t" x="526" y="148">KYC and registry specialist</text>
+        <text class="sm" x="526" y="168">related_party</text>
+        <text class="sm" x="526" y="183">business_mismatch</text>
+        <text class="s" x="526" y="204">tools: get_parties, registry_lookup,</text>
+        <text class="s" x="526" y="219">sanctions_search</text>
+
+        <rect class="nd-aws" x="768" y="124" width="232" height="112" rx="4"/>
+        <text class="t" x="782" y="148">Timeline specialist</text>
+        <text class="sm" x="782" y="168">sequence_anomaly</text>
+        <text class="s" x="782" y="196">tools: get_timeline,</text>
+        <text class="s" x="782" y="211">get_incorporation</text>
+
+        <path class="ln ln-aws" d="M116 236 V266" marker-end="url(#ah-aws)"/>
+        <path class="ln ln-aws" d="M372 236 V266" marker-end="url(#ah-aws)"/>
+        <path class="ln ln-aws" d="M628 236 V266" marker-end="url(#ah-aws)"/>
+        <path class="ln ln-aws" d="M884 236 V266" marker-end="url(#ah-aws)"/>
+        <text class="lab halo" x="126" y="256">record_lead</text>
+
+        <!-- gate 1 -->
+        <rect class="nd-gate" x="0" y="272" width="1000" height="66" rx="4"/>
+        <text class="t" x="14" y="294">Gate 1: verifier</text>
+        <text class="s" x="14" y="312">Each test cites only results that agent received · only known findings · only its specialist's own patterns · supported leads show a real difference</text>
+        <text class="s" x="14" y="328">No verdict words (fraud, approve, decline, recommend) · every number and identifier must appear in what the lead cites</text>
+
+        <path class="ln ln-gate" d="M350 338 V374" marker-end="url(#ah-gate)"/>
+        <text class="lab halo" x="360" y="361">kept</text>
+        <path class="ln" d="M880 338 V374" marker-end="url(#ah)"/>
+        <text class="lab halo" x="890" y="361">withheld</text>
+
+        <!-- gate 2 -->
+        <rect class="nd-gate" x="0" y="374" width="700" height="66" rx="4"/>
+        <text class="t" x="14" y="396">Gate 2: pattern check</text>
+        <text class="s" x="14" y="414">Code re-derives the claim from the pack through the lead's own ids (invoice number, bank rows, party). No prose is read.</text>
+        <text class="s" x="14" y="430">Outcome: verified · corroborated (plus a rule finding from another source) · unverified · contradicted</text>
+
+        <rect class="nd" x="760" y="374" width="240" height="66" rx="4"/>
+        <text class="t" x="774" y="396">Visible, never a flag</text>
+        <text class="s" x="774" y="414">withheld leads, with the reason</text>
+        <text class="s" x="774" y="430">unverified and contradicted leads</text>
+        <path class="ln" d="M700 407 H754" marker-end="url(#ah)"/>
+        <text class="lab halo" x="727" y="399" text-anchor="middle">no proof</text>
+
+        <path class="ln ln-gate" d="M140 440 V476" marker-end="url(#ah-gate)"/>
+        <text class="lab halo" x="150" y="463">flags: verified or corroborated</text>
+
+        <!-- memo -->
+        <rect class="nd-aws" x="0" y="476" width="280" height="60" rx="4"/>
+        <text class="t" x="14" y="499">Supervisor, step 2: memo</text>
+        <text class="s" x="14" y="518">sees the flags and resolved list, never tool results</text>
+
+        <rect class="nd-gate" x="360" y="476" width="280" height="60" rx="4"/>
+        <text class="t" x="374" y="499">Gate 3: memo verifier</text>
+        <text class="s" x="374" y="518">each point cites E and L ids, states only their facts</text>
+
+        <rect class="nd-prop" x="720" y="476" width="280" height="60" rx="4"/>
+        <text class="t" x="734" y="499">Memo for the analyst</text>
+        <text class="s" x="734" y="518">observations and questions, as proposals</text>
+
+        <path class="ln ln-aws" d="M280 506 H354" marker-end="url(#ah-aws)"/>
+        <text class="lab" x="317" y="498" text-anchor="middle">draft</text>
+        <path class="ln ln-gate" d="M640 506 H714" marker-end="url(#ah-gate)"/>
+        <text class="lab" x="677" y="498" text-anchor="middle">grounded</text>
+      </svg>
+    </div>
+    <figcaption><strong>An AI claim reaches the analyst only after three code gates.</strong> Withheld, unverified and contradicted leads stay visible but quiet. Only a lead that code verified or corroborated can become a flag, a memo point or an applicant question.</figcaption>
+  </figure>
+
+  <h3>How one agent runs</h3>
+  <ul class="tight">
+    <li><strong>Models.</strong> Config defaults are Claude Sonnet 4.6 for the Supervisor and Claude Haiku 4.5 for the specialists and the shadow scorer, through the Bedrock Converse API. The live <span class="m">.env</span> decides what actually runs, and each case records the models used.</li>
+    <li><strong>Bounded loop.</strong> An agent calls read-only tools until it submits its answer or ends its turn. It gets 10 successful evidence calls (failed calls do not use the cap, but have a cap of their own), then two grace turns to record what it found. A token budget of 400,000 per case stops a runaway.</li>
+    <li><strong>Least privilege.</strong> Each specialist is given only its own tools. Arguments are closed-world: wherever the case knows the valid values (document ids, invoice numbers, UENs, finding ids), the tool schema is an enum of exactly those.</li>
+    <li><strong>Receipts.</strong> Every tool call is numbered R01, R02 and so on, masked, size-capped at 8,000 characters and wrapped as untrusted data. A lead must cite the R ids it rests on, with the expected and the observed value copied from them.</li>
+    <li><strong>A lead is a contract.</strong> A hypothesis, tests, a status (supported, refuted or unresolved) and, for a pattern, the subject in ids the case defines. A refused <span class="m">record_lead</span> call returns an error the agent can correct and retry.</li>
+    <li><strong>Failure stays small.</strong> One specialist's AWS error costs only its own work, noted in the record. If all four fail, or anything else breaks, the team is recorded as failed and the case still completes.</li>
+  </ul>
+
+  <div class="pattern"><span class="tag">Banking pattern</span><p>Segregation of duties, applied to software. The agent that raises a claim is not the one that proves it, and the proof is code a reviewer can read. This is the same reason a bank separates the person who initiates a payment from the person who authorises it.</p></div>
+</section>
+
+<!-- ====================================================== PROOF -->
+<section id="proof">
+  <h2>Proof, and the shadow scorer</h2>
+  <p class="kicker">Evidence status is set by code, never by an agent</p>
+
+  <div class="tbl"><table>
+    <thead><tr><th>Status</th><th>Meaning</th><th>What the analyst sees</th></tr></thead>
+    <tbody>
+      <tr><td><span class="tag gate">corroborated</span></td><td>Code verified the pattern, and a risky rule finding from a different source sits on the same documents. Two agents agreeing counts as one source, so only rule findings can corroborate.</td><td>A flag. Strongest.</td></tr>
+      <tr><td><span class="tag gate">verified</span></td><td>Code reproduced the pattern from the case data using the lead's subject ids.</td><td>A flag. It may also become a memo point or an applicant question.</td></tr>
+      <tr><td><span class="tag warn">unverified</span></td><td>The lead passed gate 1 but code has no check for its pattern, or the facts are missing.</td><td>Listed, quiet. Never a flag or a question.</td></tr>
+      <tr><td><span class="tag warn">contradicted</span></td><td>Code's reading of the data disagrees with the agent.</td><td>Listed as contradicted. Never a flag.</td></tr>
+      <tr><td><span class="tag off">withheld</span></td><td>Failed gate 1 (not grounded in the agent's own results, a verdict word, or a number that is not in the source).</td><td>Shown with the reason it was withheld.</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Three patterns have a code check today: <span class="m">third_party_payment</span>, <span class="m">sequence_anomaly</span> and <span class="m">related_party</span>. Leads for <span class="m">round_trip</span>, <span class="m">split_payment</span>, <span class="m">business_mismatch</span> and <span class="m">document_inconsistency</span> can be kept but stay unverified.</p>
+  <p>Code can also explain a rule finding. If an invoice that no single credit matched was paid in parts by its buyer, inside the window, and the parts add up to its total, the finding is marked resolved. The Supervisor is told not to raise it and a memo point citing it is dropped. The finding and the score stand; only what is asked about it changes.</p>
+
+  <h3>Shadow scorer and log-only gate</h3>
+  <p>The rule route is the champion. A challenger runs beside it: one model call reads the case context and the verified flags as structured data, and proposes a route with reasons. It never sees the memo, a specialist's prose, an unverified lead, or the champion's own score and route. Its tool is closed over the case, so reason codes and evidence ids are enums of what the case contains, and code validates the answer again. An invalid one is stored as failed, with no retry.</p>
+  <p>The disposition gate records the route it would take and applies nothing. It never lowers a route. It would raise fast track to standard review on a verified flag, or on a shadow proposal to review. Nothing in the pipeline reads either result, so the AI changes no score and no route today.</p>
+
+  <div class="pattern"><span class="tag">Banking pattern</span><p>Champion and challenger in shadow mode. The candidate runs on live cases, its answers are logged and compared with the model of record, and only sustained agreement earns it a role in the decision. <span class="m">agent_eval</span> reports the numbers a model-risk reviewer would ask for: verified recall, flag noise, shadow misses and auto-clear rate.</p></div>
+</section>
+
+<!-- ====================================================== HUMAN -->
+<section id="human">
+  <h2>Human decisions and the audit log</h2>
+  <p class="kicker">Status is replayed, never stored</p>
+
+  <figure>
+    <div class="fig">
+      <svg viewBox="0 0 1000 330" role="img" aria-label="A case starts as assessed. The analyst can request information, which returns it to assessed after new documents re-run the pipeline; escalate it to the MLRO, who must be a different person and whose decision leads to a second approve or decline; or approve or decline directly. Approval is refused while a fraud flag is undecided.">
+        <text class="lab" x="560" y="36">Status is never stored. It is derived by</text>
+        <text class="lab" x="560" y="52">replaying the append-only audit log.</text>
+
+        <rect class="nd-code" x="20" y="130" width="170" height="54" rx="4"/>
+        <text class="tm" x="105" y="153" text-anchor="middle">assessed</text>
+        <text class="s" x="105" y="171" text-anchor="middle">pipeline result</text>
+
+        <rect class="nd" x="300" y="20" width="170" height="54" rx="4"/>
+        <text class="tm" x="385" y="43" text-anchor="middle">info_requested</text>
+        <text class="s" x="385" y="61" text-anchor="middle">waiting on the applicant</text>
+
+        <rect class="nd" x="290" y="240" width="170" height="54" rx="4"/>
+        <text class="tm" x="375" y="263" text-anchor="middle">escalated</text>
+        <text class="s" x="375" y="281" text-anchor="middle">waiting on the MLRO</text>
+
+        <rect class="nd" x="580" y="240" width="170" height="54" rx="4"/>
+        <text class="tm" x="665" y="263" text-anchor="middle">mlro_reviewed</text>
+        <text class="s" x="665" y="281" text-anchor="middle">second look done</text>
+
+        <rect class="nd-human" x="790" y="130" width="190" height="54" rx="4"/>
+        <text class="t-on" x="885" y="153" text-anchor="middle">approved or declined</text>
+        <text class="s-on" x="885" y="171" text-anchor="middle">final, no further action</text>
+
+        <path class="ln" d="M105 130 V47 H294" marker-end="url(#ah)"/>
+        <text class="lab halo" x="115" y="98">request_info</text>
+
+        <path class="ln dash" d="M340 74 V118 H150 V124" marker-end="url(#ah)"/>
+        <text class="lab halo" x="350" y="104">documents_added: the pipeline re-runs</text>
+
+        <path class="ln" d="M105 184 V267 H284" marker-end="url(#ah)"/>
+        <text class="lab halo" x="115" y="228">escalate</text>
+
+        <path class="ln" d="M460 267 H574" marker-end="url(#ah)"/>
+        <text class="lab halo" x="517" y="258" text-anchor="middle">mlro_decision</text>
+
+        <path class="ln" d="M750 267 H885 V190" marker-end="url(#ah)"/>
+        <text class="lab halo" x="760" y="258">approve | decline</text>
+
+        <path class="ln" d="M190 170 H784" marker-end="url(#ah)"/>
+        <text class="lab halo" x="487" y="162" text-anchor="middle">approve | decline</text>
+        <text class="sm halo" x="487" y="190" text-anchor="middle">approve is refused (409) while a fraud flag is undecided</text>
+
+        <text class="sm" x="520" y="318" text-anchor="middle">maker-checker: the MLRO cannot be the analyst who escalated (409)</text>
+      </svg>
+    </div>
+    <figcaption><strong>The workflow is a small state machine, and every arrow is a person's action except the re-run.</strong> The API refuses an action the current status does not allow, and a decline is always allowed.</figcaption>
+  </figure>
+
+  <ul class="tight">
+    <li><strong>Flags.</strong> The analyst confirms or dismisses each finding. A dismissal needs a reason code: <span class="m">ocr_misread</span>, <span class="m">extraction_error</span>, <span class="m">legitimate_explanation</span>, <span class="m">duplicate_finding</span>, <span class="m">threshold_too_strict</span> or <span class="m">other</span>.</li>
+    <li><strong>Feedback loop.</strong> <span class="m">gldb.feedback</span> reads the audit log and reports, per check, how often analysts override it and why. A check dismissed most of the time needs re-tuning. Overrides clustering on one group would be a fairness signal.</li>
+    <li><strong>Re-assessment.</strong> New documents after a request for information re-run the pipeline. The earlier result is archived as <span class="m">result.vN.json</span>, never overwritten. Evidence ids are reassigned on a re-run, so decisions made on an older run no longer count.</li>
+    <li><strong>The audit event.</strong> <span class="m">pipeline_completed</span> records score, band, route, rule and policy versions, reference-data versions, the guardrail version, every model id and prompt hash, evidence coverage and the SHA-256 of each document. The log is one JSON line per event, appended and never rewritten.</li>
+  </ul>
+
+  <div class="pattern"><span class="tag">Banking pattern</span><p>Event sourcing for a book of record: the log is the truth and status is a view of it, so status cannot drift from the record. The MLRO step is maker-checker (four eyes). The MLRO decides whether to file a suspicious transaction report, which in Singapore goes to the Suspicious Transaction Reporting Office (STRO).</p></div>
+</section>
+
+<!-- ====================================================== CONTROLS -->
+<section id="controls">
+  <h2>Controls built into the design</h2>
+  <p class="kicker">What the code refuses to do, and the banking habit behind it</p>
+
+  <div class="tbl"><table>
+    <thead><tr><th>Control</th><th>How it works</th><th>Banking pattern</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Documents are hostile input</strong></td><td>Hidden text is removed before a model reads a page. A Bedrock guardrail screens the rest for prompt attacks. Tool results reach agents wrapped as untrusted data, and FATCA/CRS forms with tax identifiers are read in code and never sent to a model.</td><td>Treat client-supplied material as untrusted, and keep data apart from instructions.</td></tr>
+      <tr><td><strong>One LLM gateway</strong></td><td>All Bedrock calls go through <span class="m">llm_client.py</span>. Extraction runs at temperature 0. Usage logs hold token counts only, never prompt or response text.</td><td>A single egress point for control, metering and audit.</td></tr>
+      <tr><td><strong>No LLM touches the score</strong></td><td>The score is a pure function of fraud-signal Evidence. The AI stage runs after score, readiness and route and cannot reach them.</td><td>Model of record versus challenger.</td></tr>
+      <tr><td><strong>Decimal money</strong></td><td>Amounts are <span class="m">Decimal</span> quantised to 0.01, never float. Money is accepted as printed (commas, SGD, $) and validated.</td><td>Financial systems do not use floating point.</td></tr>
+      <tr><td><strong>Masked identifiers</strong></td><td>Personal identifiers are masked in Evidence, the API and logs (first character and last four kept). The raw extracted pack is never in an API response. The document page viewer is the one place unmasked content shows.</td><td>Data minimisation. In production the viewer needs access control and an audit entry per view.</td></tr>
+      <tr><td><strong>Everything is versioned</strong></td><td>Rule set <span class="m">2026-10-04.5</span>, policy <span class="m">2026-10-04.2</span>, each prompt (a content hash of the prompt and its tool definitions), the guardrail version and the reference data with its source and as-of date.</td><td>A model inventory, so a past case can be replayed against exactly what was in force.</td></tr>
+      <tr><td><strong>Fail safe, not open</strong></td><td>A crashed check, an unknown document type or low OCR confidence raises the route. A failed AI team is a warning and the case still completes on rules alone.</td><td>When unsure, ask for more. The bank said material open concerns stop the application.</td></tr>
+      <tr><td><strong>Cost per case</strong></td><td>Every billable call (Bedrock tokens, Textract pages, guardrail text units) is logged against its case. Prices are applied when a report is made, so old usage can be re-priced.</td><td>Showback, as in cloud cost management.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ====================================================== AWS -->
+<section id="aws">
+  <h2>AWS footprint and data</h2>
+  <p class="kicker">What runs where, and what is still local</p>
+
+  <div class="tbl"><table>
+    <thead><tr><th>Service</th><th>Used for</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Bedrock, Converse API</strong></td><td>Field extraction, the AI team, the shadow scorer</td><td>Region <span class="m">ap-southeast-1</span> (Singapore). Credentials come from an AWS CLI profile, never the repo.</td></tr>
+      <tr><td><strong>Textract</strong></td><td>OCR of every page, one page per synchronous call</td><td>Quota in Singapore was raised to 10 transactions per second; the OCR stage runs 5 workers by default and retries adaptively.</td></tr>
+      <tr><td><strong>Bedrock Guardrails</strong></td><td>Prompt-attack screen at HIGH strength, used as a detector through <span class="m">ApplyGuardrail</span></td><td>Defined in <span class="m">infra/guardrail.yaml</span> as CloudFormation, with an immutable numbered version recorded on each case.</td></tr>
+      <tr><td><strong>Budgets</strong></td><td>A monthly cost alert by email</td><td>Advanced account features are on, so there is no hard spend limit.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout">
+    <p><span class="tag warn">Trade-off</span><strong>Data residency.</strong> The default model ids start with <span class="m">global.</span>, which are cross-Region inference profiles, so a request may be processed outside Singapore. The sponsor is a Singapore bank, so this matters for the report. As of 2026-10-04 the in-Region Claude Sonnet 5 was not enabled on the account, which is why the team runs Sonnet 4.6. The fix is getting an in-Region model enabled, not changing code.</p>
+    <p>Newer models also reject temperature and forced tool choice, so <span class="m">llm_client.py</span> would need changes when the team moves.</p>
+  </div>
+
+  <h3>Where data lives now</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Path</th><th>Holds</th></tr></thead>
+    <tbody>
+      <tr><td><span class="m">data/uploads/&lt;case&gt;/</span></td><td>The case's documents, so documents can re-enter after a request for information.</td></tr>
+      <tr><td><span class="m">data/cases/&lt;case&gt;/</span></td><td><span class="m">result.json</span> (with <span class="m">result.vN.json</span> archives), <span class="m">ocr_lines.json</span> for highlighting quotes on scanned pages, and <span class="m">agent_trace.json</span> with the AI team's full tool results. The last two hold raw page text and are never in an API response.</td></tr>
+      <tr><td><span class="m">logs/audit_log.jsonl</span></td><td>The append-only audit log.</td></tr>
+      <tr><td><span class="m">logs/usage.jsonl</span></td><td>Tokens, pages and text units per case.</td></tr>
+      <tr><td><span class="m">logs/evaluation.json</span>, <span class="m">agent_eval.json</span></td><td>The saved evaluation reports shown on the Model and controls screen.</td></tr>
+      <tr><td><span class="m">data/reference/</span></td><td>A synthetic company register (a stand-in for ACRA) and sanctions list, each with source, version and as-of date.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout">
+    <p><span class="tag off">Not built</span>The hosted design in the status document is a plan, not code: one container (FastAPI plus the built UI) on App Runner or ECS with an IAM role, S3 for uploads, DynamoDB for cases, S3 Object Lock for a tamper-proof audit log, Cognito for login, and SQS or Step Functions in place of the in-memory job tracker.</p>
+    <p>Today there is no authentication (the actor name comes from the request), progress is lost on restart, and storage is local files, so it is neither multi-user nor tamper-proof.</p>
+  </div>
+</section>
+
+<!-- ====================================================== APP -->
+<section id="app">
+  <h2>The API and the UI</h2>
+  <p class="kicker">A thin layer over the pipeline and the audit log</p>
+  <p>The FastAPI app holds no business logic. Starting a case answers <span class="m">202</span> at once and the pipeline runs in the background. An illegal lifecycle action returns <span class="m">409</span>.</p>
+
+  <div class="tbl"><table>
+    <thead><tr><th>Route</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><span class="m">GET /api/packs</span></td><td>List the demo packs.</td></tr>
+      <tr><td><span class="m">POST /api/cases/from-pack/{name}</span><br><span class="m">POST /api/cases</span></td><td>Open a case from a demo pack or an upload.</td></tr>
+      <tr><td><span class="m">GET /api/cases</span><br><span class="m">GET /api/cases/{id}</span></td><td>List cases, or read one as masked Evidence (never the raw pack).</td></tr>
+      <tr><td><span class="m">GET /api/cases/{id}/progress</span></td><td>Which stage a running case is on.</td></tr>
+      <tr><td><span class="m">GET /api/cases/{id}/audit</span></td><td>The case's audit events.</td></tr>
+      <tr><td><span class="m">POST /api/cases/{id}/flags/{evidence_id}</span></td><td>Confirm or dismiss a finding, with a reason code.</td></tr>
+      <tr><td><span class="m">POST /api/cases/{id}/decision</span><br><span class="m">POST /api/cases/{id}/mlro-decision</span></td><td>Analyst approve, decline, request information or escalate. MLRO decision.</td></tr>
+      <tr><td><span class="m">POST /api/cases/{id}/documents</span></td><td>Add documents after a request for information and re-run.</td></tr>
+      <tr><td><span class="m">GET .../documents/{doc}/pages/{n}</span><br><span class="m">GET .../evidence/{id}/location</span></td><td>A page image, and where a finding's quote sits on it, for the evidence viewer.</td></tr>
+      <tr><td><span class="m">GET /api/feedback</span><br><span class="m">GET /api/controls</span></td><td>Override statistics. Versions, capabilities, the signal library, spend and the saved evaluations.</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>The UI has five screens: <strong>Cases</strong>, <strong>New case</strong>, a <strong>live run</strong> that shows each stage as it runs, the <strong>case workspace</strong> with a stage rail, the document page beside each finding and a decision drawer, and <strong>Model and controls</strong>. The look is soft paper and ink in light mode, low glare, meeting WCAG AA. Three rules hold everywhere: AI output, the shadow score and the gate are always shown as proposals; every flag sits beside its evidence; and what code established is shown apart from what an agent said.</p>
+</section>
+
+<!-- ====================================================== STATUS -->
+<section id="status">
+  <h2>Where it stands</h2>
+  <p class="kicker">Evaluation, live runs and what is open</p>
+
+  <h3>Evaluation</h3>
+  <p>Twelve synthetic packs each carry a ground truth: <span class="m">clean</span>, <span class="m">incomplete</span>, <span class="m">injected</span>, <span class="m">innocent_split</span>, <span class="m">missing_noa</span>, <span class="m">related_party</span>, <span class="m">retro_po</span>, <span class="m">round_trip</span>, <span class="m">sanctioned</span>, <span class="m">scanned</span>, <span class="m">tampered</span> and <span class="m">third_party_payment</span>. <span class="m">gldb.evaluate</span> scores extraction and the rules against them. <span class="m">gldb.agent_eval</span> scores the AI team as champion against challenger. The suite collects 831 tests, none of which call AWS by default.</p>
+
+  <h3>Live runs of the AI team</h3>
+  <p>The team's run log is mostly the story of one planted payment on <span class="m">third_party_payment</span>, lost three times to structural gaps rather than weak model reasoning. That is the case for "code verifies".</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Run</th><th class="n">Case cost</th><th>What happened</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td class="n">US$0.10</td><td>Missed the payment. The agent guessed document ids and spent its step cap.</td></tr>
+      <tr><td>3 to 4</td><td class="n">US$0.16 to 0.20</td><td>Found it, then lost it: an identifier read as a number, and leads missing a pattern field were withheld.</td></tr>
+      <tr><td>5</td><td class="n">US$0.30</td><td>Payment kept, but the memo was noisy: normal practice turned into extra applicant questions.</td></tr>
+      <tr><td>6B</td><td class="n">US$0.18</td><td>Verifier, gate and shadow scorer all worked, but the Transaction specialist spent 8 of 10 steps reading fields and never searched the right invoice.</td></tr>
+      <tr><td>7</td><td class="n">US$0.23</td><td>Success. Giving the specialists the payer of each invoice in the case index found it, code verified it, and the memo held one observation and one question.</td></tr>
+      <tr><td>8 to 9</td><td class="n">US$0.22 to 0.31</td><td>The false-flag test on <span class="m">innocent_split</span> passed: no verified leads, the champion route kept, and in run 9 an empty memo because code resolved the split payment.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="asof">From the team's run log, 2026-10-04 and 05. Costs are estimates from the usage meter; the AWS bill is the record.</p>
+
+  <h3>Open</h3>
+  <ul class="tight">
+    <li>The other 10 packs have not run live with the AI team.</li>
+    <li>Four of the seven patterns have no code check, so their leads stay unverified.</li>
+    <li>Refused <span class="m">record_lead</span> retries cost steps and raised run cost by about half.</li>
+    <li>The shadow scorer is not told which findings are resolved, so it can still cite one.</li>
+    <li>The bank says documents also arrive as screenshots and photos. There is no image forensics yet, and no revenue or credit checks.</li>
+    <li>The bank's risk report (key findings, risks with evidence, follow-ups, ranked Low to Critical across fraud, credit, AML/CFT, operational, regulatory and reputational risk) is not built in that shape.</li>
+    <li>No authentication, and storage is local files.</li>
+  </ul>
+
+  <div class="callout">
+    <p><span class="tag warn">Stale docs</span><span class="m">docs/PROJECT_STATUS.md</span> still describes three packs, an <span class="m">explain.py</span> step and Textract being blocked. The README says 11 stages and <span class="m">PRODUCT.md</span> says ten; the code defines 12 stage ids. This page follows the code.</p>
+    <p>An untracked <span class="m">VeriDoc_Architecture_Upgrade_Brief.md</span> proposes reorganising around an Evidence Plane and an Investigation Plane (documents, evidence, relationships and contradictions, risk assessment, analyst decision). None of that is in the code yet.</p>
+  </div>
+</section>
+
+</main>
+
+<footer class="wrap">
+  <p>Prepared from the repository on 2026-10-08. Counts come from the code (rule checks, signals, stage ids, test collection). Live-run figures, model access and the quota details come from the team's notes dated 2026-10-04 to 2026-10-07 and may have changed.</p>
+</footer>
+</body>
+</html>

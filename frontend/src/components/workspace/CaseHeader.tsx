@@ -8,7 +8,7 @@ export function CaseHeader({ kase, onDecide }: { kase: CaseView; onDecide: () =>
   return (
     <header className="case-header">
       <div className="case-title">
-        <a className="back muted" href={href({ screen: "cases" })}>Cases</a>
+        <a className="back muted" href={href({ screen: "cases" })}>Past cases</a>
         <h1 className="mono case-id">{kase.case_id}</h1>
         <p className="muted">
           {kase.company_name ?? "Applicant not stated"}, {kase.docs.length} documents

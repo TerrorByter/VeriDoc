@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from gldb.schemas import Signal
 
-RULE_VERSION = "2026-10-25.1"
+RULE_VERSION = "2026-10-26.2"
 
 SIGNALS: tuple[Signal, ...] = (
     # DOC: document integrity and forensics -------------------------------
@@ -88,6 +88,10 @@ SIGNALS: tuple[Signal, ...] = (
     Signal(signal_id="TXN-003", check_id="XDOC_BL_INVOICE", family="TXN",
            name="Invoiced quantity exceeds quantity shipped",
            remedy="Obtain shipping records from the carrier and confirm receipt with the consignee."),
+    Signal(signal_id="TXN-004", check_id="BANK_PASS_THROUGH", family="TXN",
+           name="Money passed straight through the account",
+           remedy="Ask what the business adds to these trades and for the contracts with both parties; "
+                  "confirm the goods with the shipping documents."),
     # REG: registry and identity -------------------------------------------
     Signal(signal_id="REG-001", check_id="XDOC_IDENTITY", family="REG",
            name="Company identity inconsistent across documents",

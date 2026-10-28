@@ -25,6 +25,7 @@ from gldb.checks import (
     normalise_name,
     run_rule_checks,
     check_inv_arith,
+    check_bank_pass_through,
     check_bank_running_bal,
     check_bank_continuity,
     check_fs_balance,
@@ -409,6 +410,45 @@ class TestInvArith:
 
 
 # ---------------------------------------------------------------------------
+# BANK_PASS_THROUGH
+# ---------------------------------------------------------------------------
+
+def _passing(*extra: Transaction, out_day: int = 6, out: str = "45640.00", payee: str = "TT DR BETA SUPPLY PTE LTD") -> BankStatement:
+    """SGD 46,000 in from Alpha Trading on 5 July, and *out* to *payee* on *out_day*."""
+    rows = [
+        Transaction(date=date(2026, 7, 5), description="GIRO CR ALPHA TRADING PTE LTD", debit=None,
+                    credit=money("46000.00"), balance=money("146000.00")),
+        Transaction(date=date(2026, 7, out_day), description=payee, debit=money(out), credit=None,
+                    balance=money("146000.00") - money(out)),
+        *extra,
+    ]
+    return _make_bank_stmt(transactions=rows, closing=rows[-1].balance)
+
+
+class TestBankPassThrough:
+    def test_money_passed_straight_on_is_flagged(self):
+        (e,) = check_bank_pass_through(_make_pack(bank_statements=[_passing()]))
+        assert (e.check_id, e.category, e.severity) == ("BANK_PASS_THROUGH", "fraud_signal", "medium")
+        assert (e.expected, e.observed) == ("a margin kept, or spending of the account's own",
+                                            "SGD 45640.00 of SGD 46000.00 (99%) paid on within 1 day")
+
+    def test_a_trader_keeping_a_margin_is_not_flagged(self):
+        assert check_bank_pass_through(_make_pack(bank_statements=[_passing(out="43700.00")])) == []
+
+    def test_an_account_with_its_own_spending_is_not_flagged(self):
+        payroll = Transaction(date=date(2026, 7, 25), description="PAYROLL JUL", debit=money("60000.00"),
+                              credit=None, balance=money("40360.00"))
+        assert check_bank_pass_through(_make_pack(bank_statements=[_passing(payroll)])) == []
+
+    def test_money_back_to_the_payer_is_not_a_pass_through(self):
+        refund = _passing(payee="TT DR ALPHA TRADING PTE LTD")
+        assert check_bank_pass_through(_make_pack(bank_statements=[refund])) == []
+
+    def test_money_paid_on_days_later_is_not_flagged(self):
+        assert check_bank_pass_through(_make_pack(bank_statements=[_passing(out_day=9)])) == []
+
+
+# ---------------------------------------------------------------------------
 # 2. BANK_RUNNING_BAL
 # ---------------------------------------------------------------------------
 
@@ -434,6 +474,37 @@ class TestBankRunningBal:
         pack = _make_pack(bank_statements=[stmt])
         evs = check_bank_running_bal(pack)
         assert any(e.check_id == "BANK_RUNNING_BAL" for e in evs)
+
+    def test_one_edited_row_is_one_finding(self):
+        """Each row is checked against the row before it as printed, so one
+        edited figure does not cascade into every later row and the closing."""
+        txns = [
+            Transaction(date=date(2026, 7, 5), description="first", debit=None, credit=money("5000.00"), balance=money("105000.00")),
+            Transaction(date=date(2026, 7, 6), description="edited", debit=None, credit=money("1000.00"), balance=money("999999.00")),
+            Transaction(date=date(2026, 7, 7), description="after", debit=None, credit=money("2000.00"), balance=money("1001999.00")),
+            Transaction(date=date(2026, 7, 8), description="later", debit=money("1999.00"), credit=None, balance=money("1000000.00")),
+        ]
+        stmt = _make_bank_stmt(opening=money("100000.00"), transactions=txns, closing=money("1000000.00"))
+        evs = check_bank_running_bal(_make_pack(bank_statements=[stmt]))
+        assert len(evs) == 1
+        assert "'edited'" in evs[0].explanation
+        assert (evs[0].expected, evs[0].observed) == ("SGD 106000.00", "SGD 999999.00")
+
+    def test_two_separate_edits_are_two_findings(self):
+        txns = [
+            Transaction(date=date(2026, 7, 5), description="one", debit=None, credit=money("5000.00"), balance=money("105500.00")),
+            Transaction(date=date(2026, 7, 6), description="ok", debit=None, credit=money("1000.00"), balance=money("106500.00")),
+            Transaction(date=date(2026, 7, 7), description="two", debit=None, credit=money("2000.00"), balance=money("108000.00")),
+        ]
+        stmt = _make_bank_stmt(opening=money("100000.00"), transactions=txns, closing=money("108000.00"))
+        evs = check_bank_running_bal(_make_pack(bank_statements=[stmt]))
+        assert ["'one'" in e.explanation for e in evs] == [True, False]
+        assert "'two'" in evs[1].explanation
+
+    def test_closing_differs_from_opening_without_transactions(self):
+        stmt = _make_bank_stmt(opening=money("100000.00"), transactions=[], closing=money("90000.00"))
+        evs = check_bank_running_bal(_make_pack(bank_statements=[stmt]))
+        assert [e.expected for e in evs] == ["SGD 100000.00"]
 
     def test_debit_transaction(self):
         txns = [
@@ -723,7 +794,7 @@ class TestMetaModAfterCreate:
         pack = _make_pack(docs=[doc])
         evs = check_meta_mod_after_create(pack)
         e = evs[0]
-        assert e.severity == "high"
+        assert e.severity == "low"   # corroborating only: benign re-saves are common
         assert e.confidence == 0.7
 
 
@@ -745,8 +816,7 @@ class TestMetaProducerMismatch:
         ]
         pack = _make_pack(docs=docs)
         evs = check_meta_producer_mismatch(pack)
-        assert any(e.check_id == "META_PRODUCER_MISMATCH" for e in evs)
-        assert any("inv_3" in e.document for e in evs)
+        assert [(e.check_id, e.document, e.severity) for e in evs] == [("META_PRODUCER_MISMATCH", "inv_3", "low")]
 
     def test_form_types_excluded(self):
         """FATCA/CRS form with different producer must not fire."""
@@ -785,7 +855,7 @@ class TestMetaProducerMismatch:
         pack = _make_pack(docs=docs)
         evs = check_meta_producer_mismatch(pack)
         e = evs[0]
-        assert e.severity == "medium"
+        assert e.severity == "low"
         assert e.confidence == 0.5
         assert e.category == "fraud_signal"
 
@@ -1632,7 +1702,7 @@ class TestNormaliseName:
 class TestRuleGroups:
     def test_every_check_belongs_to_exactly_one_group(self):
         checks = [c for group in RULE_GROUPS for c in group.checks]
-        assert len(checks) == len(set(checks)) == 46
+        assert len(checks) == len(set(checks)) == 47
 
     def test_evidence_is_tagged_with_its_group_and_reports_match(self):
         pack = _make_pack(

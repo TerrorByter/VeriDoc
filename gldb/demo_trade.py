@@ -24,17 +24,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 from gldb.config import money
-from gldb.data_factory import (
-    BL_SHIP_DAYS_BEFORE_INVOICE,
-    PO_LEAD_DAYS,
-    PRODUCER_REPORTLAB,
-    _render_bill_of_lading,
-    _render_purchase_order,
-    _set_metadata,
-    _sgt,
-)
+from gldb.data_factory import BL_SHIP_DAYS_BEFORE_INVOICE, PO_LEAD_DAYS, PRODUCER_REPORTLAB, _set_metadata, _sgt
 from gldb.invoice_pdf import InvoiceSheet, items_for_total, render_invoice
-from gldb.schemas import LineItem, Transaction
+from gldb.schemas import Transaction
+from gldb.trade_pdf import BillOfLadingSheet, OrderSheet, Packing, render_bill_of_lading, render_purchase_order
 
 BANK = "First Citizens Bank"
 SUPPLIER_BRANCH = "Raffles Place Branch"
@@ -59,6 +52,8 @@ class Partner:
     #: The goods bought or sold, and the service billed with them (never shipped)
     goods: tuple[str, str]
     quantity: int
+    #: How the goods are packed for shipping
+    packing: Packing
     code: str = ""
     uen: str = ""
     incorporated: str = ""
@@ -74,23 +69,23 @@ class Partner:
 
 PARTNERS: tuple[Partner, ...] = (
     Partner("EFG Company", ("88 Tuas South Avenue 6", "Singapore 637051"),
-            ("Air-handling unit AHU-450", "Commissioning kit and spares"), 40),
+            ("Air-handling unit AHU-450", "Commissioning kit and spares"), 40, Packing("CRATES", 1, Decimal("850"), Decimal("6.5"))),
     Partner("Metallica Inc.", ("15 Kallang Way 2A, #03-01", "Singapore 349336"),
-            ("Chilled-water unit CWU-900", "Installation and commissioning"), 25),
+            ("Chilled-water unit CWU-900", "Installation and commissioning"), 25, Packing("CRATES", 1, Decimal("1900"), Decimal("9.8"))),
     Partner("ABC electronics Ltd.", ("30 Pioneer Crescent, #02-11", "Singapore 628559"),
-            ("Electronic components, assorted", "Freight and handling"), 500,
+            ("Electronic components, assorted", "Freight and handling"), 500, Packing("CARTONS", 25, Decimal("0.8"), Decimal("0.004")),
             "ABC", "199804567H", "1998-03-12", "201-118-402-557", ("LEONG CHEE KEONG", "S6402345D")),
     Partner("SteelMen Pte Ltd.", ("12 Tuas Avenue 10", "Singapore 639142"),
-            ("Cold-rolled steel sheets, 3 mm", "Cutting and delivery"), 120,
+            ("Cold-rolled steel sheets, 3 mm", "Cutting and delivery"), 120, Packing("BUNDLES", 10, Decimal("73.6"), Decimal("0.0094")),
             "SM", "200709981R", "2007-06-04", "202-663-018-340", ("CHUA HOCK SENG", "S6911234F")),
     Partner("Cool Robotics Ltd.", ("2 Science Park Drive, #05-02", "Singapore 118222"),
-            ("Robotic arm assembly unit", "Installation and commissioning"), 2,
+            ("Robotic arm assembly unit", "Installation and commissioning"), 2, Packing("CRATES", 1, Decimal("1450"), Decimal("4.2")),
             "CR", "201511222G", "2015-11-19", "203-770-551-216", ("RAJESH MENON", "S7412345H")),
     Partner("Caterpillarz Inc.", ("10 Jalan Besar, #04-17", "Singapore 208787"),
-            ("Forklift, 3-tonne diesel", "Delivery and registration"), 4,
+            ("Forklift, 3-tonne diesel", "Delivery and registration"), 4, Packing("UNITS", 1, Decimal("4600"), Decimal("11.5")),
             "CAT", "T98FC1234C", "1998-09-01", "204-082-947-663", ("DAVID HOLLIS", "S8503456J")),
     Partner("Tan & Co.", ("5 Woodlands Industrial Park D, #01-06", "Singapore 757919"),
-            ("Air-conditioner compressors and coils", "Delivery and servicing"), 60,
+            ("Air-conditioner compressors and coils", "Delivery and servicing"), 60, Packing("PALLETS", 4, Decimal("38"), Decimal("0.12")),
             "TC", "53123456K", "2009-05-21", "205-419-836-770", ("TAN KAH WEI", "S7101234L")),
 )
 _BY_NAME = {partner.name: partner for partner in PARTNERS}
@@ -118,15 +113,10 @@ class Trade:
     partner: Partner
     purchase: bool
     invoice: InvoiceSheet
-    #: What was ordered, and when; no order file is written when *ordered* is False
-    order_items: tuple[LineItem, ...]
-    order_total: Decimal
-    order_date: date
+    order: OrderSheet
+    #: No order file is written when this is False
     ordered: bool
-    #: What the bill of lading shows shipped, and when
-    bl_number: str
-    shipped: tuple[tuple[str, int], ...]
-    shipped_date: date
+    bill: BillOfLadingSheet
 
 
 def _contact(name: str) -> str:
@@ -150,18 +140,27 @@ def _invoice(seller: Seller, partner: Partner, purchase: bool, row: Transaction,
         party = (seller.name, seller.uen, seller.address, seller.bank, seller.account)
         billed = (partner.name, partner.address)
         invoice_no, po_no, bl_no = f"INV-{1000 + number}", f"PO-{2000 + number}", f"BL-{3000 + number}"
+    terms = f"Net {TERMS_DAYS} days"
     sheet = InvoiceSheet(
         seller=party[0], seller_uen=party[1], seller_address=party[2], seller_contact=_contact(party[0]),
         buyer=billed[0], buyer_address=billed[1], number=invoice_no, issued=issued,
-        due=issued + timedelta(days=TERMS_DAYS), terms=f"Net {TERMS_DAYS} days", po_number=po_no, items=items,
+        due=issued + timedelta(days=TERMS_DAYS), terms=terms, po_number=po_no, items=items,
         bank=party[3], account_no=party[4], rounding=rounding,
     )
-    return Trade(
-        partner=partner, purchase=purchase, invoice=sheet, order_items=items, order_total=sheet.total,
-        order_date=issued - timedelta(days=PO_LEAD_DAYS), ordered=True, bl_number=bl_no,
-        shipped=((items[0].description, items[0].quantity),),
-        shipped_date=issued - timedelta(days=BL_SHIP_DAYS_BEFORE_INVOICE),
+    # The order is the buyer's, priced as the invoice is; a customer's letterhead carries no UEN
+    order = OrderSheet(
+        buyer=sheet.buyer, buyer_uen=seller.uen if purchase else "", buyer_address=sheet.buyer_address,
+        buyer_contact=_contact(sheet.buyer), seller=sheet.seller, seller_uen=sheet.seller_uen,
+        seller_address=sheet.seller_address, number=po_no, issued=issued - timedelta(days=PO_LEAD_DAYS),
+        deliver_by=issued, terms=terms, items=items, rounding=rounding,
     )
+    # The goods ship; the service billed with them does not
+    bill = BillOfLadingSheet(
+        number=bl_no, shipper=sheet.seller, shipper_address=sheet.seller_address, consignee=sheet.buyer,
+        consignee_address=sheet.buyer_address, shipped=issued - timedelta(days=BL_SHIP_DAYS_BEFORE_INVOICE),
+        invoice_ref=invoice_no, goods=(partner.packing.cargo(items[0].description, items[0].quantity),),
+    )
+    return Trade(partner=partner, purchase=purchase, invoice=sheet, order=order, ordered=True, bill=bill)
 
 
 def _overbilled(trade: Trade) -> Trade:
@@ -172,8 +171,9 @@ def _overbilled(trade: Trade) -> Trade:
 
 def _short_shipped(trade: Trade) -> Trade:
     """The invoice bills the goods ordered; the bill of lading shows three quarters of them shipped."""
-    (goods, quantity), = trade.shipped
-    return replace(trade, shipped=((goods, quantity * 3 // 4),))
+    (cargo,) = trade.bill.goods
+    shipped = trade.partner.packing.cargo(cargo.description, cargo.quantity * 3 // 4)
+    return replace(trade, bill=replace(trade.bill, goods=(shipped,)))
 
 
 def _no_order(trade: Trade) -> Trade:
@@ -219,19 +219,12 @@ def write(folder: Path, trade: Trade) -> None:
     render_invoice(path, invoice)
     _stamp(path, invoice.issued)
     if trade.ordered:
-        path = folder / f"purchase_order_{invoice.po_number}.pdf"
-        _render_purchase_order(
-            path, buyer=invoice.buyer, seller=invoice.seller, seller_uen=invoice.seller_uen, number=invoice.po_number,
-            po_date=trade.order_date, total=trade.order_total,
-            line_items=[(i.description, i.quantity, i.unit_price, i.amount) for i in trade.order_items],
-        )
-        _stamp(path, trade.order_date)
-    path = folder / f"bill_of_lading_{trade.bl_number}.pdf"
-    _render_bill_of_lading(
-        path, number=trade.bl_number, shipper=invoice.seller, consignee=invoice.buyer, shipped=trade.shipped_date,
-        invoice_ref=invoice.number, goods=list(trade.shipped),
-    )
-    _stamp(path, trade.shipped_date)
+        path = folder / f"purchase_order_{trade.order.number}.pdf"
+        render_purchase_order(path, trade.order)
+        _stamp(path, trade.order.issued)
+    path = folder / f"bill_of_lading_{trade.bill.number}.pdf"
+    render_bill_of_lading(path, trade.bill)
+    _stamp(path, trade.bill.shipped)
 
 
 def acra_record(supplier: Partner) -> dict[str, Any]:

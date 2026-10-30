@@ -5,10 +5,13 @@ Description: >-
   can run one fixed deploy command, on one server, and nothing else.
 
 Parameters:
-  GitHubRepo:
+  # GitHub names the repository by owner and repository IDs as well as names,
+  # so a deleted and re-created repository of the same name cannot deploy.
+  # Read it with: gh api repos/OWNER/NAME/actions/oidc/customization/sub
+  GitHubSubjectPrefix:
     Type: String
-    Default: TerrorByter/VeriDoc
-    Description: owner/name of the repository allowed to deploy
+    Default: repo:TerrorByter@90329495/VeriDoc@1436987636
+    Description: The repository's OIDC subject claim prefix (sub_claim_prefix)
   InstanceId:
     Type: AWS::EC2::Instance::Id
     Default: i-0fcef1c4a5013ea1e
@@ -75,7 +78,7 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepo}:ref:refs/heads/main
+                token.actions.githubusercontent.com:sub: !Sub ${GitHubSubjectPrefix}:ref:refs/heads/main
       Policies:
         - PolicyName: deploy-prototype
           PolicyDocument:

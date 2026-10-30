@@ -178,27 +178,39 @@ export function KeptLeads({ leads, withheld, unchecked, confirmed, suspected, ..
       <p className="calm check">
         <Icon name="flag" size={16} />
         <span>
-          <strong>No verified AI lead.</strong> {suspected === 1 ? "1 suspicion" : `${suspected} suspicions`} the AI
-          supports but code could not check {suspected === 1 ? "is" : "are"} below: check by hand.
+          <strong>The AI team found nothing beyond the rule checks.</strong> It has{" "}
+          {suspected === 1 ? "1 unconfirmed observation" : `${suspected} unconfirmed observations`} below you may want
+          to look at; {suspected === 1 ? "it does" : "they do"} not affect the score or route.
         </span>
       </p>
     );
   }
   if (leads.length === 0) {
-    const why = confirmed ? "The only leads code verified confirm rule findings that already stand (below)."
-      : unchecked ? "Code could not verify any lead; what the AI team recorded is further down."
-      : withheld ? "No lead passed the verifier." : "The AI team raised no leads.";
+    const why = confirmed ? "It agreed with rule findings that already stand (below)."
+      : unchecked ? "What it recorded but could not confirm is further down."
+      : withheld ? "None of its leads held up against the documents." : "It raised nothing.";
     return (
       <p className="calm">
         <Icon name="done" size={16} />
-        <span><strong>No AI lead needs your attention.</strong> {why}</span>
+        <span><strong>The AI team found nothing beyond the rule checks.</strong> {why}</span>
       </p>
     );
   }
   return (
-    <ul className="leads">
-      {leads.map((lead) => <LeadCard key={lead.lead_id} lead={lead} {...props} />)}
-    </ul>
+    <>
+      <p className="calm check">
+        <Icon name="flag" size={16} />
+        <span>
+          <strong>
+            The AI team found {leads.length === 1 ? "1 issue" : `${leads.length} issues`} the rule checks missed.
+          </strong>{" "}
+          Each was confirmed by code from the documents.
+        </span>
+      </p>
+      <ul className="leads">
+        {leads.map((lead) => <LeadCard key={lead.lead_id} lead={lead} {...props} />)}
+      </ul>
+    </>
   );
 }
 
@@ -207,8 +219,8 @@ export function Suspicions({ leads, ...props }: LeadProps & { leads: Lead[] }) {
   return (
     <>
       <h4 className="memo-head">
-        AI suspects, not verified by code{" "}
-        <span className="muted small">(check by hand: never a flag, a question or a score)</span>
+        Unconfirmed observations{" "}
+        <span className="muted small">(for you to look at: they never raise a flag, a question or the score)</span>
       </h4>
       <ul className="leads">
         {leads.map((lead) => <LeadCard key={lead.lead_id} lead={lead} {...props} />)}

@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  GLDB prototype - lets GitHub Actions deploy main to the prototype server.
+  GitHub signs in through OIDC (no stored AWS keys), and the role it gets
+  can run one fixed deploy command, on one server, and nothing else.
+
+Parameters:
+  GitHubRepo:
+    Type: String
+    Default: TerrorByter/VeriDoc
+    Description: owner/name of the repository allowed to deploy
+  InstanceId:
+    Type: AWS::EC2::Instance::Id
+    Default: i-0fcef1c4a5013ea1e
+    Description: The prototype server
+
+Resources:
+  GitHubOidc:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+
+  # The only command the deploy role may run: pull main, install, build,
+  # restart, and fail unless the API answers again
+  DeployDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: gldb-deploy
+      DocumentType: Command
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: "2.2"
+        description: Pull main on the prototype server, rebuild it and restart the app
+        mainSteps:
+          - action: aws:runShellScript
+            name: deploy
+            inputs:
+              timeoutSeconds: "900"
+              runCommand:
+                - |
+                  set -eu
+                  sudo -u ubuntu -H bash -c 'set -euo pipefail
+                  cd /opt/gldb
+                  export PATH="$HOME/.local/bin:$PATH"
+                  git pull --ff-only
+                  uv pip install --quiet -r requirements.txt
+                  cd frontend
+                  npm ci --no-audit --no-fund --loglevel=error
+                  npm run build'
+                  systemctl restart gldb-records gldb-api
+                  for i in $(seq 1 30); do
+                    if curl -fs -o /dev/null http://127.0.0.1:8000/api/packs; then
+                      echo "Deployed: $(sudo -u ubuntu git -C /opt/gldb log --oneline -1)"
+                      exit 0
+                    fi
+                    sleep 1
+                  done
+                  echo "The API did not come back after the restart" >&2
+                  exit 1
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: gldb-github-deploy
+      Description: Assumed by GitHub Actions on main to deploy the prototype server
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidc
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepo}:ref:refs/heads/main
+      Policies:
+        - PolicyName: deploy-prototype
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: RunTheDeployCommandOnTheServer
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource:
+                  - !Sub arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${InstanceId}
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:document/${DeployDocument}
+              # Neither action supports resource-level permissions
+              - Sid: ReadServerStateAndCommandResult
+                Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ssm:GetCommandInvocation
+                Resource: "*"
+
+Outputs:
+  DeployRoleArn:
+    Value: !GetAtt DeployRole.Arn
+  DeployDocument:
+    Value: !Ref DeployDocument

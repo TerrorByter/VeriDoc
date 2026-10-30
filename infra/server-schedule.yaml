@@ -1,0 +1,96 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  GLDB prototype - stops the prototype server when nobody needs it: every night,
+  and after it has sat idle. It is started again from GitHub (the Start server
+  workflow), which needs nothing here.
+
+Parameters:
+  InstanceId:
+    Type: AWS::EC2::Instance::Id
+    Default: i-0fcef1c4a5013ea1e
+    Description: The prototype server
+  NightlyStop:
+    Type: String
+    Default: cron(0 1 * * ? *)
+    Description: When to stop the server each night (EventBridge Scheduler cron, in StopTimezone)
+  StopTimezone:
+    Type: String
+    Default: Asia/Singapore
+  IdleCpuPercent:
+    Type: Number
+    Default: 1
+    Description: >-
+      Peak CPU below this in every 5-minute period counts as idle. The server
+      idles at about 0.4-0.5%; serving a page or running a case goes above 1%.
+  IdlePeriods:
+    Type: Number
+    Default: 24
+    Description: How many 5-minute idle periods in a row stop the server (24 is 2 hours)
+
+Resources:
+  # Lets the scheduler stop this one server and nothing else
+  SchedulerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: gldb-server-scheduler
+      Description: Assumed by EventBridge Scheduler to stop the prototype server at night
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: stop-prototype
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ec2:StopInstances
+                Resource: !Sub arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${InstanceId}
+
+  NightlyStopSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: gldb-nightly-stop
+      Description: Stops the prototype server every night; stopping a stopped server does nothing
+      ScheduleExpression: !Ref NightlyStop
+      ScheduleExpressionTimezone: !Ref StopTimezone
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      Target:
+        Arn: arn:aws:scheduler:::aws-sdk:ec2:stopInstances
+        RoleArn: !GetAtt SchedulerRole.Arn
+        Input: !Sub '{"InstanceIds": ["${InstanceId}"]}'
+
+  # No data while the server is stopped counts as not idle, so the alarm resets
+  # to OK and stops the server again only after a further idle stretch
+  IdleStopAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: gldb-idle-stop
+      AlarmDescription: Stops the prototype server after it has sat idle
+      Namespace: AWS/EC2
+      MetricName: CPUUtilization
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref InstanceId
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: !Ref IdlePeriods
+      DatapointsToAlarm: !Ref IdlePeriods
+      Threshold: !Ref IdleCpuPercent
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Sub arn:aws:automate:${AWS::Region}:ec2:stop
+
+Outputs:
+  NightlyStopSchedule:
+    Value: !Ref NightlyStopSchedule
+  IdleStopAlarm:
+    Value: !Ref IdleStopAlarm

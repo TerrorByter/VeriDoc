@@ -1,0 +1,45 @@
+name: Start server
+
+# Anyone with write access to the repository starts the prototype server here
+# (Actions > Start server > Run workflow), with no AWS sign-in. It stops by
+# itself at night and when idle (infra/server-schedule.yaml).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  start:
+    name: Start the prototype server and deploy main
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      INSTANCE_ID: ${{ vars.DEPLOY_INSTANCE_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.DEPLOY_ROLE_ARN }}
+          aws-region: ap-southeast-1
+      - name: Start the server
+        run: |
+          # Starting a running server does nothing; a stopping one must finish stopping first
+          state=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
+            --query 'Reservations[0].Instances[0].State.Name' --output text)
+          if [ "$state" = stopping ]; then aws ec2 wait instance-stopped --instance-ids "$INSTANCE_ID"; fi
+          aws ec2 start-instances --instance-ids "$INSTANCE_ID" --output text > /dev/null
+          aws ec2 wait instance-running --instance-ids "$INSTANCE_ID"
+      # The server may have missed deploys while it was stopped
+      - uses: ./.github/actions/deploy
+        with:
+          instance-id: ${{ env.INSTANCE_ID }}
+          document: ${{ vars.DEPLOY_DOCUMENT }}
+      - run: echo "::notice::The server is up. It stops by itself at 1am Singapore time, or after 2 idle hours."

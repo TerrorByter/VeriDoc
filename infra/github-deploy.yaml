@@ -1,8 +1,9 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
-  GLDB prototype - lets GitHub Actions deploy main to the prototype server.
-  GitHub signs in through OIDC (no stored AWS keys), and the role it gets
-  can run one fixed deploy command, on one server, and nothing else.
+  GLDB prototype - lets GitHub Actions start the prototype server and deploy
+  main to it. GitHub signs in through OIDC (no stored AWS keys), and the role
+  it gets can start one server and run one fixed deploy command on it, and
+  nothing else.
 
 Parameters:
   # GitHub names the repository by owner and repository IDs as well as names,
@@ -67,7 +68,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: gldb-github-deploy
-      Description: Assumed by GitHub Actions on main to deploy the prototype server
+      Description: Assumed by GitHub Actions on main to start and deploy the prototype server
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -90,6 +91,11 @@ Resources:
                 Resource:
                   - !Sub arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${InstanceId}
                   - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:document/${DeployDocument}
+              # The Start server workflow; stopping is left to infra/server-schedule.yaml
+              - Sid: StartTheServer
+                Effect: Allow
+                Action: ec2:StartInstances
+                Resource: !Sub arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${InstanceId}
               # Neither action supports resource-level permissions
               - Sid: ReadServerStateAndCommandResult
                 Effect: Allow

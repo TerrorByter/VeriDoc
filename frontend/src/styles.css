@@ -564,6 +564,7 @@ table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
   overflow-wrap: anywhere;
 }
 .finding-meta { font-size: 12px; }
+.finding-strength { margin: 0; font-size: 13px; }
 .flag-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
 .flag-actions select, .flag-actions input { height: 28px; font-size: 13px; }
 

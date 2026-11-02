@@ -2,15 +2,17 @@
 gldb/trade_pdf.py
 -----------------
 Renders the rest of a trade's paperwork in the invoice's family
-(gldb.invoice_pdf): the buyer's purchase order and the carrier's bill of
-lading.
+(gldb.invoice_pdf): the buyer's purchase order, the carrier's bill of lading
+for goods shipped abroad and the supplier's delivery order for goods it
+delivered in Singapore.
 
 The invoice's rules hold here too: every piece of text is visible, labels and
 values never touch in different fonts, blocks are stacked so each text line
 holds one thing, and the figures add up. A purchase order's subtotal, GST and
 total are worked out from its items, as an invoice's are. A bill of lading's
 packages, weight and volume are worked out from each line's quantity and
-packing, and its totals row is the sum of its lines.
+packing, and its totals row is the sum of its lines; a delivery order's
+cargo table is the same.
 """
 
 from __future__ import annotations
@@ -104,25 +106,11 @@ class Packing:
 
 
 @dataclass(frozen=True, kw_only=True)
-class BillOfLadingSheet:
-    """Everything printed on a bill of lading."""
+class Consignment:
+    """Goods sent to a buyer, line by line, and their totals."""
 
     number: str
-    shipper: str
-    shipper_address: tuple[str, ...]
-    consignee: str
-    consignee_address: tuple[str, ...]
-    shipped: date
-    invoice_ref: str
     goods: tuple[Cargo, ...]
-    vessel: str = BL_VESSEL
-    port_of_loading: str = BL_PORT_OF_LOADING
-    port_of_discharge: str = BL_PORT_OF_DISCHARGE
-
-    @property
-    def voyage(self) -> str:
-        """The sailing: the year and week it left, northbound."""
-        return f"{self.shipped:%y}{self.shipped.isocalendar().week:02d}N"
 
     @property
     def packages(self) -> int:
@@ -137,7 +125,42 @@ class BillOfLadingSheet:
         return sum((c.volume_cbm for c in self.goods), Decimal(0))
 
 
-def _signature(page: Page, top: float, signed_for: str, colour: Colour) -> float:
+@dataclass(frozen=True, kw_only=True)
+class BillOfLadingSheet(Consignment):
+    """Everything printed on a bill of lading."""
+
+    shipper: str
+    shipper_address: tuple[str, ...]
+    consignee: str
+    consignee_address: tuple[str, ...]
+    shipped: date
+    invoice_ref: str
+    vessel: str = BL_VESSEL
+    port_of_loading: str = BL_PORT_OF_LOADING
+    port_of_discharge: str = BL_PORT_OF_DISCHARGE
+
+    @property
+    def voyage(self) -> str:
+        """The sailing: the year and week it left, northbound."""
+        return f"{self.shipped:%y}{self.shipped.isocalendar().week:02d}N"
+
+
+@dataclass(frozen=True, kw_only=True)
+class DeliveryOrderSheet(Consignment):
+    """Everything printed on a delivery order: the supplier's, for goods its
+    own transport delivered, signed by the buyer on receipt."""
+
+    supplier: str
+    supplier_address: tuple[str, ...]
+    supplier_contact: str
+    consignee: str
+    consignee_address: tuple[str, ...]
+    delivered: date
+    invoice_ref: str
+    order_ref: str
+
+
+def _signature(page: Page, top: float, signed_for: str, colour: Colour, signer: str = "Authorised signatory") -> float:
     """A signature over a line, who signs and for whom; the y of the last line."""
     c = page.c
     c.setStrokeColorRGB(*colour)
@@ -148,7 +171,7 @@ def _signature(page: Page, top: float, signed_for: str, colour: Colour) -> float
     stroke.curveTo(MARGIN + 70, top + 2, MARGIN + 84, top - 26, MARGIN + 120, top - 16)
     c.drawPath(stroke, stroke=1, fill=0)
     page.rule(top - 30, INK, MARGIN, MARGIN + 190)
-    return page.lines(MARGIN, top - 42, ("Authorised signatory", signed_for), size=8, colour=MUTED, leading=11)
+    return page.lines(MARGIN, top - 42, (signer, signed_for), size=8, colour=MUTED, leading=11)
 
 
 def _rows(page: Page, top: float, rows: tuple[tuple[str, str], ...]) -> float:
@@ -185,7 +208,7 @@ def render_purchase_order(path: Path, sheet: OrderSheet) -> None:
     page.save()
 
 
-def _cargo_table(page: Page, sheet: BillOfLadingSheet, colour: Colour, top: float) -> float:
+def _cargo_table(page: Page, sheet: Consignment, colour: Colour, top: float) -> float:
     """The cargo lines and their totals row; the y below the totals."""
     page.box(MARGIN, top - 22, RIGHT - MARGIN, 22, tint(colour, 0.12))
     columns = (("NO.", MARGIN + 8, "left"), ("DESCRIPTION OF GOODS", MARGIN + 36, "left"), ("QTY", 290, "right"),
@@ -211,8 +234,7 @@ def _cargo_table(page: Page, sheet: BillOfLadingSheet, colour: Colour, top: floa
 
 def render_bill_of_lading(path: Path, sheet: BillOfLadingSheet) -> None:
     """Write *sheet* to *path* as a one-page PDF on the carrier's letterhead."""
-    if len(sheet.goods) > MAX_CARGO_LINES:
-        raise ValueError(f"{sheet.number}: {len(sheet.goods)} cargo lines do not fit one page (at most {MAX_CARGO_LINES})")
+    _fits(sheet)
     page, colour = Page(path), brand_colour(CARRIER)
     letterhead(page, CARRIER, CARRIER_LINES, "BILL OF LADING", colour, TITLE_SIZE)
     details_strip(page, (("B/L NO", sheet.number), ("SHIPPED ON BOARD", fmt_day(sheet.shipped)),
@@ -233,4 +255,27 @@ def render_bill_of_lading(path: Path, sheet: BillOfLadingSheet) -> None:
                              ("NUMBER OF ORIGINALS", ORIGINALS)))
     _signature(page, y - 10, f"For {CARRIER}, as Carrier", colour)
     footer(page, "Original. Carriage is subject to the carrier's standard conditions, available on request.")
+    page.save()
+
+
+def _fits(sheet: Consignment) -> None:
+    if len(sheet.goods) > MAX_CARGO_LINES:
+        raise ValueError(f"{sheet.number}: {len(sheet.goods)} cargo lines do not fit one page (at most {MAX_CARGO_LINES})")
+
+
+def render_delivery_order(path: Path, sheet: DeliveryOrderSheet) -> None:
+    """Write *sheet* to *path* as a one-page PDF on the supplier's letterhead."""
+    _fits(sheet)
+    page, colour = Page(path), brand_colour(sheet.supplier)
+    letterhead(page, sheet.supplier, (*sheet.supplier_address, sheet.supplier_contact), "DELIVERY ORDER", colour,
+               TITLE_SIZE)
+    details_strip(page, (("DO NUMBER", sheet.number), ("DELIVERY DATE", fmt_day(sheet.delivered)),
+                         ("INVOICE REF", sheet.invoice_ref), ("ORDER REF", sheet.order_ref)), colour)
+    y = block(page, PAGE_H - 182, "DELIVER TO", sheet.consignee, sheet.consignee_address)
+    y = _cargo_table(page, sheet, colour, y - 26)
+    y = paragraph(page, y - 24, "RECEIPT",
+                  "Received the goods above in good order and condition. Any shortage or damage must be noted on this "
+                  "delivery order when the goods are delivered; none can be claimed afterwards.")
+    _signature(page, y - 22, f"For and on behalf of {sheet.consignee}", colour, "Received by")
+    footer(page, f"Delivery order {sheet.number}  |  Delivered by {sheet.supplier}")
     page.save()

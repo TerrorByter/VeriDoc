@@ -103,12 +103,19 @@ or rebuilt for the demo companies by `python -m gldb.demo_packs`.
 
 Each demo pack also carries the paperwork behind its trade. For every sale and
 goods purchase on its bank statement there is an invoice, a purchase order and a
-bill of lading that agree with the payment to the cent: a sale is an invoice the
-company issues and a credit pays it, a purchase is a supplier's invoice to the
-company and a debit pays it, and the suppliers are in the mock ACRA. The
+shipping document that agree with the payment to the cent. A sale is an export
+to a buyer in Malaysia: the invoice is zero-rated (GST at 0%), a credit pays it
+and a bill of lading takes the goods to the buyer's port. A purchase is from a
+supplier in Singapore: its invoice carries 9% GST, a debit pays it, its delivery
+order records the goods delivered, and the supplier is in the mock ACRA. Each
+company has its own customers, suppliers and goods (`gldb/demo_partners.py`). The
 `invoice_mismatch` pack makes four of them disagree (overbilled against the order
 and the payment, more goods billed than shipped, an order never issued) so the
-transaction chains break at different steps.
+transaction chains break at different steps. Three packs plant what only the AI
+team looks for, so the rules alone would fast-track them: a sale paid by a third
+party (`third_party_payment`), a supplier run by the applicant's own CEO
+(`related_party`) and a payment that comes back as a customer receipt
+(`round_trip`).
 
 Names are screened against the individuals and entities designated on the UN
 lists that MAS names (DPRK, Iran, Libya, the Congo, Somalia, Sudan, South Sudan,
@@ -152,7 +159,8 @@ gldb/               Core package
   config.py         Constants and env settings
   schemas.py        All Pydantic models (Evidence, CaseResult, …)
   demo_packs.py     Builds the demo packs from the team's sample, and the demo companies' ACRA/IRAS records
-  demo_trade.py     The paperwork behind each pack's trade: an invoice, order and bill of lading per sale and goods purchase, and the suppliers' ACRA records
+  demo_trade.py     The paperwork behind each pack's trade: an invoice, order and bill of lading (sale) or delivery order (purchase) per trade, and the suppliers' ACRA records
+  demo_partners.py  Each demo company's customers in Malaysia and suppliers in Singapore
   invoice_pdf.py    Prints a tax invoice (letterhead, logo, item table, totals); the figures always add up
   data_factory.py   Generates the text-only test packs (tests/fixtures/packs), whose trade documents are plain text
   official.py       Fetches a case's ACRA and IRAS records (the mock service in the prototype)

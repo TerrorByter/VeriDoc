@@ -1,0 +1,39 @@
+{
+  "application_id": "APP-2026-ROUND_TRIP",
+  "application_date": "2026-07-10",
+  "company_name": "NORTHSTAR COLD CHAIN PTE. LTD.",
+  "uen": "201708814F",
+  "country_of_incorporation": "SINGAPORE",
+  "date_of_incorporation": "2017-02-20",
+  "registered_address": {
+    "block": "18",
+    "street": "SENOKO DRIVE",
+    "floor": "02",
+    "unit": "11",
+    "building": "SENOKO INDUSTRIAL HUB",
+    "city_state": "SINGAPORE",
+    "postal_code": "758207",
+    "country": "SINGAPORE"
+  },
+  "authorised_signatories": [
+    "DANIEL OOI",
+    "YEO KAH LENG"
+  ],
+  "guarantors": [
+    {
+      "name": "YEO KAH LENG",
+      "id_number": "S6655120G",
+      "nationality": "SINGAPORE",
+      "residential_address": {
+        "block": "701",
+        "street": "YISHUN AVENUE 5",
+        "floor": "05",
+        "unit": "215",
+        "building": "",
+        "city_state": "SINGAPORE",
+        "postal_code": "760701",
+        "country": "SINGAPORE"
+      }
+    }
+  ]
+}

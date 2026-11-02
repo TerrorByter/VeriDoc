@@ -167,6 +167,12 @@ def test_l02_l14_unchecked_patterns_are_observations_never_flags_memo_points_or_
     assert _sent(fake) == {"leads": [], "questions": [], "resolved": {}}
     assert team.memo is not None and not team.memo.observations and not team.memo.questions
     assert team.memo.withheld == 4  # both points cited an unverified lead, in both lists
+    # Each is kept on the record with what it cited and why it was withheld
+    held = "cites neither an open finding nor a confirmed AI flag: "
+    assert [(p.section, p.evidence_ids, p.reason) for p in team.memo.withheld_points] == [
+        ("observation", ["L01"], held + "L01"), ("observation", ["L02"], held + "L02"),
+        ("question", ["L01"], held + "L01"), ("question", ["L02"], held + "L02"),
+    ]
     assert "forensics: question withheld (no verified lead rests on it)" in team.notes
 
 

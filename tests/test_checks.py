@@ -398,6 +398,20 @@ class TestInvArith:
         evs = check_inv_arith(pack)
         assert evs == []
 
+    def test_zero_rated_invoice_charging_no_gst_is_not_flagged(self):
+        inv = _make_invoice(gst=money("0.00"), total=money("1000.00")).model_copy(update={"gst_rate": Decimal(0)})
+        assert check_inv_arith(_make_pack(invoices=[inv])) == []
+
+    def test_zero_rated_invoice_that_still_charges_gst_is_flagged(self):
+        inv = _make_invoice().model_copy(update={"gst_rate": Decimal(0)})
+        (ev,) = check_inv_arith(_make_pack(invoices=[inv]))
+        assert (ev.expected, ev.observed) == ("SGD 0.00", "SGD 90.00")
+
+    def test_a_gst_rate_singapore_does_not_charge_is_flagged(self):
+        inv = _make_invoice(gst=money("70.00"), total=money("1070.00")).model_copy(update={"gst_rate": Decimal("0.07")})
+        (ev,) = check_inv_arith(_make_pack(invoices=[inv]))
+        assert (ev.expected, ev.observed) == ("9% or, for a zero-rated supply, 0%", "7%")
+
     def test_all_evidence_category_fraud(self):
         items = [LineItem(description="X", quantity=2, unit_price=money("100.00"), amount=money("150.00"))]
         inv = _make_invoice(items=items, subtotal=money("150.00"), gst=money("13.50"), total=money("163.50"))
@@ -406,7 +420,6 @@ class TestInvArith:
         for e in evs:
             assert e.category == "fraud_signal"
             assert e.severity == "high"
-            assert e.confidence == 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -524,7 +537,6 @@ class TestBankRunningBal:
         assert evs
         e = evs[0]
         assert e.severity == "high"
-        assert e.confidence == 1.0
         assert e.category == "fraud_signal"
 
 
@@ -588,7 +600,6 @@ class TestBankContinuity:
         pack = self._two_stmts(prev_closing=money("159449.50"), next_opening=money("129449.50"))
         evs = check_bank_continuity(pack)
         assert evs[0].severity == "high"
-        assert evs[0].confidence == 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -612,7 +623,6 @@ class TestFsBalance:
         evs = check_fs_balance(pack)
         e = evs[0]
         assert e.severity == "high"
-        assert e.confidence == 1.0
         assert e.category == "fraud_signal"
 
 
@@ -787,7 +797,7 @@ class TestMetaModAfterCreate:
         pack = _make_pack(docs=[doc])
         assert check_meta_mod_after_create(pack) == []
 
-    def test_evidence_severity_confidence(self):
+    def test_evidence_severity(self):
         creation = _sgt(date(2026, 7, 5))
         mod = _sgt(date(2026, 7, 26)) + timedelta(hours=12)
         doc = _make_doc_meta("invoice_INV-0002", creation_date=creation, mod_date=mod)
@@ -795,7 +805,6 @@ class TestMetaModAfterCreate:
         evs = check_meta_mod_after_create(pack)
         e = evs[0]
         assert e.severity == "low"   # corroborating only: benign re-saves are common
-        assert e.confidence == 0.7
 
 
 # ---------------------------------------------------------------------------
@@ -856,7 +865,6 @@ class TestMetaProducerMismatch:
         evs = check_meta_producer_mismatch(pack)
         e = evs[0]
         assert e.severity == "low"
-        assert e.confidence == 0.5
         assert e.category == "fraud_signal"
 
 
@@ -1469,7 +1477,6 @@ class TestRunRuleChecks:
             assert sys_errs, "Expected at least one SYSTEM_CHECK_ERROR"
             assert sys_errs[0].category == "compliance"
             assert sys_errs[0].severity == "medium"
-            assert sys_errs[0].confidence == 1.0
             assert "manual verification required" in sys_errs[0].explanation
         finally:
             integrity.checks[:] = original
@@ -1497,8 +1504,7 @@ def _ev_stub(check_id: str) -> Evidence:
         document="test",
         page=1,
         method="deterministic",
-        confidence=1.0,
-        explanation="stub",
+                explanation="stub",
     )
 
 

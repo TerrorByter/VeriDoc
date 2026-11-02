@@ -23,7 +23,7 @@ def _ev(check_id: str, severity: Severity = "medium", evidence_id: str = "E01") 
     return Evidence(
         evidence_id=evidence_id, check_id=check_id, category="fraud_signal",
         severity=severity, document="doc", page=1, method="deterministic",
-        confidence=1.0, explanation="x",
+        explanation="x",
     )
 
 

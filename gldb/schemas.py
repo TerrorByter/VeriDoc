@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import BaseModel, BeforeValidator, Field, field_validator, model_validator
 
@@ -64,6 +64,8 @@ class Invoice(BaseModel):
     po_number: str | None = None
     line_items: list[LineItem]
     subtotal: Money
+    #: The GST rate the invoice prints, as a fraction: 0.09, or 0 for a zero-rated supply such as an export
+    gst_rate: Decimal = Decimal("0.09")
     gst: Money
     total: Money
     page: int = 1
@@ -90,22 +92,64 @@ class ShippedGoods(BaseModel):
     quantity: int
 
 
-class BillOfLading(BaseModel):
-    """Trade record: the carrier's receipt for goods shipped. Ties to an
-    invoice by its invoice reference."""
+class Shipment(BaseModel):
+    """Trade record: goods sent from a shipper to a consignee for an invoice,
+    which it names by its invoice reference. A bill of lading for goods
+    shipped abroad, a delivery order for goods delivered in Singapore."""
 
     doc_id: str
-    bl_number: str
+    #: The day the goods were shipped on board, or delivered
     shipped_date: date
     shipper_name: str
     consignee_name: str
-    vessel: str
-    port_of_loading: str
-    port_of_discharge: str
     invoice_reference: str
     goods: list[ShippedGoods]
     page: int = 1
     source_quotes: dict[str, str] = {}
+
+    #: What the document is, as a sentence and as a label names it, and what it says happened to the goods
+    noun: ClassVar[str] = ""
+    short: ClassVar[str] = ""
+    verb: ClassVar[str] = ""
+
+    @property
+    def number(self) -> str:
+        raise NotImplementedError
+
+    @property
+    def title(self) -> str:
+        """The document as a sentence names it: "Bill of lading BL-3001"."""
+        return f"{self.noun.capitalize()} {self.number}"
+
+
+class BillOfLading(Shipment):
+    """The carrier's receipt for goods shipped on board."""
+
+    noun: ClassVar[str] = "bill of lading"
+    short: ClassVar[str] = "B/L"
+    verb: ClassVar[str] = "shipped"
+    bl_number: str
+    vessel: str
+    port_of_loading: str
+    port_of_discharge: str
+
+    @property
+    def number(self) -> str:
+        return self.bl_number
+
+
+class DeliveryOrder(Shipment):
+    """The supplier's note of goods it delivered by its own transport,
+    signed by the buyer on receipt."""
+
+    noun: ClassVar[str] = "delivery order"
+    short: ClassVar[str] = "Delivery order"
+    verb: ClassVar[str] = "delivered"
+    do_number: str
+
+    @property
+    def number(self) -> str:
+        return self.do_number
 
 
 class Transaction(BaseModel):
@@ -417,6 +461,7 @@ DocType = Literal[
     "financial_statements",
     "purchase_order",
     "bill_of_lading",
+    "delivery_order",
     "fatca_crs_entity",
     "fatca_crs_individual",
     "notice_of_assessment",
@@ -473,6 +518,7 @@ class ExtractedPack(BaseModel):
     financial_statements: list[FinancialStatementSummary]
     purchase_orders: list[PurchaseOrder] = []
     bills_of_lading: list[BillOfLading] = []
+    delivery_orders: list[DeliveryOrder] = []
     entity_self_certs: list[EntitySelfCert] = []
     individual_self_certs: list[IndividualSelfCert] = []
     notices_of_assessment: list[NoticeOfAssessment] = []
@@ -497,6 +543,10 @@ class ExtractedPack(BaseModel):
     #: screen did not run, {} when it ran and flagged nothing
     prompt_screen: dict[str, list[PromptAttackHit]] | None = None
 
+    def shipments(self) -> list[Shipment]:
+        """Every bill of lading and delivery order: what shows the goods of an invoice left the seller."""
+        return [*self.bills_of_lading, *self.delivery_orders]
+
 
 # ---------------------------------------------------------------------------
 # Evidence — the only container for a fraud finding
@@ -504,6 +554,7 @@ class ExtractedPack(BaseModel):
 
 EvidenceCategory = Literal["fraud_signal", "compliance", "completeness"]
 Severity = Literal["info", "low", "medium", "high", "critical"]
+SignalStrength = Literal["definite", "indicative"]
 RiskBand = Literal["Low", "Medium", "High"]
 
 
@@ -520,15 +571,7 @@ class Evidence(BaseModel):
     expected: str | None = None
     observed: str | None = None
     method: Literal["deterministic", "llm"]
-    confidence: float = Field(..., ge=0.0, le=1.0)
     explanation: str
-
-    @field_validator("confidence")
-    @classmethod
-    def _confidence_range(cls, v: float) -> float:
-        if not (0.0 <= v <= 1.0):
-            raise ValueError(f"confidence must be between 0 and 1 inclusive, got {v}")
-        return v
 
 
 # ---------------------------------------------------------------------------
@@ -549,8 +592,20 @@ class Signal(BaseModel, frozen=True):
     name: str
     #: What would resolve or explain the signal ("what would change it?")
     remedy: str
+    #: How much weight a finding can bear: "definite" when it is a fact on the
+    #: documents (a contradiction, a sum that fails, a field left empty);
+    #: "indicative" when it is a pattern that ordinary business can also produce
+    strength: SignalStrength
+    #: For an indicative signal, the innocent reasons to rule out before acting on it
+    innocent: str = ""
     #: Fixed points; None uses the severity weight the check reported
     points: int | None = None
+
+    @model_validator(mode="after")
+    def _innocent_only_when_indicative(self) -> Signal:
+        if (self.strength == "indicative") != bool(self.innocent):
+            raise ValueError(f"{self.signal_id}: an indicative signal names its innocent reasons; a definite one has none")
+        return self
 
 
 class Contribution(BaseModel):
@@ -875,12 +930,23 @@ class GateDecision(BaseModel):
     reasons: list[str]
 
 
+class WithheldPoint(BaseModel):
+    """A memo point the verifier dropped, kept on the record with why."""
+
+    section: Literal["observation", "question"]
+    text: str
+    evidence_ids: list[str] = []
+    reason: str
+
+
 class Memo(BaseModel):
     observations: list[ReviewPoint] = []
     #: For the applicant or a counterparty
     questions: list[ReviewPoint] = []
-    #: Memo points dropped by the verifier
+    #: Memo points dropped by the verifier, malformed ones included
     withheld: int = 0
+    #: The well-formed points among them, with the reason; empty in memos stored before they were kept
+    withheld_points: list[WithheldPoint] = []
 
 
 class DocRef(BaseModel):

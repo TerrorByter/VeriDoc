@@ -439,15 +439,15 @@ def test_case_index_lists_the_documents_and_invoices(tampered: CaseData) -> None
     documents = [f"- {d.doc_id} ({d.doc_type}, {d.page_count} pages)" for d in tampered.pack.docs]
     assert lines[1:1 + len(documents)] == documents
     # What code read of who paid each invoice sits between the documents and the numbers
-    payments = lines[1 + len(documents):-3]
+    payments = lines[1 + len(documents):-4]
     assert payments[0].startswith("Payments the code read from the bank statements")
     assert any(line.startswith("- INV-1002,") for line in payments)
     assert "- invoice_INV-1002 (invoice, 1 pages)" in lines
-    assert lines[-3:] == ["Invoices: INV-1001, INV-1002", "Purchase orders: PO-2001, PO-2002",
-                          "Bills of lading: BL-3001, BL-3002"]
+    assert lines[-4:] == ["Invoices: INV-1001, INV-1002", "Purchase orders: PO-2001, PO-2002",
+                          "Bills of lading: BL-3001, BL-3002", "Delivery orders: none"]
     no_invoices = replace(tampered, pack=tampered.pack.model_copy(update={"invoices": [], "bills_of_lading": []}))
-    assert case_index(no_invoices).splitlines()[-3:] == ["Invoices: none", "Purchase orders: PO-2001, PO-2002",
-                                                         "Bills of lading: none"]
+    assert case_index(no_invoices).splitlines()[-4:] == ["Invoices: none", "Purchase orders: PO-2001, PO-2002",
+                                                         "Bills of lading: none", "Delivery orders: none"]
 
 
 #: Ids the applicant controls (a file name, text on an invoice) that could carry an instruction
@@ -466,7 +466,7 @@ def test_an_unsafe_id_is_left_out_of_the_index_and_the_enums(clean: CaseData, un
 
     index = case_index(case)
     assert unsafe not in index.splitlines() and f"- {unsafe} (" not in index
-    assert index.splitlines()[-3:-1] == ["Invoices: INV-1002", "Purchase orders: PO-2002"]
+    assert index.splitlines()[-4:-2] == ["Invoices: INV-1002", "Purchase orders: PO-2002"]
     assert f"- {pack.docs[1].doc_id} (" in index  # the others are still listed
     for agent, name, key in (("forensics", "get_page_text", "doc_id"), ("forensics", "get_forensic_facts", "doc_id"),
                              ("transaction", "get_document_fields", "doc_id"),
@@ -480,7 +480,7 @@ def test_an_id_of_the_allowed_characters_is_listed(clean: CaseData) -> None:
     allowed = "Inv_1.2-3" + "x" * 55  # 64 characters
     invoice = clean.pack.invoices[0].model_copy(update={"invoice_number": allowed})
     case = replace(clean, pack=clean.pack.model_copy(update={"invoices": [invoice, *clean.pack.invoices[1:]]}))
-    assert case_index(case).splitlines()[-3] == f"Invoices: {allowed}, INV-1002"
+    assert case_index(case).splitlines()[-4] == f"Invoices: {allowed}, INV-1002"
     assert allowed in _schemas("transaction", case)["get_chain"]["properties"]["invoice_number"]["enum"]
 
 

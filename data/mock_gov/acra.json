@@ -272,7 +272,7 @@
           "id_number": "S8545678D",
           "position": "CHIEF EXECUTIVE OFFICER",
           "appointed": "2014-08-19",
-          "postal_code": "529602"
+          "postal_code": "600108"
         }
       ],
       "shareholders": [
@@ -319,7 +319,7 @@
           "id_number": "S8867890F",
           "position": "CHIEF EXECUTIVE OFFICER",
           "appointed": "2019-05-27",
-          "postal_code": "529602"
+          "postal_code": "090009"
         }
       ],
       "shareholders": [
@@ -366,7 +366,7 @@
           "id_number": "S8689012H",
           "position": "CHIEF EXECUTIVE OFFICER",
           "appointed": "2016-01-12",
-          "postal_code": "529602"
+          "postal_code": "529871"
         }
       ],
       "shareholders": [
@@ -413,7 +413,7 @@
           "id_number": "S9090123I",
           "position": "CHIEF EXECUTIVE OFFICER",
           "appointed": "2012-03-30",
-          "postal_code": "529602"
+          "postal_code": "730681"
         }
       ],
       "shareholders": [
@@ -460,7 +460,7 @@
           "id_number": "S8156789N",
           "position": "CHIEF EXECUTIVE OFFICER",
           "appointed": "2018-04-17",
-          "postal_code": "529602"
+          "postal_code": "750455"
         }
       ],
       "shareholders": [
@@ -485,6 +485,147 @@
         "operating_cashflow": "0.408",
         "investing_cashflow": "-0.134",
         "financing_cashflow": "-0.151"
+      }
+    },
+    {
+      "company_name": "KESTREL AUTOMATION PTE. LTD.",
+      "uen": "201526618C",
+      "incorporation_date": "2015-09-14",
+      "status": "LIVE COMPANY",
+      "registered_address": "2 JALAN KILANG BARAT #07-03 KILANG BARAT CENTRE (159346)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "HO JUN WEI",
+          "id_number": "S7322841B",
+          "position": "CHAIRMAN",
+          "appointed": "2015-09-14",
+          "postal_code": "650520"
+        },
+        {
+          "name": "SITI RAHMAH",
+          "id_number": "S8433902C",
+          "position": "CHIEF EXECUTIVE OFFICER",
+          "appointed": "2015-09-14",
+          "postal_code": "828733"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "HO JUN WEI",
+          "shares": 1000000
+        }
+      ],
+      "financials": {
+        "period_start": "2025-01-01",
+        "period_end": "2025-12-31",
+        "currency": "SGD",
+        "total_assets": "8.774",
+        "total_current_assets": "8.016",
+        "total_liabilities": "7.354",
+        "total_current_liabilities": "7.041",
+        "retained_earnings": "-252.846",
+        "revenue": "10.316",
+        "profit_before_tax": "-2.003",
+        "profit_after_tax": "-2.012",
+        "ebit": "-1.949",
+        "operating_cashflow": "0.482",
+        "investing_cashflow": "-0.159",
+        "financing_cashflow": "-0.178"
+      }
+    },
+    {
+      "company_name": "LUMEN AQUA SYSTEMS PTE. LTD.",
+      "uen": "202011479D",
+      "incorporation_date": "2020-03-09",
+      "status": "LIVE COMPANY",
+      "registered_address": "7 TAI SENG DRIVE #04-06 TAI SENG CENTRE (535218)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "CHUA MING HAN",
+          "id_number": "S6944517E",
+          "position": "CHAIRMAN",
+          "appointed": "2020-03-09",
+          "postal_code": "570012"
+        },
+        {
+          "name": "NG LI HUA",
+          "id_number": "S8077213Q",
+          "position": "CHIEF EXECUTIVE OFFICER",
+          "appointed": "2020-03-09",
+          "postal_code": "310158"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "CHUA MING HAN",
+          "shares": 1000000
+        }
+      ],
+      "financials": {
+        "period_start": "2025-01-01",
+        "period_end": "2025-12-31",
+        "currency": "SGD",
+        "total_assets": "4.049",
+        "total_current_assets": "3.700",
+        "total_liabilities": "3.394",
+        "total_current_liabilities": "3.250",
+        "retained_earnings": "-116.698",
+        "revenue": "4.761",
+        "profit_before_tax": "-0.925",
+        "profit_after_tax": "-0.929",
+        "ebit": "-0.899",
+        "operating_cashflow": "0.223",
+        "investing_cashflow": "-0.073",
+        "financing_cashflow": "-0.082"
+      }
+    },
+    {
+      "company_name": "NORTHSTAR COLD CHAIN PTE. LTD.",
+      "uen": "201708814F",
+      "incorporation_date": "2017-02-20",
+      "status": "LIVE COMPANY",
+      "registered_address": "18 SENOKO DRIVE #02-11 SENOKO INDUSTRIAL HUB (758207)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "YEO KAH LENG",
+          "id_number": "S6655120G",
+          "position": "CHAIRMAN",
+          "appointed": "2017-02-20",
+          "postal_code": "760701"
+        },
+        {
+          "name": "DANIEL OOI",
+          "id_number": "S8266031H",
+          "position": "CHIEF EXECUTIVE OFFICER",
+          "appointed": "2017-02-20",
+          "postal_code": "540246"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "YEO KAH LENG",
+          "shares": 1000000
+        }
+      ],
+      "financials": {
+        "period_start": "2025-01-01",
+        "period_end": "2025-12-31",
+        "currency": "SGD",
+        "total_assets": "6.412",
+        "total_current_assets": "5.858",
+        "total_liabilities": "5.374",
+        "total_current_liabilities": "5.145",
+        "retained_earnings": "-184.772",
+        "revenue": "7.538",
+        "profit_before_tax": "-1.464",
+        "profit_after_tax": "-1.471",
+        "ebit": "-1.424",
+        "operating_cashflow": "0.352",
+        "investing_cashflow": "-0.116",
+        "financing_cashflow": "-0.130"
       }
     },
     {
@@ -602,6 +743,1086 @@
       "shareholders": [
         {
           "name": "TAN KAH WEI",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "KALLANG MICROCHIP PTE. LTD.",
+      "uen": "201012876W",
+      "incorporation_date": "2010-07-14",
+      "status": "LIVE COMPANY",
+      "registered_address": "8 KALLANG SECTOR #05-03 (349282)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "YEO CHIN HWEE",
+          "id_number": "S7208813B",
+          "position": "DIRECTOR",
+          "appointed": "2010-07-14",
+          "postal_code": "349282"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "YEO CHIN HWEE",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "UBI PCB WORKS PTE. LTD.",
+      "uen": "201403318E",
+      "incorporation_date": "2014-02-03",
+      "status": "LIVE COMPANY",
+      "registered_address": "53 UBI AVENUE 1 #02-29 (408934)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "NG BOON CHYE",
+          "id_number": "S6805521J",
+          "position": "DIRECTOR",
+          "appointed": "2014-02-03",
+          "postal_code": "408934"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "NG BOON CHYE",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "PRECISION REFLOW SYSTEMS PTE. LTD.",
+      "uen": "200816604M",
+      "incorporation_date": "2008-09-22",
+      "status": "LIVE COMPANY",
+      "registered_address": "21 TOH GUAN ROAD EAST #08-11 (608609)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "HENG SIEW LIAN",
+          "id_number": "S6712093G",
+          "position": "DIRECTOR",
+          "appointed": "2008-09-22",
+          "postal_code": "608609"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "HENG SIEW LIAN",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "MERIDIAN INSTRUMENTS PTE. LTD.",
+      "uen": "201720045H",
+      "incorporation_date": "2017-05-30",
+      "status": "LIVE COMPANY",
+      "registered_address": "3 KAKI BUKIT CRESCENT #04-02 (416237)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "ARVIND PILLAI",
+          "id_number": "S7934410C",
+          "position": "DIRECTOR",
+          "appointed": "2017-05-30",
+          "postal_code": "416237"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "ARVIND PILLAI",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "JURONG PASSIVE PARTS PTE. LTD.",
+      "uen": "201109937N",
+      "incorporation_date": "2011-04-11",
+      "status": "LIVE COMPANY",
+      "registered_address": "17 JURONG PORT ROAD #03-08 (619092)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "LOW KAH MENG",
+          "id_number": "S7310462E",
+          "position": "DIRECTOR",
+          "appointed": "2011-04-11",
+          "postal_code": "619092"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "LOW KAH MENG",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "PIONEER VALVE & FITTINGS PTE. LTD.",
+      "uen": "200605512C",
+      "incorporation_date": "2006-03-08",
+      "status": "LIVE COMPANY",
+      "registered_address": "45 PIONEER ROAD #01-12 (639598)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "SOH KENG LEONG",
+          "id_number": "S6601877H",
+          "position": "DIRECTOR",
+          "appointed": "2006-03-08",
+          "postal_code": "639598"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "SOH KENG LEONG",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "TUAS STEEL MERCHANTS PTE. LTD.",
+      "uen": "199907321K",
+      "incorporation_date": "1999-08-17",
+      "status": "LIVE COMPANY",
+      "registered_address": "31 TUAS VIEW CRESCENT (637611)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "LAU TECK SOON",
+          "id_number": "S6203318A",
+          "position": "DIRECTOR",
+          "appointed": "1999-08-17",
+          "postal_code": "637611"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "LAU TECK SOON",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "GUL WELDING TECHNOLOGIES PTE. LTD.",
+      "uen": "201209118D",
+      "incorporation_date": "2012-03-26",
+      "status": "LIVE COMPANY",
+      "registered_address": "12 GUL LANE (629409)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "MOHAMED RIDZWAN",
+          "id_number": "S7605124F",
+          "position": "DIRECTOR",
+          "appointed": "2012-03-26",
+          "postal_code": "629409"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "MOHAMED RIDZWAN",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "BENOI COATINGS PTE. LTD.",
+      "uen": "201316730G",
+      "incorporation_date": "2013-10-02",
+      "status": "LIVE COMPANY",
+      "registered_address": "8 BENOI SECTOR #02-05 (629842)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "ANG SOK HOON",
+          "id_number": "S7208345I",
+          "position": "DIRECTOR",
+          "appointed": "2013-10-02",
+          "postal_code": "629842"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "ANG SOK HOON",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "LOYANG ENGINEERING SUPPLIES PTE. LTD.",
+      "uen": "200411263B",
+      "incorporation_date": "2004-11-15",
+      "status": "LIVE COMPANY",
+      "registered_address": "20 LOYANG CRESCENT #01-15 (509016)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "KWEK HAN LIM",
+          "id_number": "S6411506D",
+          "position": "DIRECTOR",
+          "appointed": "2004-11-15",
+          "postal_code": "509016"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "KWEK HAN LIM",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "KRANJI CERAMICS PTE. LTD.",
+      "uen": "201006254A",
+      "incorporation_date": "2010-06-21",
+      "status": "LIVE COMPANY",
+      "registered_address": "31 KRANJI LOOP #02-01 (739570)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "TAY BEE LENG",
+          "id_number": "S7006418B",
+          "position": "DIRECTOR",
+          "appointed": "2010-06-21",
+          "postal_code": "739570"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "TAY BEE LENG",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "SENOKO BATHROOM SUPPLIES PTE. LTD.",
+      "uen": "201508842K",
+      "incorporation_date": "2015-08-11",
+      "status": "LIVE COMPANY",
+      "registered_address": "6 SENOKO DRIVE #03-02 (758200)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "PANG WEI XIANG",
+          "id_number": "S8102267H",
+          "position": "DIRECTOR",
+          "appointed": "2015-08-11",
+          "postal_code": "758200"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "PANG WEI XIANG",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "PANDAN STORAGE SYSTEMS PTE. LTD.",
+      "uen": "200913377J",
+      "incorporation_date": "2009-12-07",
+      "status": "LIVE COMPANY",
+      "registered_address": "19 PANDAN LOOP #01-03 (128232)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "SURESH KUMAR",
+          "id_number": "S6908831C",
+          "position": "DIRECTOR",
+          "appointed": "2009-12-07",
+          "postal_code": "128232"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "SURESH KUMAR",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "SUNGEI KADUT FORKLIFT PTE. LTD.",
+      "uen": "200302871M",
+      "incorporation_date": "2003-04-14",
+      "status": "LIVE COMPANY",
+      "registered_address": "22 SUNGEI KADUT AVENUE (729665)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "FOO KOK WAH",
+          "id_number": "S5908846G",
+          "position": "DIRECTOR",
+          "appointed": "2003-04-14",
+          "postal_code": "729665"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "FOO KOK WAH",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "CHANGI TILE & STONE PTE. LTD.",
+      "uen": "201211096F",
+      "incorporation_date": "2012-05-28",
+      "status": "LIVE COMPANY",
+      "registered_address": "7 CHANGI SOUTH STREET 2 #02-04 (486415)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "ISMAIL BIN HASSAN",
+          "id_number": "S6705219D",
+          "position": "DIRECTOR",
+          "appointed": "2012-05-28",
+          "postal_code": "486415"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "ISMAIL BIN HASSAN",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "KALLANG SEATING PTE. LTD.",
+      "uen": "201110483B",
+      "incorporation_date": "2011-03-15",
+      "status": "LIVE COMPANY",
+      "registered_address": "1 KALLANG JUNCTION #04-09 (339263)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "CHEW LI TING",
+          "id_number": "S8207734J",
+          "position": "DIRECTOR",
+          "appointed": "2011-03-15",
+          "postal_code": "339263"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "CHEW LI TING",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "TUAS METALWORKS PTE. LTD.",
+      "uen": "200710255H",
+      "incorporation_date": "2007-09-03",
+      "status": "LIVE COMPANY",
+      "registered_address": "9 TUAS AVENUE 5 (639337)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "GOH TECK CHUAN",
+          "id_number": "S6510983E",
+          "position": "DIRECTOR",
+          "appointed": "2007-09-03",
+          "postal_code": "639337"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "GOH TECK CHUAN",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "WOODLANDS CNC PTE. LTD.",
+      "uen": "201604417C",
+      "incorporation_date": "2016-04-18",
+      "status": "LIVE COMPANY",
+      "registered_address": "11 WOODLANDS CLOSE #05-21 (737853)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "NORAZLAN BIN OMAR",
+          "id_number": "S7808124A",
+          "position": "DIRECTOR",
+          "appointed": "2016-04-18",
+          "postal_code": "737853"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "NORAZLAN BIN OMAR",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "DEFU LAMINATES PTE. LTD.",
+      "uen": "200508921E",
+      "incorporation_date": "2005-07-04",
+      "status": "LIVE COMPANY",
+      "registered_address": "25 DEFU LANE 10 #02-114 (539214)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "TEO SIEW KIM",
+          "id_number": "S6309712B",
+          "position": "DIRECTOR",
+          "appointed": "2005-07-04",
+          "postal_code": "539214"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "TEO SIEW KIM",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "BEDOK HARDWARE TRADING PTE. LTD.",
+      "uen": "199603528G",
+      "incorporation_date": "1996-06-24",
+      "status": "LIVE COMPANY",
+      "registered_address": "3 BEDOK NORTH STREET 5 #01-14 (486131)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "LIEW CHOON HOCK",
+          "id_number": "S5807365F",
+          "position": "DIRECTOR",
+          "appointed": "1996-06-24",
+          "postal_code": "486131"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "LIEW CHOON HOCK",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "LIM CHU KANG AGRO PTE. LTD.",
+      "uen": "200908712D",
+      "incorporation_date": "2009-09-01",
+      "status": "LIVE COMPANY",
+      "registered_address": "150 NEO TIEW ROAD (719004)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "WEE AH HUAT",
+          "id_number": "S5511027C",
+          "position": "DIRECTOR",
+          "appointed": "2009-09-01",
+          "postal_code": "719004"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "WEE AH HUAT",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "SUNGEI TENGAH POTTERY PTE. LTD.",
+      "uen": "201306654H",
+      "incorporation_date": "2013-06-17",
+      "status": "LIVE COMPANY",
+      "registered_address": "21 SUNGEI TENGAH ROAD (699013)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "HO MEI FONG",
+          "id_number": "S7012268I",
+          "position": "DIRECTOR",
+          "appointed": "2013-06-17",
+          "postal_code": "699013"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "HO MEI FONG",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "KRANJI AGRITECH PTE. LTD.",
+      "uen": "201807731K",
+      "incorporation_date": "2018-07-23",
+      "status": "LIVE COMPANY",
+      "registered_address": "8 KRANJI WAY #01-02 (739446)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "VIJAY RAMAN",
+          "id_number": "S8410935B",
+          "position": "DIRECTOR",
+          "appointed": "2018-07-23",
+          "postal_code": "739446"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "VIJAY RAMAN",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "PASIR PANJANG MOTORS PTE. LTD.",
+      "uen": "199209844E",
+      "incorporation_date": "1992-10-12",
+      "status": "LIVE COMPANY",
+      "registered_address": "75 PASIR PANJANG ROAD (118506)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "SIM CHENG GUAN",
+          "id_number": "S5602481A",
+          "position": "DIRECTOR",
+          "appointed": "1992-10-12",
+          "postal_code": "118506"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "SIM CHENG GUAN",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "NEO TIEW SOIL SUPPLIES PTE. LTD.",
+      "uen": "201402267J",
+      "incorporation_date": "2014-02-10",
+      "status": "LIVE COMPANY",
+      "registered_address": "40 NEO TIEW CRESCENT (718856)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "JASMINE KOH",
+          "id_number": "S8606314F",
+          "position": "DIRECTOR",
+          "appointed": "2014-02-10",
+          "postal_code": "718856"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "JASMINE KOH",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "BENOI WELD CONSUMABLES PTE. LTD.",
+      "uen": "201114092M",
+      "incorporation_date": "2011-11-07",
+      "status": "LIVE COMPANY",
+      "registered_address": "17 BENOI CRESCENT (629979)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "TOH KIAN SENG",
+          "id_number": "S6807149J",
+          "position": "DIRECTOR",
+          "appointed": "2011-11-07",
+          "postal_code": "629979"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "TOH KIAN SENG",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "JURONG STEEL STOCKISTS PTE. LTD.",
+      "uen": "199405563K",
+      "incorporation_date": "1994-05-16",
+      "status": "LIVE COMPANY",
+      "registered_address": "6 JURONG PIER ROAD (619158)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "ONG KIM HOCK",
+          "id_number": "S5309827H",
+          "position": "DIRECTOR",
+          "appointed": "1994-05-16",
+          "postal_code": "619158"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "ONG KIM HOCK",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "SENOKO MACHINE TOOLS PTE. LTD.",
+      "uen": "201005519B",
+      "incorporation_date": "2010-05-03",
+      "status": "LIVE COMPANY",
+      "registered_address": "29 SENOKO LOOP #02-08 (758188)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "LEE HWEE MIN",
+          "id_number": "S7309452D",
+          "position": "DIRECTOR",
+          "appointed": "2010-05-03",
+          "postal_code": "758188"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "LEE HWEE MIN",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "TUAS LIFTING EQUIPMENT PTE. LTD.",
+      "uen": "201211583A",
+      "incorporation_date": "2012-08-20",
+      "status": "LIVE COMPANY",
+      "registered_address": "4 TUAS SOUTH STREET 3 (638043)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "KUMAR SELVAM",
+          "id_number": "S7104693G",
+          "position": "DIRECTOR",
+          "appointed": "2012-08-20",
+          "postal_code": "638043"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "KUMAR SELVAM",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "KIAN TECK COATINGS PTE. LTD.",
+      "uen": "200807246C",
+      "incorporation_date": "2008-07-14",
+      "status": "LIVE COMPANY",
+      "registered_address": "33 KIAN TECK ROAD (628784)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "YAP SOOK CHING",
+          "id_number": "S6911804E",
+          "position": "DIRECTOR",
+          "appointed": "2008-07-14",
+          "postal_code": "628784"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "YAP SOOK CHING",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "BUKIT BATOK DRIVES PTE. LTD.",
+      "uen": "201214471K",
+      "incorporation_date": "2012-09-10",
+      "status": "LIVE COMPANY",
+      "registered_address": "21 BUKIT BATOK CRESCENT #06-71 (658065)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "TAN SOON HUAT",
+          "id_number": "S6713390A",
+          "position": "DIRECTOR",
+          "appointed": "2012-09-10",
+          "postal_code": "658065"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "TAN SOON HUAT",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "TUAS BELTING INDUSTRIES PTE. LTD.",
+      "uen": "200610082D",
+      "incorporation_date": "2006-05-22",
+      "status": "LIVE COMPANY",
+      "registered_address": "7 TUAS LINK 2 (638553)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "CHAN KOK MENG",
+          "id_number": "S6208815C",
+          "position": "DIRECTOR",
+          "appointed": "2006-05-22",
+          "postal_code": "638553"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "CHAN KOK MENG",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "ANG MO KIO LASER CUTTING PTE. LTD.",
+      "uen": "201511906E",
+      "incorporation_date": "2015-08-03",
+      "status": "LIVE COMPANY",
+      "registered_address": "5 ANG MO KIO INDUSTRIAL PARK 2A #03-12 (567760)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "LIM WEI CHERNG",
+          "id_number": "S7809921D",
+          "position": "DIRECTOR",
+          "appointed": "2015-08-03",
+          "postal_code": "567760"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "LIM WEI CHERNG",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "GUL WAY HOISTS PTE. LTD.",
+      "uen": "200905547F",
+      "incorporation_date": "2009-04-27",
+      "status": "LIVE COMPANY",
+      "registered_address": "16 GUL WAY (629199)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "MUTHU KRISHNAN",
+          "id_number": "S6604418F",
+          "position": "DIRECTOR",
+          "appointed": "2009-04-27",
+          "postal_code": "629199"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "MUTHU KRISHNAN",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "KAKI BUKIT ELECTRICAL PTE. LTD.",
+      "uen": "201309258G",
+      "incorporation_date": "2013-03-18",
+      "status": "LIVE COMPANY",
+      "registered_address": "62 KAKI BUKIT AVENUE 1 #04-31 (417943)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "YEO HAN CHUAN",
+          "id_number": "S7402276H",
+          "position": "DIRECTOR",
+          "appointed": "2013-03-18",
+          "postal_code": "417943"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "YEO HAN CHUAN",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "CHANGI MEMBRANE TECHNOLOGIES PTE. LTD.",
+      "uen": "201108815J",
+      "incorporation_date": "2011-02-14",
+      "status": "LIVE COMPANY",
+      "registered_address": "12 CHANGI NORTH WAY #02-08 (498810)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "SEAH BOON KIAT",
+          "id_number": "S6911453J",
+          "position": "DIRECTOR",
+          "appointed": "2011-02-14",
+          "postal_code": "498810"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "SEAH BOON KIAT",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "GUL CIRCLE STAINLESS PTE. LTD.",
+      "uen": "200703369L",
+      "incorporation_date": "2007-03-05",
+      "status": "LIVE COMPANY",
+      "registered_address": "41 GUL CIRCLE (629576)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "LOH CHENG HOCK",
+          "id_number": "S6307728L",
+          "position": "DIRECTOR",
+          "appointed": "2007-03-05",
+          "postal_code": "629576"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "LOH CHENG HOCK",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "TAMPINES MOULDING SYSTEMS PTE. LTD.",
+      "uen": "201612240M",
+      "incorporation_date": "2016-06-13",
+      "status": "LIVE COMPANY",
+      "registered_address": "8 TAMPINES INDUSTRIAL AVENUE 5 #05-11 (528762)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "JOSEPH FERNANDEZ",
+          "id_number": "S7510086M",
+          "position": "DIRECTOR",
+          "appointed": "2016-06-13",
+          "postal_code": "528762"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "JOSEPH FERNANDEZ",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "PAYA LEBAR PUMPS PTE. LTD.",
+      "uen": "200208173N",
+      "incorporation_date": "2002-08-19",
+      "status": "LIVE COMPANY",
+      "registered_address": "10 PAYA LEBAR CRESCENT #01-07 (536006)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "KOH AH BENG",
+          "id_number": "S5808894N",
+          "position": "DIRECTOR",
+          "appointed": "2002-08-19",
+          "postal_code": "536006"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "KOH AH BENG",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "HARBOUR RIDGE FILTRATION PTE. LTD.",
+      "uen": "202104558R",
+      "incorporation_date": "2021-04-26",
+      "status": "LIVE COMPANY",
+      "registered_address": "3 PANDAN CRESCENT #03-05 (128461)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "NG LI HUA",
+          "id_number": "S8077213Q",
+          "position": "DIRECTOR",
+          "appointed": "2021-04-26",
+          "postal_code": "128461"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "NG LI HUA",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "SENOKO INSULATION PTE. LTD.",
+      "uen": "201007716P",
+      "incorporation_date": "2010-07-26",
+      "status": "LIVE COMPANY",
+      "registered_address": "15 SENOKO WAY #02-03 (758052)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "TEO BOON HWA",
+          "id_number": "S6610257P",
+          "position": "DIRECTOR",
+          "appointed": "2010-07-26",
+          "postal_code": "758052"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "TEO BOON HWA",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "TUAS ALUMINIUM PTE. LTD.",
+      "uen": "199811402R",
+      "incorporation_date": "1998-11-09",
+      "status": "LIVE COMPANY",
+      "registered_address": "20 TUAS SOUTH AVENUE 6 (637021)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "NG KOK PENG",
+          "id_number": "S5912360R",
+          "position": "DIRECTOR",
+          "appointed": "1998-11-09",
+          "postal_code": "637021"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "NG KOK PENG",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "KRANJI REFRIGERATION PTE. LTD.",
+      "uen": "201418827S",
+      "incorporation_date": "2014-10-06",
+      "status": "LIVE COMPANY",
+      "registered_address": "9 KRANJI CRESCENT #01-02 (728662)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "RAVI CHANDRAN",
+          "id_number": "S7205581S",
+          "position": "DIRECTOR",
+          "appointed": "2014-10-06",
+          "postal_code": "728662"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "RAVI CHANDRAN",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "BENOI MATERIAL HANDLING PTE. LTD.",
+      "uen": "200511954T",
+      "incorporation_date": "2005-11-21",
+      "status": "LIVE COMPANY",
+      "registered_address": "27 BENOI ROAD (629911)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "LEE CHOON TECK",
+          "id_number": "S6409915T",
+          "position": "DIRECTOR",
+          "appointed": "2005-11-21",
+          "postal_code": "629911"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "LEE CHOON TECK",
+          "shares": 100000
+        }
+      ],
+      "financials": null
+    },
+    {
+      "company_name": "WOODLANDS COMPRESSORS PTE. LTD.",
+      "uen": "201320633U",
+      "incorporation_date": "2013-01-28",
+      "status": "LIVE COMPANY",
+      "registered_address": "30 WOODLANDS INDUSTRIAL PARK E1 #02-10 (757709)",
+      "issued_on": "2026-07-09",
+      "officers": [
+        {
+          "name": "GOH SIEW LING",
+          "id_number": "S7311026U",
+          "position": "DIRECTOR",
+          "appointed": "2013-01-28",
+          "postal_code": "757709"
+        }
+      ],
+      "shareholders": [
+        {
+          "name": "GOH SIEW LING",
           "shares": 100000
         }
       ],

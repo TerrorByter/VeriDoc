@@ -52,7 +52,6 @@ from gldb.routing import route
 from gldb.schemas import (
     AgentName,
     ApplicationManifest,
-    BillOfLading,
     DocMeta,
     Evidence,
     ExtractedPack,
@@ -61,6 +60,7 @@ from gldb.schemas import (
     Lead,
     Pattern,
     PurchaseOrder,
+    Shipment,
     SpecialistName,
     ToolCall,
 )
@@ -133,7 +133,8 @@ def case_index(case: CaseData) -> str:
             f"search the statements for it):\n{payment_context(pack)}\n"
             f"Invoices: {_listed(_invoice_numbers(case))}\n"
             f"Purchase orders: {_listed([o.po_number for o in pack.purchase_orders])}\n"
-            f"Bills of lading: {_listed([b.bl_number for b in pack.bills_of_lading])}")
+            f"Bills of lading: {_listed([b.bl_number for b in pack.bills_of_lading])}\n"
+            f"Delivery orders: {_listed([d.do_number for d in pack.delivery_orders])}")
 
 
 class ToolError(Exception):
@@ -262,7 +263,7 @@ def _parties(case: CaseData, *_: Any) -> Any:
                                              _party(i.doc_id, "buyer", i.buyer_name))),
         *(p for o in pack.purchase_orders for p in (_party(o.doc_id, "buyer", o.buyer_name),
                                                     _party(o.doc_id, "seller", o.seller_name, o.seller_uen))),
-        *(p for b in pack.bills_of_lading for p in (_party(b.doc_id, "shipper", b.shipper_name),
+        *(p for b in pack.shipments() for p in (_party(b.doc_id, "shipper", b.shipper_name),
                                                     _party(b.doc_id, "consignee", b.consignee_name))),
     ]
     # One id per company (P01...), the subject of a related_party lead; the applicant has none
@@ -344,17 +345,17 @@ def _search_bank_transactions(case: CaseData, args: Args, agent: AgentName, ledg
     return {"rows": rows[:_MAX_ROWS], "more": max(len(rows) - _MAX_ROWS, 0)}
 
 
-def _records(pack: ExtractedPack) -> list[tuple[Invoice | PurchaseOrder | BillOfLading, str]]:
-    """Each invoice, purchase order and bill of lading with its own number."""
+def _records(pack: ExtractedPack) -> list[tuple[Invoice | PurchaseOrder | Shipment, str]]:
+    """Each invoice, purchase order, bill of lading and delivery order with its own number."""
     return [*((i, i.invoice_number) for i in pack.invoices), *((o, o.po_number) for o in pack.purchase_orders),
-            *((b, b.bl_number) for b in pack.bills_of_lading)]
+            *((s, s.number) for s in pack.shipments())]
 
 
 def _document_fields(case: CaseData, args: Args, agent: AgentName, ledger: Ledger) -> Any:
     key = args["doc_id"]
     record = next((r for r, number in _records(case.pack) if key in (r.doc_id, number)), None)
     # Source quotes are document text: it only reaches a model through get_page_text, which screens it
-    return _require(record, f"no invoice, purchase order or bill of lading {key}").model_dump(
+    return _require(record, f"no invoice, purchase order, bill of lading or delivery order {key}").model_dump(
         mode="json", exclude={"source_quotes"})
 
 

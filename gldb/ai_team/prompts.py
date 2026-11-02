@@ -29,8 +29,9 @@ _RULES = (
 
 _CONTEXT = (
     "A bank in Singapore reviews trade finance loan applications. Each case is a pack of documents "
-    "(invoices, purchase orders, bills of lading, bank statements, FATCA/CRS forms) that deterministic "
-    "rule checks have already read; their findings have ids E01, E02... The company register is ACRA's. "
+    "(invoices, purchase orders, bills of lading, delivery orders, bank statements, FATCA/CRS forms) that "
+    "deterministic rule checks have already read; their findings have ids E01, E02... The company register "
+    "is ACRA's. "
     "Every tool result has an id R01, R02..."
 )
 
@@ -50,9 +51,9 @@ DEFAULT_BRIEF = "Triage the risky findings in your domain and hunt your patterns
 
 _DOMAINS: dict[SpecialistName, str] = {
     "forensics": "document integrity: PDF producer and dates, OCR confidence, and the screened page text of "
-                 "invoices, purchase orders and bills of lading.",
-    "transaction": "the trade itself: each invoice traced through its purchase order, bill of lading and bank "
-                   "payment, and who paid what, when, on the bank statements.",
+                 "invoices, purchase orders, bills of lading and delivery orders.",
+    "transaction": "the trade itself: each invoice traced through its purchase order, its bill of lading or "
+                   "delivery order and bank payment, and who paid what, when, on the bank statements.",
     "kyc": "the parties: the applicant and each counterparty in the company register (status, incorporation "
            "date, officers) and screened against the sanctions list.",
     "timeline": "dates: the order of purchase orders, invoices, shipments and payments, and the applicant's "

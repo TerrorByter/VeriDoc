@@ -49,7 +49,7 @@ def _party_documents(pack: ExtractedPack) -> list[tuple[str, str]]:
     return [
         *((i.doc_id, n) for i in pack.invoices for n in (i.seller_name, i.buyer_name)),
         *((o.doc_id, n) for o in pack.purchase_orders for n in (o.buyer_name, o.seller_name)),
-        *((b.doc_id, n) for b in pack.bills_of_lading for n in (b.shipper_name, b.consignee_name)),
+        *((b.doc_id, n) for b in pack.shipments() for n in (b.shipper_name, b.consignee_name)),
     ]
 
 
@@ -95,11 +95,11 @@ def names(number: str) -> re.Pattern[str]:
 
 def trade_dates(invoice: Invoice, pack: ExtractedPack, incorporated: date | None) -> TradeDates:
     """*invoice*'s trade: its matching purchase order, its earliest shipment
-    (the rules check every bill of lading that references it, and a breach by
-    any is one by the earliest) and the earliest payment whose description
-    names it: a credit for a sale, a debit for a purchase."""
+    (the rules check every bill of lading or delivery order that references
+    it, and a breach by any is one by the earliest) and the earliest payment
+    whose description names it: a credit for a sale, a debit for a purchase."""
     po = matching_po(invoice, pack)
-    shipped = min((b.shipped_date for b in pack.bills_of_lading if b.invoice_reference == invoice.invoice_number),
+    shipped = min((s.shipped_date for s in pack.shipments() if s.invoice_reference == invoice.invoice_number),
                   default=None)
     named, kind = names(invoice.invoice_number), "debit" if is_purchase(invoice.buyer_name, pack) else "credit"
     paid = [txn.date for _, _, txn in bank_rows(pack) if getattr(txn, kind) is not None and named.search(txn.description)]
@@ -346,10 +346,10 @@ def _sequence_anomaly(lead: Lead, pack: ExtractedPack, evidence: list[Evidence])
 
 
 def _trade_documents(invoice: Invoice, pack: ExtractedPack) -> set[str]:
-    """The documents of *invoice*'s trade: it, its purchase order, its bill of lading."""
+    """The documents of *invoice*'s trade: it, its purchase order, its bill of lading or delivery order."""
     po = matching_po(invoice, pack)
-    bls = {b.doc_id for b in pack.bills_of_lading if b.invoice_reference == invoice.invoice_number}
-    return {invoice.doc_id, *bls, *((po.doc_id,) if po else ())}
+    sent = {s.doc_id for s in pack.shipments() if s.invoice_reference == invoice.invoice_number}
+    return {invoice.doc_id, *sent, *((po.doc_id,) if po else ())}
 
 
 def _applicant_people(pack: ExtractedPack) -> dict[str, str]:

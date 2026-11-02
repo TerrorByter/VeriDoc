@@ -57,8 +57,7 @@ def _ev(
         document=document,
         page=1,
         method="deterministic",
-        confidence=1.0,
-        explanation=explanation,
+                explanation=explanation,
     )
 
 

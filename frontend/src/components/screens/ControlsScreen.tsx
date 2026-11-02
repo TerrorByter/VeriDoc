@@ -257,7 +257,7 @@ export function ControlsScreen() {
           </ul>
         </Section>
 
-        <Section title="AWS spend" aside="Estimate from list prices; the bill is the record">
+        <Section title="AWS spend" aside="Estimate in USD from list prices; the bill is the record">
           <div className="metrics">
             <Metric label="Per case" value={usd(controls.cost.usd_per_case)} />
             <Metric label="Cases metered" value={controls.cost.cases} />

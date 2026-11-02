@@ -82,6 +82,36 @@
       "chargeable_income": "109322.00",
       "tax_payable": "6522.03",
       "postal_code": "550210"
+    },
+    {
+      "name": "MR HO JUN WEI",
+      "id_number": "S7322841B",
+      "year_of_assessment": 2025,
+      "income": "131862.00",
+      "deductions": "22540.00",
+      "chargeable_income": "109322.00",
+      "tax_payable": "6522.03",
+      "postal_code": "650520"
+    },
+    {
+      "name": "MR CHUA MING HAN",
+      "id_number": "S6944517E",
+      "year_of_assessment": 2025,
+      "income": "131862.00",
+      "deductions": "22540.00",
+      "chargeable_income": "109322.00",
+      "tax_payable": "6522.03",
+      "postal_code": "570012"
+    },
+    {
+      "name": "MS YEO KAH LENG",
+      "id_number": "S6655120G",
+      "year_of_assessment": 2025,
+      "income": "131862.00",
+      "deductions": "22540.00",
+      "chargeable_income": "109322.00",
+      "tax_payable": "6522.03",
+      "postal_code": "760701"
     }
   ]
 }

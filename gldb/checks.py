@@ -81,6 +81,7 @@ from gldb.schemas import (
     PurchaseOrder,
     RuleGroupReport,
     Severity,
+    Shipment,
     TimelineEvent,
     Transaction,
 )
@@ -105,7 +106,6 @@ def _ev(
     severity: Severity,
     document: str,
     page: int,
-    confidence: float,
     explanation: str,
     *,
     quote: str | None = None,
@@ -123,7 +123,6 @@ def _ev(
         expected=expected,
         observed=observed,
         method="deterministic",
-        confidence=confidence,
         explanation=explanation,
     )
 
@@ -159,7 +158,6 @@ def _manifest_missing_evidence(document: str = PACK_DOC) -> Evidence:
         "medium",
         document,
         1,
-        1.0,
         "application.json is missing; manifest-dependent checks were skipped.",
     )
 
@@ -181,7 +179,7 @@ def check_inv_arith(pack: ExtractedPack) -> list[Evidence]:
             expected_amt = money(item.quantity * item.unit_price)
             if abs(expected_amt - item.amount) > TOLERANCE_SGD:
                 results.append(_ev(
-                    "INV_ARITH", "fraud_signal", "high", doc, inv.page, 1.0,
+                    "INV_ARITH", "fraud_signal", "high", doc, inv.page,
                     f"Line item '{item.description}': amount SGD {item.amount} "
                     f"does not equal qty {item.quantity} × unit price "
                     f"SGD {item.unit_price} = SGD {expected_amt}.",
@@ -194,7 +192,7 @@ def check_inv_arith(pack: ExtractedPack) -> list[Evidence]:
         expected_subtotal = money(sum(i.amount for i in inv.line_items))
         if abs(expected_subtotal - inv.subtotal) > TOLERANCE_SGD:
             results.append(_ev(
-                "INV_ARITH", "fraud_signal", "high", doc, inv.page, 1.0,
+                "INV_ARITH", "fraud_signal", "high", doc, inv.page,
                 f"Invoice subtotal SGD {inv.subtotal} does not equal sum of "
                 f"line amounts SGD {expected_subtotal}.",
                 expected=f"SGD {expected_subtotal}",
@@ -202,23 +200,32 @@ def check_inv_arith(pack: ExtractedPack) -> list[Evidence]:
                 quote=inv.source_quotes.get("Subtotal"),
             ))
 
-        # c) gst == subtotal × GST_RATE
-        expected_gst = money(inv.subtotal * GST_RATE)
+        # c) the rate is Singapore's, and gst == subtotal × that rate
+        if inv.gst_rate not in (GST_RATE, 0):
+            results.append(_ev(
+                "INV_ARITH", "fraud_signal", "high", doc, inv.page,
+                f"The invoice charges GST at {inv.gst_rate:.0%}, a rate Singapore does not charge: "
+                f"{GST_RATE:.0%}, or 0% on a zero-rated supply such as an export.",
+                expected=f"{GST_RATE:.0%} or, for a zero-rated supply, 0%",
+                observed=f"{inv.gst_rate:.0%}",
+                quote=inv.source_quotes.get("GST"),
+            ))
+        expected_gst = money(inv.subtotal * inv.gst_rate)
         if abs(expected_gst - inv.gst) > TOLERANCE_SGD:
             results.append(_ev(
-                "INV_ARITH", "fraud_signal", "high", doc, inv.page, 1.0,
+                "INV_ARITH", "fraud_signal", "high", doc, inv.page,
                 f"GST SGD {inv.gst} does not equal subtotal SGD {inv.subtotal} "
-                f"× {int(GST_RATE * 100)}% = SGD {expected_gst}.",
+                f"× {inv.gst_rate:.0%} = SGD {expected_gst}.",
                 expected=f"SGD {expected_gst}",
                 observed=f"SGD {inv.gst}",
-                quote=inv.source_quotes.get("GST (9%)"),
+                quote=inv.source_quotes.get("GST"),
             ))
 
         # d) total == subtotal + gst
         expected_total = money(inv.subtotal + inv.gst)
         if abs(expected_total - inv.total) > TOLERANCE_SGD:
             results.append(_ev(
-                "INV_ARITH", "fraud_signal", "high", doc, inv.page, 1.0,
+                "INV_ARITH", "fraud_signal", "high", doc, inv.page,
                 f"Invoice total SGD {inv.total} does not equal subtotal "
                 f"SGD {inv.subtotal} + GST SGD {inv.gst} = SGD {expected_total}.",
                 expected=f"SGD {expected_total}",
@@ -251,7 +258,7 @@ def check_bank_running_bal(pack: ExtractedPack) -> list[Evidence]:
             if abs(running - txn.balance) > TOLERANCE_SGD:
                 quote = stmt.source_quotes.get(txn.description, txn.description)
                 results.append(_ev(
-                    "BANK_RUNNING_BAL", "fraud_signal", "high", doc, stmt.page, 1.0,
+                    "BANK_RUNNING_BAL", "fraud_signal", "high", doc, stmt.page,
                     f"Running balance after transaction '{txn.description}' on "
                     f"{txn.date} should be SGD {running} but printed balance is "
                     f"SGD {txn.balance}.",
@@ -263,7 +270,7 @@ def check_bank_running_bal(pack: ExtractedPack) -> list[Evidence]:
         # Compare the last printed balance against stated closing balance
         if abs(previous - stmt.closing_balance) > TOLERANCE_SGD:
             results.append(_ev(
-                "BANK_RUNNING_BAL", "fraud_signal", "high", doc, stmt.page, 1.0,
+                "BANK_RUNNING_BAL", "fraud_signal", "high", doc, stmt.page,
                 f"Closing balance SGD {stmt.closing_balance} is inconsistent with "
                 f"the running total SGD {previous}.",
                 expected=f"SGD {previous}",
@@ -334,7 +341,7 @@ def check_bank_pass_through(pack: ExtractedPack) -> list[Evidence]:
         received = sum((t.credit or Decimal(0) for t, _ in pairs), Decimal(0))
         into, out = pairs[0]
         results.append(_ev(
-            "BANK_PASS_THROUGH", "fraud_signal", "medium", stmt.doc_id, stmt.page, 0.7,
+            "BANK_PASS_THROUGH", "fraud_signal", "medium", stmt.doc_id, stmt.page,
             f"{len(pairs)} credit(s) were paid on to another party within {days}, keeping under "
             f"{(1 - PASS_THROUGH_MIN_SHARE):.0%}: '{into.description}' SGD {into.credit} on {into.date} went out as "
             f"'{out.description}' SGD {out.debit} on {out.date}. These payments are {passed / paid_out:.0%} of "
@@ -364,7 +371,7 @@ def check_bank_continuity(pack: ExtractedPack) -> list[Evidence]:
         if abs(nxt.opening_balance - prev.closing_balance) > TOLERANCE_SGD:
             results.append(_ev(
                 "BANK_CONTINUITY", "fraud_signal", "high",
-                nxt.doc_id, nxt.page, 1.0,
+                nxt.doc_id, nxt.page,
                 f"Opening balance of {nxt.doc_id} (SGD {nxt.opening_balance}) "
                 f"does not match closing balance of {prev.doc_id} "
                 f"(SGD {prev.closing_balance}).",
@@ -384,7 +391,7 @@ def check_fs_balance(pack: ExtractedPack) -> list[Evidence]:
         expected = money(fs.total_liabilities + fs.total_equity)
         if abs(fs.total_assets - expected) > TOLERANCE_SGD:
             results.append(_ev(
-                "FS_BALANCE", "fraud_signal", "high", fs.doc_id, fs.page, 1.0,
+                "FS_BALANCE", "fraud_signal", "high", fs.doc_id, fs.page,
                 f"Balance sheet does not balance: total assets SGD {fs.total_assets} "
                 f"≠ liabilities SGD {fs.total_liabilities} + equity "
                 f"SGD {fs.total_equity} = SGD {expected}.",
@@ -449,7 +456,7 @@ def check_xdoc_identity(pack: ExtractedPack) -> list[Evidence]:
     for inv in sales:
         if inv.seller_uen != ref_uen:
             results.append(_ev(
-                "XDOC_IDENTITY", "fraud_signal", "high", inv.doc_id, inv.page, 1.0,
+                "XDOC_IDENTITY", "fraud_signal", "high", inv.doc_id, inv.page,
                 f"Invoice seller UEN '{inv.seller_uen}' does not match the "
                 f"{source} UEN '{ref_uen}'.",
                 expected=ref_uen,
@@ -461,7 +468,7 @@ def check_xdoc_identity(pack: ExtractedPack) -> list[Evidence]:
         inv_name_norm = normalise_name(inv.seller_name)
         if inv_name_norm != ref_name_norm:
             results.append(_ev(
-                "XDOC_IDENTITY", "fraud_signal", "medium", inv.doc_id, inv.page, 0.9,
+                "XDOC_IDENTITY", "fraud_signal", "medium", inv.doc_id, inv.page,
                 f"Invoice seller name '{inv.seller_name}' (normalised: "
                 f"'{inv_name_norm}') does not match {source} company name "
                 f"'{ref_name}' (normalised: '{ref_name_norm}').",
@@ -474,7 +481,7 @@ def check_xdoc_identity(pack: ExtractedPack) -> list[Evidence]:
         holder_norm = normalise_name(stmt.account_holder)
         if holder_norm != ref_name_norm:
             results.append(_ev(
-                "XDOC_IDENTITY", "fraud_signal", "medium", stmt.doc_id, stmt.page, 0.9,
+                "XDOC_IDENTITY", "fraud_signal", "medium", stmt.doc_id, stmt.page,
                 f"Bank account holder '{stmt.account_holder}' (normalised: "
                 f"'{holder_norm}') does not match {source} company name "
                 f"'{ref_name}' (normalised: '{ref_name_norm}').",
@@ -487,7 +494,7 @@ def check_xdoc_identity(pack: ExtractedPack) -> list[Evidence]:
     for po in (po for po in pack.purchase_orders if not is_purchase(po.buyer_name, pack)):
         if po.seller_uen != ref_uen:
             results.append(_ev(
-                "XDOC_IDENTITY", "fraud_signal", "high", po.doc_id, po.page, 1.0,
+                "XDOC_IDENTITY", "fraud_signal", "high", po.doc_id, po.page,
                 f"Purchase order seller UEN '{po.seller_uen}' does not match the "
                 f"{source} UEN '{ref_uen}'.",
                 expected=ref_uen,
@@ -496,7 +503,7 @@ def check_xdoc_identity(pack: ExtractedPack) -> list[Evidence]:
         po_name_norm = normalise_name(po.seller_name)
         if po_name_norm != ref_name_norm:
             results.append(_ev(
-                "XDOC_IDENTITY", "fraud_signal", "medium", po.doc_id, po.page, 0.9,
+                "XDOC_IDENTITY", "fraud_signal", "medium", po.doc_id, po.page,
                 f"Purchase order seller name '{po.seller_name}' does not match "
                 f"{source} company name '{ref_name}'.",
                 expected=ref_name_norm,
@@ -547,7 +554,7 @@ def check_xdoc_invoice_bank(pack: ExtractedPack) -> list[Evidence]:
             if getattr(txn, kind) != inv.total:
                 results.append(_ev(
                     "XDOC_INVOICE_BANK", "fraud_signal", "info",
-                    inv.doc_id, inv.page, 1.0,
+                    inv.doc_id, inv.page,
                     f"Invoice {inv.invoice_number} total SGD {inv.total}: matching "
                     f"bank {kind} SGD {getattr(txn, kind)} on {txn.date} differs by "
                     f"SGD {abs(getattr(txn, kind) - inv.total):.2f} (within tolerance — "
@@ -563,7 +570,7 @@ def check_xdoc_invoice_bank(pack: ExtractedPack) -> list[Evidence]:
 
             results.append(_ev(
                 "XDOC_INVOICE_BANK", "fraud_signal", "high",
-                inv.doc_id, inv.page, 0.95,
+                inv.doc_id, inv.page,
                 f"No bank {kind} matching invoice {inv.invoice_number} "
                 f"(SGD {inv.total}) found within {MATCH_WINDOW_DAYS} days "
                 f"after {inv.invoice_date}.",
@@ -606,7 +613,7 @@ def check_xdoc_po_invoice(pack: ExtractedPack) -> list[Evidence]:
         po = matching_po(inv, pack)
         if po is None:
             results.append(_ev(
-                "XDOC_PO_INVOICE", "fraud_signal", "medium", inv.doc_id, inv.page, 0.7,
+                "XDOC_PO_INVOICE", "fraud_signal", "medium", inv.doc_id, inv.page,
                 (f"Invoice {inv.invoice_number} names purchase order {inv.po_number}, which is not in the pack."
                  if inv.po_number else
                  f"Invoice {inv.invoice_number} bills '{inv.buyer_name}' but none of the "
@@ -616,7 +623,7 @@ def check_xdoc_po_invoice(pack: ExtractedPack) -> list[Evidence]:
             ))
         elif inv.total - po.total > TOLERANCE_SGD:
             results.append(_ev(
-                "XDOC_PO_INVOICE", "fraud_signal", "high", inv.doc_id, inv.page, 0.95,
+                "XDOC_PO_INVOICE", "fraud_signal", "high", inv.doc_id, inv.page,
                 f"Invoice {inv.invoice_number} total SGD {inv.total} exceeds purchase "
                 f"order {po.po_number} total SGD {po.total} by SGD {inv.total - po.total}.",
                 quote=inv.source_quotes.get("Total"),
@@ -628,44 +635,46 @@ def check_xdoc_po_invoice(pack: ExtractedPack) -> list[Evidence]:
 
 
 def check_xdoc_bl_invoice(pack: ExtractedPack) -> list[Evidence]:
-    """Invoiced quantities should not exceed what the bill of lading shows
-    was shipped: billing for more goods than were shipped is the classic
+    """Invoiced quantities should not exceed what the bill of lading (goods
+    shipped abroad) or delivery order (goods delivered in Singapore) shows
+    went to the buyer: billing for more goods than were shipped is the classic
     over-invoicing red flag in trade-based money laundering.
 
-    Only runs when the pack contains bills of lading, which link to an invoice
-    by their invoice reference. Invoice lines absent from the bill of lading
-    (services, which are never shipped) are not flagged.
+    Only runs when the pack contains either, which link to an invoice by their
+    invoice reference. Invoice lines absent from them (services, which are
+    never shipped) are not flagged.
     """
     results: list[Evidence] = []
-    if not pack.bills_of_lading:
+    shipments = pack.shipments()
+    if not shipments:
         return results
 
     for inv in pack.invoices:
-        bls = [b for b in pack.bills_of_lading if b.invoice_reference == inv.invoice_number]
-        if not bls:
+        sent = [s for s in shipments if s.invoice_reference == inv.invoice_number]
+        if not sent:
             results.append(_ev(
-                "XDOC_BL_INVOICE", "fraud_signal", "medium", inv.doc_id, inv.page, 0.7,
-                f"No bill of lading in the pack refers to invoice {inv.invoice_number}, "
+                "XDOC_BL_INVOICE", "fraud_signal", "medium", inv.doc_id, inv.page,
+                f"No bill of lading or delivery order in the pack refers to invoice {inv.invoice_number}, "
                 "so the goods billed cannot be traced to a shipment.",
-                expected=f"bill of lading referring to {inv.invoice_number}",
+                expected=f"bill of lading or delivery order referring to {inv.invoice_number}",
                 observed="none",
             ))
             continue
-        shipped: dict[str, tuple[int, str]] = {}
-        for bl in bls:
-            for g in bl.goods:
+        shipped: dict[str, tuple[int, Shipment]] = {}
+        for shipment in sent:
+            for g in shipment.goods:
                 key = normalise_name(g.description)
-                total, _ = shipped.get(key, (0, ""))
-                shipped[key] = (total + g.quantity, bl.bl_number)
+                total, _ = shipped.get(key, (0, shipment))
+                shipped[key] = (total + g.quantity, shipment)
         for item in inv.line_items:
             match = shipped.get(normalise_name(item.description))
             if match and item.quantity > match[0]:
-                qty, bl_number = match
+                qty, shipment = match
                 results.append(_ev(
-                    "XDOC_BL_INVOICE", "fraud_signal", "high", inv.doc_id, inv.page, 0.95,
+                    "XDOC_BL_INVOICE", "fraud_signal", "high", inv.doc_id, inv.page,
                     f"Invoice {inv.invoice_number} bills {item.quantity} x '{item.description}' "
-                    f"but bill of lading {bl_number} shows only {qty} shipped.",
-                    expected=f"at most {qty} shipped ({bl_number})",
+                    f"but {shipment.noun} {shipment.number} shows only {qty} {shipment.verb}.",
+                    expected=f"at most {qty} {shipment.verb} ({shipment.number})",
                     observed=f"{item.quantity} invoiced",
                 ))
     return results
@@ -707,7 +716,7 @@ def check_fs_acra(pack: ExtractedPack) -> list[Evidence]:
     for fs in pack.financial_statements:
         if fs.financial_year_end != filed.period_end:
             results.append(_ev(
-                "FS_ACRA_MISMATCH", "fraud_signal", "info", fs.doc_id, fs.page, 1.0,
+                "FS_ACRA_MISMATCH", "fraud_signal", "info", fs.doc_id, fs.page,
                 f"The financial statements are for the year ended {fs.financial_year_end}; the ACRA "
                 f"profile's latest filed period ends {filed.period_end}. Their figures were not compared.",
             ))
@@ -720,7 +729,7 @@ def check_fs_acra(pack: ExtractedPack) -> list[Evidence]:
             rounding = max(Decimal(10) ** printed.as_tuple().exponent / 2 * ACRA_FIGURES_UNIT, TOLERANCE_SGD)
             if abs(submitted - expected) > rounding:
                 results.append(_ev(
-                    "FS_ACRA_MISMATCH", "fraud_signal", "critical", fs.doc_id, fs.figure_pages.get(field, fs.page), 0.9,
+                    "FS_ACRA_MISMATCH", "fraud_signal", "critical", fs.doc_id, fs.figure_pages.get(field, fs.page),
                     f"{label} in the submitted financial statements (SGD {submitted:,.2f}) differs from the "
                     f"ACRA profile (SGD {expected:,.2f}) for the year ended {fs.financial_year_end}.",
                     quote=fs.source_quotes.get(field),
@@ -756,7 +765,7 @@ def check_xdoc_bank_cash(pack: ExtractedPack) -> list[Evidence]:
         for stmt in _opens_after(pack, fs)[:1]:
             if stmt.opening_balance > fs.cash + TOLERANCE_SGD:
                 results.append(_ev(
-                    "XDOC_BANK_CASH", "fraud_signal", "high", stmt.doc_id, stmt.page, 0.9,
+                    "XDOC_BANK_CASH", "fraud_signal", "high", stmt.doc_id, stmt.page,
                     f"The bank statement opens on {stmt.period_start} with SGD {stmt.opening_balance:,.2f}, "
                     f"more than the SGD {fs.cash:,.2f} of cash the balance sheet declares at "
                     f"{fs.financial_year_end}. A bank account is part of the company's cash.",
@@ -790,7 +799,7 @@ def check_xdoc_bank_debt(pack: ExtractedPack) -> list[Evidence]:
             elif txn.debit and _mentions(txn.description, DEBT_REPAYMENT_WORDS):
                 if txn.debit > debt + TOLERANCE_SGD:
                     results.append(_ev(
-                        "XDOC_BANK_DEBT", "fraud_signal", "high", stmt.doc_id, stmt.page, 0.85,
+                        "XDOC_BANK_DEBT", "fraud_signal", "high", stmt.doc_id, stmt.page,
                         f"'{txn.description}' on {txn.date} repays SGD {txn.debit:,.2f}, but only "
                         f"SGD {max(debt, Decimal(0)):,.2f} of debt was outstanding: the balance sheet at "
                         f"{fs.financial_year_end} declares SGD {fs.borrowings:,.2f} and the statements show "
@@ -803,7 +812,7 @@ def check_xdoc_bank_debt(pack: ExtractedPack) -> list[Evidence]:
             elif (txn.debit and _mentions(txn.description, DEBT_INTEREST_WORDS)
                   and _mentions(txn.description, DEBT_NAME_WORDS) and debt <= TOLERANCE_SGD):
                 results.append(_ev(
-                    "XDOC_BANK_DEBT", "fraud_signal", "medium", stmt.doc_id, stmt.page, 0.8,
+                    "XDOC_BANK_DEBT", "fraud_signal", "medium", stmt.doc_id, stmt.page,
                     f"'{txn.description}' on {txn.date} pays interest on debt, but none was outstanding: "
                     f"the balance sheet at {fs.financial_year_end} declares SGD {fs.borrowings:,.2f} of "
                     "borrowings and the statements show none borrowed before this date.",
@@ -833,7 +842,7 @@ def check_xdoc_bank_revenue(pack: ExtractedPack) -> list[Evidence]:
         ratio = annualised / fs.revenue
         if not BANK_REVENUE_RATIO_MIN <= ratio <= BANK_REVENUE_RATIO_MAX:
             results.append(_ev(
-                "XDOC_BANK_REVENUE", "fraud_signal", "medium", fs.doc_id, fs.figure_pages.get("revenue", fs.page), 0.6,
+                "XDOC_BANK_REVENUE", "fraud_signal", "medium", fs.doc_id, fs.figure_pages.get("revenue", fs.page),
                 f"Sales receipts in the bank statements (SGD {receipts:,.2f} over {days} days, "
                 f"SGD {annualised:,.2f} a year) are {ratio:.2f} times the SGD {fs.revenue:,.2f} of revenue "
                 f"the financial statements report, outside {BANK_REVENUE_RATIO_MIN} to {BANK_REVENUE_RATIO_MAX}.",
@@ -858,7 +867,7 @@ def check_acra_entity(pack: ExtractedPack) -> list[Evidence]:
     for cert in pack.entity_self_certs:
         if cert.legal_name and normalise_name(cert.legal_name) != normalise_name(profile.company_name):
             results.append(_ev(
-                "XDOC_ACRA_ENTITY", "fraud_signal", "high", cert.doc_id, 1, 0.9,
+                "XDOC_ACRA_ENTITY", "fraud_signal", "high", cert.doc_id, 1,
                 f"The legal name on {cert.doc_id} ('{cert.legal_name}') is not the name in the ACRA profile "
                 f"('{profile.company_name}').",
                 quote=cert.legal_name, expected=profile.company_name, observed=cert.legal_name,
@@ -866,7 +875,7 @@ def check_acra_entity(pack: ExtractedPack) -> list[Evidence]:
         for row in cert.tax_rows:
             if (row.country or "").strip().upper() == "SINGAPORE" and row.tin and row.tin.strip() != profile.uen:
                 results.append(_ev(
-                    "XDOC_ACRA_ENTITY", "fraud_signal", "high", cert.doc_id, row.page, 0.9,
+                    "XDOC_ACRA_ENTITY", "fraud_signal", "high", cert.doc_id, row.page,
                     f"Tax row {row.row} on {cert.doc_id} gives Singapore tax number '{row.tin}', but the ACRA "
                     f"profile's UEN is '{profile.uen}'. The UEN is generally the Singapore tax reference of an entity.",
                     quote=row.tin, expected=profile.uen, observed=row.tin,
@@ -874,7 +883,7 @@ def check_acra_entity(pack: ExtractedPack) -> list[Evidence]:
         form_postal = cert.registered_address.postal_code
         if postal and form_postal and form_postal.strip() != postal[-1]:
             results.append(_ev(
-                "XDOC_ACRA_ENTITY", "fraud_signal", "medium", cert.doc_id, 1, 0.8,
+                "XDOC_ACRA_ENTITY", "fraud_signal", "medium", cert.doc_id, 1,
                 f"The registered address on {cert.doc_id} has postal code {form_postal}, but the ACRA profile's "
                 f"registered office ('{profile.registered_address}') has {postal[-1]}.",
                 quote=form_postal, expected=postal[-1], observed=form_postal,
@@ -914,13 +923,13 @@ def check_acra_persons(pack: ExtractedPack) -> list[Evidence]:
         anchor = PACK_DOC if doc_id == IRAS_DOC else doc_id
         if name and _person_key(name) != _person_key(officer.name):
             results.append(_ev(
-                "XDOC_ACRA_PERSON", "fraud_signal", "high", anchor, 1, 0.9,
+                "XDOC_ACRA_PERSON", "fraud_signal", "high", anchor, 1,
                 f"{who} to '{name}', but the ACRA profile lists that ID for '{officer.name}'.",
                 quote=name, expected=officer.name, observed=name,
             ))
         if postal and officer.postal_code and postal.strip() != officer.postal_code:
             results.append(_ev(
-                "XDOC_ACRA_PERSON", "fraud_signal", "medium", anchor, 1, 0.8,
+                "XDOC_ACRA_PERSON", "fraud_signal", "medium", anchor, 1,
                 f"{who} an address with postal code {postal}, but the ACRA profile gives "
                 f"'{officer.name}' postal code {officer.postal_code}.",
                 quote=postal, expected=officer.postal_code, observed=postal.strip(),
@@ -937,7 +946,7 @@ def check_acra_signatories(pack: ExtractedPack) -> list[Evidence]:
     listed = ", ".join(o.name for o in profile.officers) or "no officers listed"
     return [
         _ev(
-            "XDOC_ACRA_SIGNATORY", "fraud_signal", "medium", cert.doc_id, sig.page, 0.8,
+            "XDOC_ACRA_SIGNATORY", "fraud_signal", "medium", cert.doc_id, sig.page,
             f"Signatory '{sig.name}'{f' ({sig.designation})' if sig.designation else ''} on {cert.doc_id} is not "
             "an officer in the ACRA profile.",
             quote=sig.name, expected=listed, observed=sig.name,
@@ -965,7 +974,7 @@ def check_meta_mod_after_create(pack: ExtractedPack) -> list[Evidence]:
         if delta_hours > META_MOD_GAP_HOURS:
             results.append(_ev(
                 "META_MOD_AFTER_CREATE", "fraud_signal", "low",
-                doc.doc_id, 1, 0.7,
+                doc.doc_id, 1,
                 f"PDF modification date ({doc.mod_date.date()}) is "
                 f"{delta_hours:.0f} hours after creation date "
                 f"({doc.creation_date.date()}), exceeding the "
@@ -999,7 +1008,7 @@ def check_meta_producer_mismatch(pack: ExtractedPack) -> list[Evidence]:
             if doc.producer != majority_producer:
                 results.append(_ev(
                     "META_PRODUCER_MISMATCH", "fraud_signal", "low",
-                    doc.doc_id, 1, 0.5,
+                    doc.doc_id, 1,
                     f"PDF producer '{doc.producer}' differs from '{majority_producer}', "
                     f"which made the other {doc.doc_type.replace('_', ' ')} documents in the pack. "
                     f"This may indicate the file was edited or regenerated with different software.",
@@ -1024,7 +1033,7 @@ def check_bank_coverage(pack: ExtractedPack) -> list[Evidence]:
     if not pack.bank_statements:
         results.append(_ev(
             "BANK_COVERAGE", "completeness", "medium",
-            PACK_DOC, 1, 1.0,
+            PACK_DOC, 1,
             "No bank statements found in the pack.",
             expected=f"{REQUIRED_BANK_MONTHS} months of statements",
             observed="0 statements",
@@ -1058,7 +1067,7 @@ def check_bank_coverage(pack: ExtractedPack) -> list[Evidence]:
         missing_str = ", ".join(f"{y}-{m:02d}" for y, m in missing)
         results.append(_ev(
             "BANK_COVERAGE", "completeness", "medium",
-            PACK_DOC, 1, 1.0,
+            PACK_DOC, 1,
             f"Bank statements do not cover the required {REQUIRED_BANK_MONTHS} "
             f"consecutive months. Missing: {missing_str}.",
             expected=f"{REQUIRED_BANK_MONTHS} months ending {latest_ym[0]}-{latest_ym[1]:02d}",
@@ -1072,7 +1081,7 @@ def check_bank_coverage(pack: ExtractedPack) -> list[Evidence]:
         if days_stale > BANK_RECENCY_DAYS:
             results.append(_ev(
                 "BANK_COVERAGE", "completeness", "medium",
-                latest.doc_id, latest.page, 1.0,
+                latest.doc_id, latest.page,
                 f"Latest bank statement ends {latest.period_end}, which is "
                 f"{days_stale} days before application date {app_date} "
                 f"(threshold: {BANK_RECENCY_DAYS} days).",
@@ -1100,7 +1109,7 @@ def check_checklist_missing_doc(pack: ExtractedPack) -> list[Evidence]:
             if "fatca_crs_entity" not in doc_types_present:
                 results.append(_ev(
                     "CHECKLIST_MISSING_DOC", "completeness", "high",
-                    PACK_DOC, 1, 1.0,
+                    PACK_DOC, 1,
                     f"Required document '{label}' is missing from the pack.",
                     expected="fatca_crs_entity document present",
                     observed="not found",
@@ -1110,7 +1119,7 @@ def check_checklist_missing_doc(pack: ExtractedPack) -> list[Evidence]:
             if "bank_statement" not in doc_types_present:
                 results.append(_ev(
                     "CHECKLIST_MISSING_DOC", "completeness", "high",
-                    PACK_DOC, 1, 1.0,
+                    PACK_DOC, 1,
                     f"Required document '{label}' is missing from the pack.",
                     expected="at least one bank_statement document present",
                     observed="not found",
@@ -1121,7 +1130,7 @@ def check_checklist_missing_doc(pack: ExtractedPack) -> list[Evidence]:
                 masked = mask_id(g.id_number)
                 results.append(_ev(
                     "CHECKLIST_MISSING_DOC", "completeness", "high",
-                    PACK_DOC, 1, 1.0,
+                    PACK_DOC, 1,
                     f"Required document '{label}' is missing for guarantor {g.name} ({masked}).",
                     expected=f"a Notice of Assessment for {masked}",
                     observed="not found",
@@ -1160,7 +1169,7 @@ def _cert_ev(
     page: int = 1,
 ) -> Evidence:
     return _ev(
-        check_id, "compliance", severity, cert.doc_id, page, 1.0,
+        check_id, "compliance", severity, cert.doc_id, page,
         explanation,
         expected=expected,
         observed=observed,
@@ -1672,7 +1681,7 @@ def _forensic_docs(pack: ExtractedPack):
 def check_forensic_hidden_text(pack: ExtractedPack) -> list[Evidence]:
     return [
         _ev(
-            "FORENSIC_HIDDEN_TEXT", "fraud_signal", "high", doc_id, run.page, 0.9,
+            "FORENSIC_HIDDEN_TEXT", "fraud_signal", "high", doc_id, run.page,
             f"{doc_id} page {run.page} contains text a reader cannot see "
             f"({', '.join(run.reasons)}). Hidden text can carry instructions aimed "
             "at automated review or conceal edits.",
@@ -1687,7 +1696,7 @@ def check_forensic_hidden_text(pack: ExtractedPack) -> list[Evidence]:
 def check_forensic_mixed_font(pack: ExtractedPack) -> list[Evidence]:
     return [
         _ev(
-            "FORENSIC_MIXED_FONT", "fraud_signal", "medium", doc_id, token.page, 0.7,
+            "FORENSIC_MIXED_FONT", "fraud_signal", "medium", doc_id, token.page,
             f"'{token.text}' in {doc_id} page {token.page} mixes fonts or sizes within "
             "one token, which can mean a figure was edited on top of the original.",
             quote=token.text, observed=" / ".join(token.fonts),
@@ -1706,7 +1715,7 @@ def check_forensic_incremental_update(pack: ExtractedPack) -> list[Evidence]:
         revisions = incremental_updates(path)
         if revisions:
             results.append(_ev(
-                "FORENSIC_INCREMENTAL_UPDATE", "fraud_signal", "low", doc_id, 1, 0.6,
+                "FORENSIC_INCREMENTAL_UPDATE", "fraud_signal", "low", doc_id, 1,
                 f"{doc_id} was saved again after it was created ({revisions} later "
                 "revision(s)), so its content may have been changed.",
                 observed=f"{revisions} later revision(s)",
@@ -1723,7 +1732,7 @@ def check_forensic_ocr_mismatch(pack: ExtractedPack) -> list[Evidence]:
     """
     if not pack.ocr:
         return [_ev(
-            "FORENSIC_OCR_SKIPPED", "fraud_signal", "info", PACK_DOC, 1, 1.0,
+            "FORENSIC_OCR_SKIPPED", "fraud_signal", "info", PACK_DOC, 1,
             "The text layer vs OCR comparison did not run because no page was read by OCR (OCR is "
             "turned off, or the case holds only forms and workbooks). "
             "Figures covered or pasted over as images would not be detected.",
@@ -1736,7 +1745,7 @@ def check_forensic_ocr_mismatch(pack: ExtractedPack) -> list[Evidence]:
         # The file's own text: its visible text layer and, for a fillable form, its field values
         for m in amount_mismatches(model_view(path), seen):
             results.append(_ev(
-                "FORENSIC_OCR_MISMATCH", "fraud_signal", "medium", doc_id, m.page, 0.6,
+                "FORENSIC_OCR_MISMATCH", "fraud_signal", "medium", doc_id, m.page,
                 f"On {doc_id} page {m.page}, the amounts a reader sees differ from the "
                 "amounts stored in the file. A figure may be covered, or pasted over the "
                 "original as an image. OCR can misread, so compare with the source.",
@@ -1752,12 +1761,12 @@ def check_prompt_injection(pack: ExtractedPack) -> list[Evidence]:
     screen did not run, so its absence is visible."""
     if pack.prompt_screen is None:
         return [_ev(
-            "PROMPT_SCREEN_SKIPPED", "fraud_signal", "info", PACK_DOC, 1, 1.0,
+            "PROMPT_SCREEN_SKIPPED", "fraud_signal", "info", PACK_DOC, 1,
             "Document text was not screened for prompt attacks (PROMPT_SCREEN_ENABLED is off).",
         )]
     return [
         _ev(
-            "PROMPT_INJECTION", "fraud_signal", "high", doc_id, hit.page, 0.9,
+            "PROMPT_INJECTION", "fraud_signal", "high", doc_id, hit.page,
             f"The text on page {hit.page} of {doc_id} contains instructions aimed at an AI "
             f"model (prompt attack screen, {hit.confidence} confidence). A genuine business "
             "document has no reason to address an automated reviewer.",
@@ -1797,14 +1806,14 @@ def check_official_records(pack: ExtractedPack) -> list[Evidence]:
     answer, as nothing was checked against ACRA or IRAS."""
     if pack.official is None:
         return [_ev(
-            "OFFICIAL_RECORDS_UNAVAILABLE", "completeness", "info", PACK_DOC, 1, 1.0,
+            "OFFICIAL_RECORDS_UNAVAILABLE", "completeness", "info", PACK_DOC, 1,
             "ACRA and IRAS records were not fetched (OFFICIAL_RECORDS_ENABLED is off); the documents are held "
             "to an uploaded ACRA profile and uploaded notices only.",
         )]
     if pack.official.error is None:
         return []
     return [_ev(
-        "OFFICIAL_RECORDS_UNAVAILABLE", "completeness", "medium", PACK_DOC, 1, 1.0,
+        "OFFICIAL_RECORDS_UNAVAILABLE", "completeness", "medium", PACK_DOC, 1,
         f"ACRA and IRAS records could not be fetched: {pack.official.error}. Nothing was checked against "
         "them; run the case again once the service answers.",
         expected="ACRA and IRAS records fetched", observed="service unavailable",
@@ -1823,7 +1832,7 @@ def _text_key(value: object) -> str:
 
 def _altered(doc_id: str, page: int, record: str, field: str, original: object, copy: object) -> Evidence:
     return _ev(
-        "XDOC_OFFICIAL_RECORD", "fraud_signal", "critical", doc_id, page, 0.95,
+        "XDOC_OFFICIAL_RECORD", "fraud_signal", "critical", doc_id, page,
         f"The {field.replace('_', ' ')} on {doc_id} is '{copy}', but {record} has '{original}'. The uploaded "
         "copy of an official record differs from the record itself.",
         quote=str(copy), expected=str(original), observed=str(copy),
@@ -1849,7 +1858,7 @@ def check_official_copies(pack: ExtractedPack) -> list[Evidence]:
                     for f in _PROFILE_FIELDS if _text_key(getattr(copy, f)) != _text_key(getattr(original, f))]
         listed = {_id_key(o.id_number) for o in original.officers}
         results += [
-            _ev("XDOC_OFFICIAL_RECORD", "fraud_signal", "critical", copy.doc_id, copy.page, 0.95,
+            _ev("XDOC_OFFICIAL_RECORD", "fraud_signal", "critical", copy.doc_id, copy.page,
                 f"{copy.doc_id} lists '{o.name}' ({o.position}, {mask_id(o.id_number)}) as an officer; {where} does not.",
                 quote=o.name, expected=", ".join(x.name for x in original.officers) or "no officers",
                 observed=o.name)
@@ -1869,7 +1878,7 @@ def check_official_copies(pack: ExtractedPack) -> list[Evidence]:
         where = f"IRAS's record ({pack.official.versions.get('iras', 'IRAS')})"
         if uploaded.year_of_assessment != notice.year_of_assessment:
             results.append(_ev(
-                "XDOC_OFFICIAL_RECORD", "fraud_signal", "info", uploaded.doc_id, uploaded.page, 1.0,
+                "XDOC_OFFICIAL_RECORD", "fraud_signal", "info", uploaded.doc_id, uploaded.page,
                 f"{uploaded.doc_id} is the notice for Year of Assessment {uploaded.year_of_assessment}; {where} "
                 f"is for {notice.year_of_assessment}, so the two were not compared.",
             ))
@@ -1906,7 +1915,7 @@ def check_registry_entities(pack: ExtractedPack) -> list[Evidence]:
         form = next((c.doc_id for c in pack.entity_self_certs
                      for row in c.tax_rows if (row.tin or "").strip() == applicant), PACK_DOC)
         results.append(_ev(
-            "REGISTRY_ENTITY_NOT_FOUND", "fraud_signal", "high", form, 1, 0.95,
+            "REGISTRY_ENTITY_NOT_FOUND", "fraud_signal", "high", form, 1,
             f"The applicant's UEN {applicant} is not registered with ACRA ({version}).",
             expected="a registered UEN", observed=f"UEN {applicant}",
         ))
@@ -1918,7 +1927,7 @@ def check_registry_entities(pack: ExtractedPack) -> list[Evidence]:
         also = f" It is also named on {', '.join(elsewhere)}." if elsewhere else ""
         if entity is None:
             results.append(_ev(
-                "REGISTRY_ENTITY_NOT_FOUND", "fraud_signal", "high", doc_id, page, 0.95,
+                "REGISTRY_ENTITY_NOT_FOUND", "fraud_signal", "high", doc_id, page,
                 f"UEN {uen} given for {where} ('{name}') is not registered with ACRA ({version}).{also}",
                 expected="a registered UEN", observed=f"UEN {uen}",
             ))
@@ -1929,14 +1938,14 @@ def check_registry_entities(pack: ExtractedPack) -> list[Evidence]:
         for doc, doc_page, doc_role, used in first_with_name.values():
             if similarity(used, entity.company_name) < SCREENING_MATCH_THRESHOLD:
                 results.append(_ev(
-                    "REGISTRY_NAME_MISMATCH", "fraud_signal", "high", doc, doc_page, 0.9,
+                    "REGISTRY_NAME_MISMATCH", "fraud_signal", "high", doc, doc_page,
                     f"UEN {uen} is registered to '{entity.company_name}', but "
                     f"{f'the {doc_role} on {doc}' if doc != PACK_DOC else 'the applicant'} names '{used}' ({version}).",
                     expected=entity.company_name, observed=used,
                 ))
         if not _live(entity):
             results.append(_ev(
-                "REGISTRY_ENTITY_INACTIVE", "fraud_signal", "high", doc_id, page, 0.95,
+                "REGISTRY_ENTITY_INACTIVE", "fraud_signal", "high", doc_id, page,
                 f"'{entity.company_name}' (UEN {uen}) is '{entity.status}' at ACRA "
                 f"({version}), so it cannot trade.{also}",
                 expected="LIVE COMPANY", observed=entity.status,
@@ -1954,7 +1963,7 @@ def check_registry_signatories(pack: ExtractedPack) -> list[Evidence]:
     return [
         _ev(
             "REGISTRY_SIGNATORY_NOT_OFFICER", "fraud_signal", "medium",
-            PACK_DOC, 1, 0.8,
+            PACK_DOC, 1,
             f"Authorised signatory '{person}' is not a registered officer of "
             f"'{entity.company_name}' ({_acra_version(pack)}).",
             expected=", ".join(o.name for o in entity.officers), observed=person,
@@ -1976,7 +1985,7 @@ def _screened_names(pack: ExtractedPack) -> dict[str, tuple[str, str, int, str]]
         mentions += [(i.seller_name, i.doc_id, i.page, "seller"), (i.buyer_name, i.doc_id, i.page, "buyer")]
     for p in pack.purchase_orders:
         mentions += [(p.buyer_name, p.doc_id, p.page, "buyer"), (p.seller_name, p.doc_id, p.page, "seller")]
-    for b in pack.bills_of_lading:
+    for b in pack.shipments():
         mentions += [(b.shipper_name, b.doc_id, b.page, "shipper"),
                      (b.consignee_name, b.doc_id, b.page, "consignee")]
     # The people of the applicant and of every company the documents name, as ACRA lists them
@@ -2026,7 +2035,7 @@ def check_sanctions(pack: ExtractedPack) -> list[Evidence]:
                     severity, then = "info", (f"Discounted: {dates}. No action is needed unless other details "
                                               f"(nationality, address, identity number) match the entry.")
             results.append(_ev(
-                "SANCTIONS_MATCH", "fraud_signal", severity, doc_id, page, round(score, 2),
+                "SANCTIONS_MATCH", "fraud_signal", severity, doc_id, page,
                 f"The {role} '{name}' resembles {listed} on {entry.list} "
                 f"({entry.reference}), similarity {score:.2f}. Sanctions list {wl.version}, "
                 f"as of {wl.as_of}. {then}",
@@ -2077,7 +2086,7 @@ def check_high_risk_countries(pack: ExtractedPack) -> list[Evidence]:
         listed, advice = _COUNTRY_LISTS[country.fatf_list]
         source = "The application" if doc_id == PACK_DOC else doc_id
         results.append(_ev(
-            "HIGH_RISK_COUNTRY", "fraud_signal", _COUNTRY_SEVERITY[country.fatf_list], doc_id, page, 1.0,
+            "HIGH_RISK_COUNTRY", "fraud_signal", _COUNTRY_SEVERITY[country.fatf_list], doc_id, page,
             f"{source} gives '{written}' as the {' and '.join(dict.fromkeys(whats))}, which is on {listed} "
             f"(FATF {lists.version}, as of {lists.as_of}). {advice}",
             quote=written, expected="no high-risk country", observed=f"'{written}' ({country.name}, {country.fatf_list})",
@@ -2142,6 +2151,12 @@ def dated_facts(pack: ExtractedPack) -> list[TimelineEvent]:
         for b in pack.bills_of_lading
     ]
     facts += [
+        TimelineEvent(on=d.shipped_date, kind="shipped",
+                      label=f"Delivery order {d.do_number}: delivered to {d.consignee_name}",
+                      doc_id=d.doc_id, page=d.page, ref=d.invoice_reference)
+        for d in pack.delivery_orders
+    ]
+    facts += [
         TimelineEvent(on=i.invoice_date, kind="invoice",
                       label=f"Invoice {i.invoice_number} to {i.buyer_name}, SGD {i.total}",
                       doc_id=i.doc_id, page=i.page, ref=i.invoice_number)
@@ -2167,7 +2182,7 @@ def check_temp_before_incorporation(pack: ExtractedPack) -> list[Evidence]:
     incorporated, source = known
     return [
         _ev(
-            "TEMP_BEFORE_INCORPORATION", "fraud_signal", "high", f.doc_id, f.page, 0.95,
+            "TEMP_BEFORE_INCORPORATION", "fraud_signal", "high", f.doc_id, f.page,
             f"{f.label} is dated {f.on}, before the company was incorporated on "
             f"{incorporated} according to {source}.",
             expected=f"on or after {incorporated}",
@@ -2197,22 +2212,22 @@ def check_temp_trade_sequence(pack: ExtractedPack) -> list[Evidence]:
         po = matching_po(inv, pack)
         if po is not None and _out_of_order(po.po_date, "invoice", inv.invoice_date):
             results.append(_ev(
-                "TEMP_TRADE_SEQUENCE", "fraud_signal", "medium", inv.doc_id, inv.page, 0.9,
+                "TEMP_TRADE_SEQUENCE", "fraud_signal", "medium", inv.doc_id, inv.page,
                 f"Invoice {inv.invoice_number} is dated {inv.invoice_date}, before its "
                 f"purchase order {po.po_number} ({po.po_date}).",
                 expected=f"on or after {po.po_date}",
                 observed=str(inv.invoice_date),
             ))
-    for bl in pack.bills_of_lading:
-        inv = invoices.get(bl.invoice_reference)
+    for shipment in pack.shipments():
+        inv = invoices.get(shipment.invoice_reference)
         po = matching_po(inv, pack) if inv is not None else None
-        if po is not None and _out_of_order(po.po_date, "shipped", bl.shipped_date):
+        if po is not None and _out_of_order(po.po_date, "shipped", shipment.shipped_date):
             results.append(_ev(
-                "TEMP_TRADE_SEQUENCE", "fraud_signal", "medium", bl.doc_id, bl.page, 0.9,
-                f"Bill of lading {bl.bl_number} says goods were shipped on {bl.shipped_date}, "
+                "TEMP_TRADE_SEQUENCE", "fraud_signal", "medium", shipment.doc_id, shipment.page,
+                f"{shipment.title} says goods were {shipment.verb} on {shipment.shipped_date}, "
                 f"before purchase order {po.po_number} ({po.po_date}) was placed.",
                 expected=f"on or after {po.po_date}",
-                observed=str(bl.shipped_date),
+                observed=str(shipment.shipped_date),
             ))
     return results
 
@@ -2330,7 +2345,7 @@ def _run_rule_group(group: RuleGroup, pack: ExtractedPack) -> tuple[list[Evidenc
         except Exception as exc:  # noqa: BLE001
             found.append(_ev(
                 "SYSTEM_CHECK_ERROR", "compliance", "medium",
-                PACK_DOC, 1, 1.0,
+                PACK_DOC, 1,
                 f"{check_fn.__name__} failed to run; manual verification required. "
                 f"Error: {exc}",
             ))

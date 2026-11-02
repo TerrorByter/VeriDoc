@@ -1,0 +1,19 @@
+{
+  "pack": "related_party",
+  "company": "LUMEN AQUA SYSTEMS PTE. LTD.",
+  "note": "Lumen's biggest supplier, Harbour Ridge Filtration, is run by Lumen's own chief executive: ACRA lists her as its director. No document says so and no rule compares the two; only the AI team looks it up.",
+  "expected_band": "Low",
+  "expected_path": "fast_track",
+  "expected_readiness": "Complete",
+  "expected_check_ids": [],
+  "expected_check_ids_ocr": [],
+  "expected_compliance_check_ids": [],
+  "expected_leads": [
+    {
+      "agent": "kyc",
+      "pattern": "related_party"
+    }
+  ],
+  "expected_triage": [],
+  "tampers": []
+}

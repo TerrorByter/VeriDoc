@@ -12,9 +12,12 @@ import ast
 from pathlib import Path
 from typing import Literal
 
+import pytest
+from pydantic import ValidationError
+
 from gldb import checks, signal_library
 from gldb.scoring import score
-from gldb.schemas import Evidence
+from gldb.schemas import Evidence, Signal
 
 CHECKS_SOURCE = Path(checks.__file__)
 _EVIDENCE_HELPERS = {"_ev", "_cert_ev"}
@@ -43,8 +46,7 @@ def _ev(
 ) -> Evidence:
     return Evidence(
         evidence_id=evidence_id, check_id=check_id, category=category, severity=severity,
-        document="invoice_INV-1002", page=2, method="deterministic", confidence=1.0,
-        explanation="x",
+        document="invoice_INV-1002", page=2, method="deterministic",         explanation="x",
     )
 
 
@@ -87,3 +89,25 @@ def test_capped_score_still_lists_every_contribution() -> None:
 def test_unmapped_check_still_scores_and_is_labelled() -> None:
     (c,) = score([_ev("BRAND_NEW_CHECK", "low")]).contributions
     assert (c.signal_id, c.points) == ("UNMAPPED", 5)
+
+
+def test_every_indicative_signal_names_its_innocent_reasons_and_no_definite_one_does() -> None:
+    for s in signal_library.SIGNALS:
+        assert (s.strength == "indicative") == bool(s.innocent), s.signal_id
+
+
+def test_a_signal_cannot_be_indicative_without_innocent_reasons() -> None:
+    with pytest.raises(ValidationError):
+        Signal(signal_id="X-1", check_id="X", family="SYS", name="x", remedy="x", strength="indicative")
+    with pytest.raises(ValidationError):
+        Signal(signal_id="X-1", check_id="X", family="SYS", name="x", remedy="x", strength="definite", innocent="x")
+
+
+def test_ratios_and_patterns_are_indicative_and_contradictions_definite() -> None:
+    strength = {s.check_id: s.strength for s in signal_library.SIGNALS}
+    assert {strength[c] for c in ("XDOC_BANK_REVENUE", "BANK_PASS_THROUGH", "SANCTIONS_MATCH")} == {"indicative"}
+    assert {strength[c] for c in ("FS_ACRA_MISMATCH", "INV_ARITH", "BANK_RUNNING_BAL")} == {"definite"}
+
+
+def test_an_unmapped_check_is_indicative_until_reviewed() -> None:
+    assert signal_library.signal_for("NEW_CHECK").strength == "indicative"

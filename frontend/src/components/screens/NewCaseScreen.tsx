@@ -18,7 +18,7 @@ const typeLabel = (type: string) => (type === "application" ? "Application data"
 
 /** The order files are listed in: unusable ones first (they block the run), then the required documents,
  * the application data, the trade paperwork and anything unrecognised; files still being checked last. */
-const ORDER = [...REQUIRED_DOCUMENTS.map((d) => d.type), "application", "invoice", "purchase_order", "bill_of_lading"];
+const ORDER = [...REQUIRED_DOCUMENTS.map((d) => d.type), "application", "invoice", "purchase_order", "bill_of_lading", "delivery_order"];
 const rank = ({ found }: Held) =>
   found === null ? ORDER.length + 2 : found.error ? -1 : ORDER.includes(found.doc_type) ? ORDER.indexOf(found.doc_type) : ORDER.length + 1;
 

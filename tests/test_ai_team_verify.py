@@ -29,7 +29,7 @@ _ALL = {"R01", "R02"}
 
 def _finding(evidence_id: str = "E01", **fields: str) -> Evidence:
     return Evidence(evidence_id=evidence_id, check_id="invoice_total", severity="high", document="D1", page=1,
-                    method="deterministic", confidence=0.9, explanation=fields.pop("explanation", "Total differs."),
+                    method="deterministic", explanation=fields.pop("explanation", "Total differs."),
                     **fields)
 
 
@@ -228,13 +228,15 @@ def test_result_finding_and_lead_ids_are_references() -> None:
 def test_point_needs_known_ids_numbers_and_identifiers() -> None:
     grounding = known("18530 INV-1002")
     assert check_point(ReviewPoint(text="See 18,530.00 on INV-1002", evidence_ids=["E01", "L02"]), {"E01", "L02"},
-                       grounding)
-    assert not check_point(ReviewPoint(text="x", evidence_ids=[]), {"E01"}, grounding)
-    assert not check_point(ReviewPoint(text="Approve it", evidence_ids=["E01"]), {"E01"}, grounding)
-    assert not check_point(ReviewPoint(text="See it", evidence_ids=["E01", "E99"]), {"E01"}, grounding)
-    assert not check_point(ReviewPoint(text="See 245", evidence_ids=["E01"]), {"E01"}, grounding)
-    assert not check_point(ReviewPoint(text="See INV-9999", evidence_ids=["E01"]), {"E01"}, grounding)
-    assert check_point(ReviewPoint(text="L01 and E04 agree", evidence_ids=["L01", "E04"]), {"L01", "E04"}, grounding)
+                       grounding) is None
+    assert check_point(ReviewPoint(text="x", evidence_ids=[]), {"E01"}, grounding) == "cites no finding or lead"
+    assert "verdict" in (check_point(ReviewPoint(text="Approve it", evidence_ids=["E01"]), {"E01"}, grounding) or "")
+    assert check_point(ReviewPoint(text="See it", evidence_ids=["E01", "E99"]), {"E01"}, grounding) == (
+        "cites neither an open finding nor a confirmed AI flag: E99")
+    assert check_point(ReviewPoint(text="See 245", evidence_ids=["E01"]), {"E01"}, grounding) is not None
+    assert check_point(ReviewPoint(text="See INV-9999", evidence_ids=["E01"]), {"E01"}, grounding) is not None
+    assert check_point(ReviewPoint(text="L01 and E04 agree", evidence_ids=["L01", "E04"]), {"L01", "E04"},
+                       grounding) is None
 
 
 def _flag() -> Lead:

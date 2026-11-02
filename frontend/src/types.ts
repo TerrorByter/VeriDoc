@@ -14,7 +14,6 @@ export interface Evidence {
   expected: string | null;
   observed: string | null;
   method: "deterministic" | "llm";
-  confidence: number;
   explanation: string;
 }
 
@@ -506,6 +505,10 @@ export interface Signal {
   family: SignalFamily;
   name: string;
   remedy: string;
+  /** "definite": a fact on the documents; "indicative": a pattern ordinary business can also produce */
+  strength: "definite" | "indicative";
+  /** For an indicative signal, the innocent reasons to rule out first */
+  innocent: string;
   points: number | null;
 }
 

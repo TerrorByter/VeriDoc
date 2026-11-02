@@ -1,0 +1,39 @@
+{
+  "application_id": "APP-2026-THIRD_PARTY_PAYMENT",
+  "application_date": "2026-07-10",
+  "company_name": "KESTREL AUTOMATION PTE. LTD.",
+  "uen": "201526618C",
+  "country_of_incorporation": "SINGAPORE",
+  "date_of_incorporation": "2015-09-14",
+  "registered_address": {
+    "block": "2",
+    "street": "JALAN KILANG BARAT",
+    "floor": "07",
+    "unit": "03",
+    "building": "KILANG BARAT CENTRE",
+    "city_state": "SINGAPORE",
+    "postal_code": "159346",
+    "country": "SINGAPORE"
+  },
+  "authorised_signatories": [
+    "SITI RAHMAH",
+    "HO JUN WEI"
+  ],
+  "guarantors": [
+    {
+      "name": "HO JUN WEI",
+      "id_number": "S7322841B",
+      "nationality": "SINGAPORE",
+      "residential_address": {
+        "block": "520",
+        "street": "BUKIT BATOK STREET 52",
+        "floor": "07",
+        "unit": "88",
+        "building": "",
+        "city_state": "SINGAPORE",
+        "postal_code": "650520",
+        "country": "SINGAPORE"
+      }
+    }
+  ]
+}

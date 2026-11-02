@@ -31,7 +31,8 @@ from gldb.ai_team.tools import (
     case_index,
     specs_for,
 )
-from gldb.intake import load_manifest
+from gldb.config import PACKS_DIR
+from gldb.intake import document_paths, load_manifest
 from gldb.pipeline import assess
 from gldb.privacy import mask_id
 from gldb.schemas import AgentName, CaseResult, Lead, PromptAttackHit
@@ -43,6 +44,11 @@ TRUNCATED = "…[truncated]"
 def _assess(name: str) -> CaseResult:
     folder = PACKS / name
     return assess(name, sorted(folder.glob("*.pdf")), load_manifest(folder))
+
+
+def _assess_demo(name: str) -> CaseResult:
+    folder = Path(PACKS_DIR) / name
+    return assess(name, document_paths(folder), load_manifest(folder), team=None)
 
 
 def _data(result: CaseResult) -> CaseData:
@@ -516,15 +522,24 @@ def test_search_and_registry(clean: CaseData) -> None:
     assert len(every) > 0 and len(_rows({"text": ""}, clean)) == len(every)
 
 
-def test_search_shows_at_most_20_rows_and_says_how_many_more(clean: CaseData, roomy: None) -> None:
+def test_search_shows_at_most_its_row_limit_and_says_how_many_more(clean: CaseData, roomy: None) -> None:
     statement = clean.pack.bank_statements[0]
     padded = statement.model_copy(update={"transactions": statement.transactions * 30})
     case = replace(clean, pack=clean.pack.model_copy(update={"bank_statements": [padded]}))
     ledger = Ledger()
     found = _run("transaction", "search_bank_transactions", {"text": ""}, case, ledger)
     total = len(padded.transactions)
-    assert len(found["rows"]) == 20 and found["more"] == total - 20
-    assert ledger.tool_calls[0].summary == f"text=: 20 rows, {total - 20} more"
+    limit = tools._MAX_ROWS
+    assert len(found["rows"]) == limit and found["more"] == total - limit
+    assert ledger.tool_calls[0].summary == f"text=: {limit} rows, {total - limit} more"
+
+
+def test_one_search_over_its_period_reads_a_whole_demo_statement() -> None:
+    """The transaction specialist reads the statement as an analyst does, in one step, every row with its id."""
+    result = _assess_demo("round_trip")
+    rows = _run("transaction", "search_bank_transactions", {"date_from": "2026-01-01", "date_to": "2026-06-30"},
+                _data(result))
+    assert rows["more"] == 0 and len(rows["rows"]) == len(result.pack.bank_statements[0].transactions)
 
 
 def test_parties_let_kyc_find_a_shared_officer(related_party_result: CaseResult, roomy: None) -> None:

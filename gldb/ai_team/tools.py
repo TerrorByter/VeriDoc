@@ -76,7 +76,8 @@ _TRUNCATED = "…[truncated]"
 #: Longest summary kept for a call (the UI shows it; it is never page text)
 _SUMMARY_CHARS = 100
 #: Rows search_bank_transactions returns
-_MAX_ROWS = 20
+#: Rows one bank search returns: a whole statement of the team's form (29 rows) in one call
+_MAX_ROWS = 40
 _DEFAULT_TOLERANCE_PCT = 1
 #: Tools that record an agent's own output: their results are receipts, not evidence
 RECEIPT_TOOLS = frozenset({"record_lead", "draft_question"})

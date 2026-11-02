@@ -176,7 +176,9 @@ def test_each_specialist_is_told_how_to_look() -> None:
     transaction, kyc, timeline = SPECIALIST["transaction"], SPECIALIST["kyc"], SPECIALIST["timeline"]
     assert "the credits code read from the bank statements and who paid: take them as given" in transaction
     assert "spend your steps on why, not on finding them" in transaction
-    assert "search the statements by the invoice number (search_bank_transactions text) to cite the result" in transaction
+    # It reads the whole statement first, citing that result, and never re-opens invoices code already matched
+    assert "Your first call reads the whole statement: search_bank_transactions over its period" in transaction
+    assert "Do not open invoices one by one" in transaction
     assert "several credits that add up to an invoice's total, none matching it alone (split_payment)" in transaction
     assert "money paid out that comes back from the same counterparty (round_trip)" in transaction
     assert ("Compare the officers of each counterparty in the register with the applicant's directors, "

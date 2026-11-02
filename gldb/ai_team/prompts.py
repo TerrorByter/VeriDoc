@@ -63,16 +63,18 @@ _DOMAINS: dict[SpecialistName, str] = {
 
 #: How a specialist goes about its patterns, where it needs more than the definitions
 _METHODS: dict[SpecialistName, str] = {
-    "transaction": "The applicant both sells and buys: an invoice addressed to it is a supplier's, paid by a "
+    "transaction": "Your first call reads the whole statement: search_bank_transactions over its period "
+                   "(date_from and date_to) returns every row with its id (T01...), and that result is what your "
+                   "leads cite. Do not open invoices one by one: code has matched each to its order, shipment and "
+                   "payment, and the case index lists them. "
+                   "The applicant both sells and buys: an invoice addressed to it is a supplier's, paid by a "
                    "debit, and only its sales raise the question of who paid. The case index lists, for each sale, "
                    "the credits code read from the bank statements and who paid: take them as given and spend "
-                   "your steps on why, not on finding them. Where the "
-                   "payer is not the buyer, search the statements by the invoice number (search_bank_transactions "
-                   "text) to cite the result, then look at what the documents say about the payer and whether "
-                   "the payment makes commercial sense. Look for several credits that add up to an invoice's "
-                   "total, none matching it alone (split_payment), and for money paid out that comes back from "
-                   "the same counterparty (round_trip): search the statements for each counterparty paid, and "
-                   "see whether a credit from it follows.",
+                   "your steps on why, not on finding them. Where the payer is not the buyer, look at what the "
+                   "documents say about the payer and whether the payment makes commercial sense. On the "
+                   "statement, look for several credits that add up to an invoice's total, none matching it alone "
+                   "(split_payment), and for money paid out that comes back from the same counterparty "
+                   "(round_trip): a credit from a party the applicant paid.",
     "kyc": "Compare the officers of each counterparty in the register with the applicant's directors, "
            "guarantors and signatories (get_parties). A register result says which counterparty id the "
            "company is: cite that result for a related_party lead.",

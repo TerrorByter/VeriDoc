@@ -245,6 +245,8 @@ _DOC_KEYWORDS: list[tuple[str, DocType]] = [
     ("FINANCIAL STATEMENTS SUMMARY", "financial_statements"),
     ("PURCHASE ORDER", "purchase_order"),
     ("BILL OF LADING", "bill_of_lading"),
+    # After the purchase order, whose terms ask for the order number on the delivery order
+    ("DELIVERY ORDER", "delivery_order"),
     ("NOTICE OF ASSESSMENT", "notice_of_assessment"),
     ("CORPORATE COMPLIANCE AND FINANCIAL PROFILE", "acra_profile"),
 ]

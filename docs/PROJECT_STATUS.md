@@ -6,7 +6,7 @@
 
 ## 1. What the system does
 
-An analyst opens a trade-finance application pack: a bank statement, the FATCA/CRS entity and individual forms, a financial workbook (`.xlsx`), and the invoices, purchase orders and bills of lading behind the company's trade. The system reads the documents, fetches the company's official records, runs deterministic rule checks, scores the fraud risk, routes the case for review, and lets an AI team investigate what the rules cannot. Every finding is shown beside the document page it came from, and every action is written to an append-only audit log.
+An analyst opens a trade-finance application pack: a bank statement, the FATCA/CRS entity and individual forms, a financial workbook (`.xlsx`), and the invoices, purchase orders, bills of lading and delivery orders behind the company's trade. The system reads the documents, fetches the company's official records, runs deterministic rule checks, scores the fraud risk, routes the case for review, and lets an AI team investigate what the rules cannot. Every finding is shown beside the document page it came from, and every action is written to an append-only audit log.
 
 ```
 OCR -> Intake -> Prompt screen -> Extract -> Official records -> Rule checks
@@ -43,7 +43,7 @@ OCR -> Intake -> Prompt screen -> Extract -> Official records -> Rule checks
 |---|---|---|
 | **Document Integrity** | 6 | Invoice arithmetic, bank running balance and continuity, financial-statement balance, PDF modified after creation, producer mismatch |
 | **Forensics** | 5 | Hidden text (white, tiny or off-page), figures whose digits mix fonts, PDFs re-saved after creation, visible figures that differ from the stored text (OCR comparison), instructions aimed at AI models (the guardrail) |
-| **Cross-Document** | 12 | Identity (UEN, names) across documents; each invoice against its bank payment, purchase order and bill of lading; the workbook against the bank statement and ACRA (cash, debt, revenue); money that only passes through the account; ACRA's entity, signatories and people against the forms |
+| **Cross-Document** | 12 | Identity (UEN, names) across documents; each invoice against its bank payment, purchase order and bill of lading or delivery order; the workbook against the bank statement and ACRA (cash, debt, revenue); money that only passes through the account; ACRA's entity, signatories and people against the forms |
 | **Registry & Screening** | 6 | ACRA and IRAS records fetched or missing, uploaded copies that differ from the originals, companies struck off or not registered, signatories who are not officers, sanctions (UN lists named by MAS plus the bank's own names), FATF high-risk countries |
 | **Timeline** | 2 | Trading before incorporation; orders, shipments and invoices out of sequence |
 | **Compliance & Completeness** | 16 | Missing documents, bank statement coverage, FATCA/CRS entity form validity and consistency with the application |
@@ -54,7 +54,7 @@ Forensics reads the raw file through `ExtractedPack.paths`, which is excluded fr
 
 ## 3. Documents handled
 
-Bank statement (the fillable statement of the team's sample; its figures are form fields), FATCA/CRS entity and individual self-certifications (AcroForms, read field by field and never sent to a model), the submitted financial workbook (`.xlsx`, read-only), invoices (the styled tax invoice of `gldb/invoice_pdf.py` and the older plain layout), purchase orders and bills of lading. The ACRA profile and the Notice of Assessment are fetched, not uploaded; an uploaded copy is compared with the original. The application data (`application.json`) is the reference for consistency checks.
+Bank statement (the fillable statement of the team's sample; its figures are form fields), FATCA/CRS entity and individual self-certifications (AcroForms, read field by field and never sent to a model), the submitted financial workbook (`.xlsx`, read-only), invoices (the styled tax invoice of `gldb/invoice_pdf.py` and the older plain layout), purchase orders, bills of lading and delivery orders. The ACRA profile and the Notice of Assessment are fetched, not uploaded; an uploaded copy is compared with the original. The application data (`application.json`) is the reference for consistency checks.
 
 ## 4. The AI team
 
@@ -62,7 +62,7 @@ A Supervisor (Claude Sonnet 4.6) plans and briefs four specialists (Claude Haiku
 
 Nothing the team produces changes the score or the route. The shadow scorer (Claude Haiku 4.5) proposes a route from the case and the leads; it is compared with the rule route and a log-only gate records what it would have changed.
 
-Live runs (October 2026, on the test packs): the planted third-party payment in `third_party_payment` was found and verified by code, and on `innocent_split` no false flag was raised. A case costs roughly US$0.20-0.30 of Bedrock. The team has not yet been run live on the eight demo packs.
+Live runs (October 2026, on the test packs): the planted third-party payment in `third_party_payment` was found and verified by code, and on `innocent_split` no false flag was raised. A case costs roughly US$0.20-0.30 of Bedrock. The team has not yet been run live on the demo packs.
 
 ## 5. AWS integration
 
@@ -74,7 +74,7 @@ Live runs (October 2026, on the test packs): the planted third-party payment in 
 
 ## 6. Synthetic data and evaluation
 
-`data/packs/` holds eight demo cases in the format of the team's sample, built by `python -m gldb.demo_packs`. Each has a `ground_truth.json`, and each carries an invoice, purchase order and bill of lading for every sale and goods purchase on its statement (`gldb/demo_trade.py`). The mock ACRA and IRAS service holds the demo companies and their suppliers.
+`data/packs/` holds twelve demo cases in the format of the team's sample, built by `python -m gldb.demo_packs`. Each has a `ground_truth.json`, and each carries an invoice, purchase order and shipping document for every sale and goods purchase on its statement (`gldb/demo_trade.py`): sales are zero-rated exports to Malaysia shipped under a bill of lading, purchases are from Singapore suppliers with 9% GST and a delivery order. Each company has its own customers, suppliers and goods (`gldb/demo_partners.py`). The mock ACRA and IRAS service holds the demo companies and their suppliers.
 
 | Pack | Company | What is planted | Expected |
 |---|---|---|---|
@@ -86,6 +86,12 @@ Live runs (October 2026, on the test packs): the planted third-party payment in 
 | `sanctioned` | Eastgate | A shareholder on the sanctions list | Medium, enhanced review |
 | `struck_off` | Fernleaf | The company is struck off at ACRA | Medium, standard review |
 | `tampered_statement` | Corvid | A raised sales credit and a re-saved file | High, enhanced review |
+| `third_party_payment` | Kestrel | A sale paid by a company with no part in it (AI team only) | Low, fast track |
+| `related_party` | Lumen | Its biggest supplier is run by its own CEO, per ACRA (AI team only) | Low, fast track |
+| `round_trip` | Northstar | A payment to a supplier comes back as a customer receipt (AI team only) | Low, fast track |
+| `split_payment` | Kestrel | An invoice paid in two parts by its buyer: a rule flags it, code explains it | Medium, standard review |
+
+The three packs marked AI team only are clean to the rules, which would fast-track them; each plants a pattern only the AI team looks for, and a code check confirms it from the documents and ACRA (`tests/test_demo_packs.py`).
 
 `python -m gldb.evaluate` reports, per pack, band, readiness and route against the ground truth, each planted fault and whether it was found, precision, recall and false positives. With the deterministic parser it scores 1.00 on every measure and finds all 14 planted faults. `python -m gldb.agent_eval` scores the AI team the same way (it calls Bedrock).
 

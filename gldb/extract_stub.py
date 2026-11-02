@@ -48,6 +48,7 @@ from gldb.schemas import (
     BankStatement,
     BillOfLading,
     ControllingPerson,
+    DeliveryOrder,
     DocMeta,
     EntitySelfCert,
     FinancialStatementSummary,
@@ -137,6 +138,10 @@ _STYLED_STRIP = re.compile(rf"^(\S+) {_STYLED_DATE} {_STYLED_DATE} (.+) (\S+)$")
 _ORDER_STRIP = re.compile(rf"^(\S+) {_STYLED_DATE} {_STYLED_DATE} (.+) SGD$")
 #: trade_pdf's bill of lading strip: number, shipped, voyage, invoice, freight
 _BILL_STRIP = re.compile(rf"^(\S+) {_STYLED_DATE} (\S+) (\S+) (\S+)$")
+#: trade_pdf's delivery order strip: number, delivered, invoice, order
+_DELIVERY_STRIP = re.compile(rf"^(\S+) {_STYLED_DATE} (\S+) (\S+)$")
+#: An invoice's GST figure, labelled with the rate it charges: "GST (9%)", "GST (0%)"
+_GST_LABEL = re.compile(r"^GST \((\d+(?:\.\d+)?)%\)")
 _STYLED_ROW = re.compile(rf"^(\d+) (.+) (\d+) {_AMOUNT} {_AMOUNT}$")
 _CARGO_ROW = re.compile(r"^(\d+) (.+) (\d+) (\d+) ([A-Z]+) ([\d,]+\.\d) ([\d,]+\.\d{2})$")
 
@@ -208,15 +213,25 @@ def _parse_styled_invoice(doc_id: str, lines: list[str]) -> Invoice:
     if uen is None:
         raise ValueError(f"{doc_id}: the invoice's details are not in the layout it is printed in")
     items = _styled_items(doc_id, lines, what)
+    gst_label = next((found.group() for line in lines if (found := _GST_LABEL.match(line))), None)
+    if gst_label is None:
+        raise ValueError(f"{doc_id}: no 'GST' figure on the {what}")
     (subtotal, subtotal_line), (gst, gst_line), (total, total_line) = (
-        _styled_figure(doc_id, lines, label, what) for label in ("Subtotal", "GST (9%)", "TOTAL (SGD)"))
+        _styled_figure(doc_id, lines, label, what) for label in ("Subtotal", gst_label, "TOTAL (SGD)"))
     return Invoice(
         doc_id=doc_id, invoice_number=number, invoice_date=_styled_day(issued),
         seller_name=lines[0].removesuffix(" TAX INVOICE"), seller_uen=uen.group(1),
         buyer_name=_after(doc_id, lines, "BILL TO", what),
-        po_number=po_number, line_items=items, subtotal=subtotal, gst=gst, total=total, page=1,
-        source_quotes={"Subtotal": subtotal_line, "GST (9%)": gst_line, "Total": total_line},
+        po_number=po_number, line_items=items, subtotal=subtotal, gst_rate=_gst_rate(gst_label), gst=gst, total=total,
+        page=1, source_quotes={"Subtotal": subtotal_line, "GST": gst_line, "Total": total_line},
     )
+
+
+def _gst_rate(label: str) -> Decimal:
+    """The rate a GST label charges, as a fraction: "GST (9%)" is 0.09."""
+    found = _GST_LABEL.match(label)
+    assert found is not None
+    return Decimal(found.group(1)) / 100
 
 
 def _parse_plain_invoice(doc_id: str, lines: list[str]) -> Invoice:
@@ -235,15 +250,16 @@ def _parse_plain_invoice(doc_id: str, lines: list[str]) -> Invoice:
     line_items = _parse_line_items(doc_id, lines, stop_prefix="Subtotal:")
     source_quotes: dict[str, str] = {}
 
+    gst_label = next((found.group() for l in lines if (found := _GST_LABEL.match(l))), "GST (9%)")
     subtotal = _parse_money(_get("Subtotal"))
-    gst = _parse_money(_get("GST (9%)"))
+    gst = _parse_money(_get(gst_label))
     total = _parse_money(_get("Total"))
 
     # Source quotes
-    for label in ("Subtotal", "GST (9%)", "Total"):
+    for key, label in (("Subtotal", "Subtotal"), ("GST", gst_label), ("Total", "Total")):
         for l in lines:
             if l.startswith(f"{label}:"):
-                source_quotes[label] = l.strip()
+                source_quotes[key] = l.strip()
 
     return Invoice(
         doc_id=doc_id,
@@ -254,6 +270,7 @@ def _parse_plain_invoice(doc_id: str, lines: list[str]) -> Invoice:
         buyer_name=buyer,
         line_items=line_items,
         subtotal=subtotal,
+        gst_rate=_gst_rate(gst_label),
         gst=gst,
         total=total,
         page=1,
@@ -370,6 +387,17 @@ def _parse_styled_bill_of_lading(doc_id: str, lines: list[str]) -> BillOfLading:
             raise ValueError(f"{doc_id}: no '{label}' on the {what}")
         return found.removeprefix(f"{label} ")
 
+    goods, quotes = _cargo(doc_id, lines, what)
+    return BillOfLading(
+        doc_id=doc_id, bl_number=number, shipped_date=_styled_day(shipped),
+        shipper_name=_after(doc_id, lines, "SHIPPER", what), consignee_name=_after(doc_id, lines, "CONSIGNEE", what),
+        vessel=row("VESSEL"), port_of_loading=row("PORT OF LOADING"), port_of_discharge=row("PORT OF DISCHARGE"),
+        invoice_reference=invoice_ref, goods=goods, page=1, source_quotes=quotes,
+    )
+
+
+def _cargo(doc_id: str, lines: list[str], what: str) -> tuple[list[ShippedGoods], dict[str, str]]:
+    """The goods of the cargo table trade_pdf prints, up to its totals row, and each row as a quote."""
     table = next((n for n, line in enumerate(lines) if line.startswith("NO. DESCRIPTION OF GOODS")), None)
     if table is None:
         raise ValueError(f"{doc_id}: no cargo table on the {what}")
@@ -384,10 +412,23 @@ def _parse_styled_bill_of_lading(doc_id: str, lines: list[str]) -> BillOfLading:
         description, quantity = cargo.group(2), int(cargo.group(3))
         goods.append(ShippedGoods(description=description, quantity=quantity))
         quotes[f"Quantity {description}"] = line
-    return BillOfLading(
-        doc_id=doc_id, bl_number=number, shipped_date=_styled_day(shipped),
-        shipper_name=_after(doc_id, lines, "SHIPPER", what), consignee_name=_after(doc_id, lines, "CONSIGNEE", what),
-        vessel=row("VESSEL"), port_of_loading=row("PORT OF LOADING"), port_of_discharge=row("PORT OF DISCHARGE"),
+    return goods, quotes
+
+
+# ---------------------------------------------------------------------------
+# Delivery order parser
+# ---------------------------------------------------------------------------
+
+def _parse_delivery_order(doc_id: str, pages: list[str]) -> DeliveryOrder:
+    """A delivery order as gldb/trade_pdf.py prints it: the supplier's
+    letterhead, the details strip, the delivery block and the cargo table."""
+    what = "delivery order"
+    lines = _lines(pages)
+    number, delivered, invoice_ref, _order_ref = _strip(doc_id, lines, "DO NUMBER", _DELIVERY_STRIP, what)
+    goods, quotes = _cargo(doc_id, lines, what)
+    return DeliveryOrder(
+        doc_id=doc_id, do_number=number, shipped_date=_styled_day(delivered),
+        shipper_name=lines[0].removesuffix(" DELIVERY ORDER"), consignee_name=_after(doc_id, lines, "DELIVER TO", what),
         invoice_reference=invoice_ref, goods=goods, page=1, source_quotes=quotes,
     )
 
@@ -1146,6 +1187,7 @@ def parse_pack(
     financial_statements = []
     purchase_orders = []
     bills_of_lading = []
+    delivery_orders = []
     entity_self_certs = []
     individual_self_certs = []
     notices_of_assessment = []
@@ -1172,6 +1214,8 @@ def parse_pack(
             purchase_orders.append(_parse_purchase_order(doc.doc_id, pages))
         elif doc.doc_type == "bill_of_lading":
             bills_of_lading.append(_parse_bill_of_lading(doc.doc_id, pages))
+        elif doc.doc_type == "delivery_order":
+            delivery_orders.append(_parse_delivery_order(doc.doc_id, pages))
         elif doc.doc_type == "fatca_crs_entity":
             entity_self_certs.append(parse_entity_self_cert(doc.doc_id, p))
         elif doc.doc_type == "fatca_crs_individual":
@@ -1189,6 +1233,7 @@ def parse_pack(
         financial_statements=financial_statements,
         purchase_orders=purchase_orders,
         bills_of_lading=bills_of_lading,
+        delivery_orders=delivery_orders,
         entity_self_certs=entity_self_certs,
         individual_self_certs=individual_self_certs,
         notices_of_assessment=notices_of_assessment,

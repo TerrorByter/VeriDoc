@@ -167,6 +167,7 @@ export const DOC_TYPE_LABEL: Record<string, string> = {
   financial_statements: "Financial statements",
   purchase_order: "Purchase order",
   bill_of_lading: "Bill of lading",
+  delivery_order: "Delivery order",
   fatca_crs_entity: "FATCA/CRS form (entity)",
   fatca_crs_individual: "FATCA/CRS form (individual)",
   notice_of_assessment: "Notice of Assessment",

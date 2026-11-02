@@ -222,9 +222,12 @@ def check_question(text: str, cites: list[str], issued: set[str], citable: set[s
     return _wording_reason(text, lead_grounding(lead))
 
 
-def check_point(point: ReviewPoint, known_ids: set[str], grounding: Known) -> bool:
-    """Whether the point cites only known findings or leads, states only the
-    numbers and identifiers of *grounding* (what the evidence it cites
-    establishes) and neither accuses nor decides."""
-    return (bool(point.evidence_ids) and set(point.evidence_ids) <= known_ids
-            and _wording_reason(point.text, grounding) is None)
+def check_point(point: ReviewPoint, known_ids: set[str], grounding: Known) -> str | None:
+    """Why a memo point is withheld, or None to keep it: it cites only known
+    findings or leads, states only the numbers and identifiers of *grounding*
+    (what the evidence it cites establishes) and neither accuses nor decides."""
+    if not point.evidence_ids:
+        return "cites no finding or lead"
+    if unknown := sorted(set(point.evidence_ids) - known_ids):
+        return f"cites neither an open finding nor a confirmed AI flag: {', '.join(unknown)}"
+    return _wording_reason(point.text, grounding)

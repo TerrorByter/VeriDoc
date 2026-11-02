@@ -29,8 +29,9 @@ _RULES = (
 
 _CONTEXT = (
     "A bank in Singapore reviews trade finance loan applications. Each case is a pack of documents "
-    "(invoices, purchase orders, bills of lading, bank statements, FATCA/CRS forms) that deterministic "
-    "rule checks have already read; their findings have ids E01, E02... The company register is ACRA's. "
+    "(invoices, purchase orders, bills of lading, delivery orders, bank statements, FATCA/CRS forms) that "
+    "deterministic rule checks have already read; their findings have ids E01, E02... The company register "
+    "is ACRA's. "
     "Every tool result has an id R01, R02..."
 )
 
@@ -50,9 +51,10 @@ DEFAULT_BRIEF = "Triage the risky findings in your domain and hunt your patterns
 
 _DOMAINS: dict[SpecialistName, str] = {
     "forensics": "document integrity: PDF producer and dates, OCR confidence, and the screened page text of "
-                 "invoices, purchase orders and bills of lading.",
-    "transaction": "the trade itself: each invoice traced through its purchase order, bill of lading and bank "
-                   "payment, and who paid what, when, on the bank statements.",
+                 "invoices, purchase orders, bills of lading and delivery orders.",
+    "transaction": "the money: who paid each sale, and where money paid out goes and whether it comes back, on "
+                   "the bank statements. The rule checks have already matched every invoice to its purchase order, "
+                   "shipment and payment; the case overview's chain_breaks lists where that failed.",
     "kyc": "the parties: the applicant and each counterparty in the company register (status, incorporation "
            "date, officers) and screened against the sanctions list.",
     "timeline": "dates: the order of purchase orders, invoices, shipments and payments, and the applicant's "
@@ -61,17 +63,21 @@ _DOMAINS: dict[SpecialistName, str] = {
 
 #: How a specialist goes about its patterns, where it needs more than the definitions
 _METHODS: dict[SpecialistName, str] = {
-    "transaction": "The applicant both sells and buys: an invoice addressed to it is a supplier's, paid by a "
+    "transaction": "Your first call reads the whole statement: search_bank_transactions over its period "
+                   "(date_from and date_to) returns every row with its id (T01...), and that result is what your "
+                   "leads cite. Do not open invoices one by one: code has matched each to its order, shipment and "
+                   "payment, and the case index lists them. "
+                   "The applicant both sells and buys: an invoice addressed to it is a supplier's, paid by a "
                    "debit, and only its sales raise the question of who paid. The case index lists, for each sale, "
                    "the credits code read from the bank statements and who paid: take them as given and spend "
-                   "your steps on why, not on finding them. Where the "
-                   "payer is not the buyer, search the statements by the invoice number (search_bank_transactions "
-                   "text) to cite the result, then look at what the documents say about the payer and whether "
-                   "the payment makes commercial sense. Look for several credits that add up to an invoice's "
-                   "total, none matching it alone (split_payment), and for money paid out that comes back from "
-                   "the same counterparty (round_trip).",
+                   "your steps on why, not on finding them. Where the payer is not the buyer, look at what the "
+                   "documents say about the payer and whether the payment makes commercial sense. On the "
+                   "statement, look for several credits that add up to an invoice's total, none matching it alone "
+                   "(split_payment), and for money paid out that comes back from the same counterparty "
+                   "(round_trip): a credit from a party the applicant paid.",
     "kyc": "Compare the officers of each counterparty in the register with the applicant's directors, "
-           "guarantors and signatories (get_parties).",
+           "guarantors and signatories (get_parties). A register result says which counterparty id the "
+           "company is: cite that result for a related_party lead.",
     "timeline": "Nothing should be dated before its purchase order; an invoice may come before or after "
                 "shipment; payment follows the invoice. An anomaly is a document dated before its purchase "
                 "order, or a date before incorporation.",
@@ -111,7 +117,10 @@ SUPERVISOR_PLAN = (
     "You do not investigate yourself: you brief four specialists, who each work alone with their own tools:\n"
     + "".join(f"- {s} ({TITLES[s]}): {d}\n" for s, d in _DOMAINS.items())
     + "Read the case with get_case_overview (get_score if useful), then call submit_plan with one brief per "
-    "specialist: the finding ids in its domain to triage and what to look at. Our code appends a case index "
+    "specialist: the finding ids in its domain to triage and what to look at. The rule checks have already "
+    "read every document and matched every invoice to its order, shipment and payment: never brief a "
+    "specialist to retrace or reconcile them. Brief each one to look where the rules cannot: who paid, "
+    "money that leaves and comes back, who runs each counterparty. Our code appends a case index "
     "to every brief automatically (every document's exact doc_id and the invoice numbers), so briefs need "
     "not list files. Every specialist also hunts its own patterns, so brief each one even when no finding "
     "is in its domain. Later you write the memo, citing E and L ids.\n"

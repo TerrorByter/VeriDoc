@@ -14,7 +14,6 @@ export interface Evidence {
   expected: string | null;
   observed: string | null;
   method: "deterministic" | "llm";
-  confidence: number;
   explanation: string;
 }
 
@@ -270,11 +269,21 @@ export interface GateDecision {
   reasons: string[];
 }
 
+/** A memo point the verifier dropped, on the record with why */
+export interface WithheldPoint {
+  section: "observation" | "question";
+  text: string;
+  evidence_ids: string[];
+  reason: string;
+}
+
 export interface Memo {
   observations: ReviewPoint[];
   questions: ReviewPoint[];
-  /** Points dropped by the verifier */
+  /** Points dropped by the verifier, malformed ones included */
   withheld: number;
+  /** The well-formed ones among them, with the reason; empty for memos stored before they were kept */
+  withheld_points?: WithheldPoint[];
 }
 
 export interface AgentTeam {
@@ -382,6 +391,8 @@ export interface CaseView {
   signals: Record<string, Signal>;
   /** Bank rows (T01...), invoice numbers and counterparties (P01...) -> the document page they are on */
   subjects: Record<string, DocRef>;
+  /** Findings the request to the applicant already asks about */
+  asked_findings: string[];
 }
 
 /** Money as the server sends it: a decimal string */
@@ -506,6 +517,10 @@ export interface Signal {
   family: SignalFamily;
   name: string;
   remedy: string;
+  /** "definite": a fact on the documents; "indicative": a pattern ordinary business can also produce */
+  strength: "definite" | "indicative";
+  /** For an indicative signal, the innocent reasons to rule out first */
+  innocent: string;
   points: number | null;
 }
 

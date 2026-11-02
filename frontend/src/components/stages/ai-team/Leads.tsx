@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import { AGENT_TITLE, EVIDENCE_LABEL, FACT_LABEL, LEAD_STATUS_LABEL, PATTERN_LABEL } from "../../../catalogue";
-import type { DocRef, Evidence, EvidenceStatus, Lead, ViewTarget } from "../../../types";
-import { Icon, LEAD_STATUS_TONE, Pill, type IconName } from "../../ui";
+import type { DocRef, Evidence, EvidenceStatus, Lead, ViewTarget, WithheldPoint } from "../../../types";
+import { Icon, LEAD_STATUS_TONE, Pill, type IconName, type Tone } from "../../ui";
 import { findingTarget } from "../Findings";
 
 /** The tags that mark a lead as AI output: kind, specialist, the agent's own status and the pattern. What code
@@ -160,96 +160,116 @@ function LeadCard({ lead, evidence, subjects, onCite, onView }: LeadProps & { le
   );
 }
 
-/** Flags: kept leads code verified or corroborated. With none, a line saying so, which points to the AI's
- * unverified suspicions when there are any. */
-export function KeptLeads({ leads, withheld, unchecked, confirmed, suspected, ...props }: LeadProps & {
-  leads: Lead[];
-  /** How many leads the AI supports that code could not verify: shown below, to check by hand */
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** The tab's first line: what the AI added beyond the rules, in one sentence, then what it did with the rules'
+ * own findings. Never colour alone: an icon and words. */
+export function Headline({ issues, reviewed, suspected, refused }: {
+  /** Issues the rules missed that code confirmed */
+  issues: number;
+  /** The rule findings it reviewed, by verdict */
+  reviewed: Record<Verdict, number>;
+  /** Patterns it suspects that code could not check */
   suspected: number;
-  /** How many verified leads only confirm an existing rule finding */
-  confirmed: number;
-  /** How many leads the verifier withheld, to tell "none raised" from "none passed" */
-  withheld: number;
-  /** How many kept leads code did not verify (observations and clear checks) */
-  unchecked: number;
+  /** Leads the verifier refused: said, so "nothing found" never hides "found, but not recorded" */
+  refused: number;
 }) {
-  if (leads.length === 0 && suspected) {
-    return (
-      <p className="calm check">
-        <Icon name="flag" size={16} />
-        <span>
-          <strong>The AI team found nothing beyond the rule checks.</strong> It has{" "}
-          {suspected === 1 ? "1 unconfirmed observation" : `${suspected} unconfirmed observations`} below you may want
-          to look at; {suspected === 1 ? "it does" : "they do"} not affect the score or route.
-        </span>
-      </p>
-    );
-  }
-  if (leads.length === 0) {
-    const why = confirmed ? "It agreed with rule findings that already stand (below)."
-      : unchecked ? "What it recorded but could not confirm is further down."
-      : withheld ? "None of its leads held up against the documents." : "It raised nothing.";
-    return (
-      <p className="calm">
-        <Icon name="done" size={16} />
-        <span><strong>The AI team found nothing beyond the rule checks.</strong> {why}</span>
-      </p>
-    );
-  }
+  const total = Object.values(reviewed).reduce((a, b) => a + b, 0);
+  const parts = [
+    reviewed.agrees && `agreed with ${plural(reviewed.agrees, "finding")}`,
+    reviewed.innocent && `suggested an ordinary explanation for ${reviewed.innocent}`,
+    reviewed.explained && `found ${reviewed.explained} explained by the documents (code confirmed it)`,
+    reviewed.unsure && `could not settle ${reviewed.unsure}`,
+  ].filter(Boolean);
+  const review = total ? ` Of the ${plural(total, "rule finding")} it reviewed, it ${parts.join("; ")}.` : "";
+  const byHand = suspected ? ` ${plural(suspected, "suspicion")} it could not confirm ${suspected === 1 ? "is" : "are"} below, to check by hand.` : "";
+  const held = refused ? ` The verifier refused ${plural(refused, "lead")} it tried to record (see How the team worked).` : "";
   return (
-    <>
-      <p className="calm check">
-        <Icon name="flag" size={16} />
-        <span>
-          <strong>
-            The AI team found {leads.length === 1 ? "1 issue" : `${leads.length} issues`} the rule checks missed.
-          </strong>{" "}
-          Each was confirmed by code from the documents.
-        </span>
-      </p>
-      <ul className="leads">
-        {leads.map((lead) => <LeadCard key={lead.lead_id} lead={lead} {...props} />)}
-      </ul>
-    </>
+    <p className={`calm${issues ? " check" : ""}`}>
+      <Icon name={issues ? "flag" : "done"} size={16} />
+      <span>
+        <strong>
+          {issues
+            ? `The AI team found ${plural(issues, "issue")} the rule checks missed, each confirmed by code from the documents.`
+            : "The AI team found nothing the rule checks missed."}
+        </strong>
+        {review}{byHand}{held}
+      </span>
+    </p>
   );
 }
 
-/** The AI's suspicions code could not check: open, for the analyst to check by hand, yet never a flag. */
-export function Suspicions({ leads, ...props }: LeadProps & { leads: Lead[] }) {
+/** Issues the rules missed, code-confirmed: the AI team's own flags, as full cards. */
+export function LeadList({ leads, ...props }: LeadProps & { leads: Lead[] }) {
   return (
-    <>
-      <h4 className="memo-head">
-        Unconfirmed observations{" "}
-        <span className="muted small">(for you to look at: they never raise a flag, a question or the score)</span>
-      </h4>
-      <ul className="leads">
-        {leads.map((lead) => <LeadCard key={lead.lead_id} lead={lead} {...props} />)}
-      </ul>
-    </>
+    <ul className="leads">
+      {leads.map((lead) => <LeadCard key={lead.lead_id} lead={lead} {...props} />)}
+    </ul>
   );
 }
 
-/** Leads that are not flags (observations code could not check, or checks that came back clear): collapsed,
- * never hidden. */
-export function CollapsedLeads({ noun, leads, ...props }: LeadProps & { noun: string; leads: Lead[] }) {
-  return (
-    <details className="disclosure">
-      <summary>Show {leads.length === 1 ? `1 ${noun}` : `${leads.length} ${noun}s`}</summary>
-      <ul className="leads">
-        {leads.map((lead) => <LeadCard key={lead.lead_id} lead={lead} {...props} />)}
-      </ul>
-    </details>
-  );
+/** What the AI made of a rule finding: code explained it, it suggests an ordinary explanation, it could not
+ * tell, or it agrees the finding stands */
+export type Verdict = "explained" | "innocent" | "unsure" | "agrees";
+
+const VERDICT: Record<Verdict, { label: string; tone: Tone; title: string }> = {
+  explained: { label: "Explained by code", tone: "low", title: "Code read an ordinary explanation from the documents" },
+  innocent: { label: "Ordinary explanation to check", tone: "med", title: "The AI's view: check it before relying on it" },
+  unsure: { label: "Could not tell", tone: "neutral", title: "The AI could not settle it from the documents" },
+  agrees: { label: "Agrees it stands", tone: "neutral", title: "The AI found nothing that explains the finding" },
+};
+const VERDICT_ORDER: Verdict[] = ["explained", "innocent", "unsure", "agrees"];
+
+export interface Reviewed {
+  findingId: string;
+  verdict: Verdict;
+  /** Why, in the AI's or code's words; empty when it only agrees */
+  reason: string;
 }
 
-/** Rule findings an AI lead confirmed: the rule determined the risk, the AI only agreed, so no second flag. */
-export function RuleConfirmations({ leads, evidence }: { leads: Lead[]; evidence: Evidence[] }) {
+/** One row per rule finding the AI reviewed, its verdict and why: code's explanation first, then the AI's. */
+export function reviewedFindings(triage: Lead[], confirmed: Lead[], explained: Record<string, string>): Reviewed[] {
+  const ids = [...new Set([...Object.keys(explained), ...triage.flatMap((l) => l.finding_ids),
+    ...confirmed.map((l) => l.check_facts.rule_finding)])];
+  const rows = ids.map((id): Reviewed => {
+    if (id in explained) return { findingId: id, verdict: "explained", reason: explained[id] };
+    const on = triage.filter((l) => l.finding_ids.includes(id));
+    const innocent = on.find((l) => l.investigation_status === "refuted");
+    if (innocent) return { findingId: id, verdict: "innocent", reason: innocent.tests.map((t) => t.observed).join("; ") };
+    const unsure = on.find((l) => l.investigation_status === "unresolved");
+    if (unsure) return { findingId: id, verdict: "unsure", reason: unsure.missing_evidence.length ? `Would need: ${unsure.missing_evidence.join("; ")}` : "" };
+    const byCode = confirmed.find((l) => l.check_facts.rule_finding === id);
+    return { findingId: id, verdict: "agrees", reason: byCode?.check_reason ? `Code agrees: ${byCode.check_reason}` : "" };
+  });
+  return rows.sort((a, b) => VERDICT_ORDER.indexOf(a.verdict) - VERDICT_ORDER.indexOf(b.verdict)
+    || a.findingId.localeCompare(b.findingId));
+}
+
+/** The rule findings the AI reviewed: one compact row each, so agreeing with a rule never reads as a new issue. */
+export function ReviewedFindings({ rows, evidence, signals, onView }: {
+  rows: Reviewed[];
+  evidence: Evidence[];
+  signals: Record<string, { name: string }>;
+  onView: (target: ViewTarget) => void;
+}) {
   return (
-    <ul className="reasons muted small">
-      {leads.map((lead) => {
-        const id = lead.check_facts.rule_finding;
-        const check = evidence.find((e) => e.evidence_id === id)?.check_id ?? "a rule finding";
-        return <li key={lead.lead_id}>{lead.lead_id}: AI confirmed existing rule finding {check} ({id})</li>;
+    <ul className="reviewed">
+      {rows.map(({ findingId, verdict, reason }) => {
+        const ev = evidence.find((e) => e.evidence_id === findingId);
+        const target = ev && findingTarget(ev);
+        const { label, tone, title } = VERDICT[verdict];
+        return (
+          <li key={findingId}>
+            <span className="reviewed-finding">
+              {target
+                ? <button type="button" className="link mono" onClick={() => onView(target)}>{findingId}</button>
+                : <span className="mono">{findingId}</span>}{" "}
+              {ev ? signals[ev.check_id]?.name ?? ev.check_id : "Rule finding"}
+            </span>
+            <Pill tone={tone} title={title}>{label}</Pill>
+            {reason && <span className="reviewed-reason small muted">{reason}</span>}
+          </li>
+        );
       })}
     </ul>
   );
@@ -272,6 +292,44 @@ export function WithheldLeads({ leads }: { leads: Lead[] }) {
           </li>
         ))}
       </ul>
+    </details>
+  );
+}
+
+/** Leads that are not flags (unsettled observations, checks that came back clear): collapsed, never hidden. */
+export function CollapsedLeads({ noun, leads, ...props }: LeadProps & { noun: string; leads: Lead[] }) {
+  return (
+    <details className="disclosure">
+      <summary>Show {plural(leads.length, noun)}</summary>
+      <LeadList leads={leads} {...props} />
+    </details>
+  );
+}
+
+/** Memo points the verifier dropped, with what each cited and why: collapsed, never hidden. */
+export function WithheldPoints({ points, count }: { points: WithheldPoint[]; count: number }) {
+  const unreadable = count - points.length;
+  return (
+    <details className="disclosure">
+      <summary>Show {plural(count, "withheld memo point")}</summary>
+      <ul className="leads">
+        {points.map((p, i) => (
+          <li key={i} className="lead withheld">
+            <div className="finding-top">
+              <span className="muted small">{p.section === "question" ? "Question" : "Observation"}</span>
+              {p.evidence_ids.length > 0 && <span className="mono muted small">cites {p.evidence_ids.join(", ")}</span>}
+            </div>
+            <strong>{p.text}</strong>
+            <p className="small">Withheld: {p.reason}</p>
+          </li>
+        ))}
+      </ul>
+      {unreadable > 0 && (
+        <p className="muted small">
+          {points.length ? `${plural(unreadable, "other")}: ` : ""}not kept as text (malformed, or from a case run
+          before withheld points were kept).
+        </p>
+      )}
     </details>
   );
 }

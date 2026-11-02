@@ -10,12 +10,16 @@ so each company's ACRA and IRAS records go into the mock service's data
 (data/mock_gov) instead.
 
 Every statement's sales and goods purchases also get an invoice, a purchase
-order and a bill of lading (gldb.demo_trade) that agree with the payment to
-the cent; a case may make one of them disagree.
+order and a bill of lading (an export) or delivery order (a purchase in
+Singapore) from gldb.demo_trade that agree with the payment to the cent; a
+case may make one of them disagree.
 
 Every company is the ACMA sample at another scale (every amount times one
 factor, so the documents still agree with each other and with ACRA), and every
-case changes it in exactly the ways its story needs. ACMA's own records are the
+case changes it in exactly the ways its story needs. Each company otherwise
+has its own: customers and suppliers (gldb.demo_partners) where the sample's
+statement names ACMA's, numbering, payment dates (a few days earlier in each
+month), people, and entity type on the FATCA/CRS form. ACMA's own records are the
 team's sample as issued (its ACRA profile lists the chairman and the CEO, and
 each has a Notice of Assessment), so its clean case raises nothing.
 ground_truth.json says what the pipeline should find; only the evaluation reads
@@ -32,16 +36,17 @@ import re
 import shutil
 import zipfile
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 from pypdf import PdfReader, PdfWriter
 
-from gldb import demo_trade
+from gldb import demo_partners, demo_trade
 from gldb.config import PACKS_DIR, money
 from gldb.extract_stub import parse_bank_statement_form
+from gldb.form_maps import ENTITY_FIELD_MAP
 from gldb.schemas import Transaction
 
 SAMPLE_DIR = Path("data/templates/sample")
@@ -50,6 +55,8 @@ ENTITY_FORM = SAMPLE_DIR / "ACMA ENTITY.pdf"
 INDIVIDUAL_FORM = SAMPLE_DIR / "ACMA INDIV.pdf"
 WORKBOOK = SAMPLE_DIR / "Submitted financials.xlsx"
 MOCK_GOV_DIR = Path("data/mock_gov")
+#: The entity form's checkbox for each entity type (Part 5), A to M
+ENTITY_TYPE_BOX: dict[str, str] = ENTITY_FIELD_MAP["entity_type"]
 
 #: The day each application is made, the day its forms are signed, and when the
 #: bank made the statement (and, for the tampered one, when it was edited)
@@ -113,9 +120,18 @@ class Company:
     scale: Decimal
     account: str
     branch: str
+    #: Who it trades with, in the order the sample statement's trades come (gldb.demo_partners)
+    partners: tuple[demo_trade.Partner, ...]
+    #: Its sales invoices are <invoice_prefix>-<numbers_from + n> (see demo_trade.Seller)
+    invoice_prefix: str
+    numbers_from: int
+    #: Each statement row is this many days earlier than the sample's, but in the same month
+    days_earlier: int = 0
     status: str = "LIVE COMPANY"
     #: How ACRA prints the registered office, if not as the forms give it
     acra_office: str | None = None
+    #: Listed on an exchange (entity type K on the FATCA/CRS form), else an active business (G)
+    listed: bool = False
 
 
 @dataclass(frozen=True)
@@ -144,6 +160,19 @@ class Case:
     extra_guarantors: tuple[Person, ...] = ()
     #: (partner on the statement, demo_trade fault): a trade whose documents disagree
     trade_faults: tuple[tuple[str, str], ...] = ()
+    #: The statement describes each sales receipt as the bank's payment reference,
+    #: "FAST CR <payer> <invoice number>", not as "Sales Revenue - <buyer>"
+    receipts_name_payers: bool = False
+    #: (customer, payer): that customer's sale is paid by someone else (receipts_name_payers)
+    paid_by: tuple[tuple[str, str], ...] = ()
+    #: Customers whose sale is paid in two parts (receipts_name_payers)
+    paid_in_parts: tuple[str, ...] = ()
+    #: A supplier whose payment comes back from it as a "customer receipt" (ROUND_TRIP_*)
+    round_trip: str | None = None
+    #: What the AI team should raise and how it should judge the rule findings (agent_eval);
+    #: the rules never read them
+    expected_leads: tuple[dict[str, str], ...] = ()
+    expected_triage: tuple[dict[str, str], ...] = ()
     tampers: tuple[dict[str, Any], ...] = field(default_factory=tuple)
 
 
@@ -161,9 +190,11 @@ ACMA = Company(
                _home("412", "Jurong West Street 42", "09", "318", "650412"),
                tax=("119177.95", "16298.86", "5781.10")),
     shareholders=(("BOBBY DARYL LEE", 25000000),), scale=Decimal(1), account="111-234-567-890",
-    branch="Tampines Branch",
+    branch="Tampines Branch", partners=demo_partners.ACMA, invoice_prefix="INV", numbers_from=1000,
     # The team's ACRA profile prints the street and postal code alone
     acra_office="19 JURONG PORT ROAD (619093)",
+    # ACMA LTD. files its financials with SGX, as the team's sample workbook shows
+    listed=True,
 )
 
 
@@ -172,53 +203,93 @@ UNASSESSED = Person("ONG KAH HENG", "S8011234D", "GUARANTOR", "2026-07-10", "02/
                     _home("55", "TAMPINES STREET 21", "06", "214", "520055"), tax=None)
 
 
-def _company(name: str, uen: str, incorporated: str, office: Address, chairman: tuple[str, str, Address, str],
-             ceo: tuple[str, str], scale: str, account: str, branch: str, shareholder: str | None = None,
+def _company(name: str, uen: str, incorporated: str, office: Address, chairman: tuple[str, str, str, Address, str],
+             ceo: tuple[str, str, str, Address], scale: str, account: str, branch: str,
+             trade: tuple[tuple[demo_trade.Partner, ...], str, int, int], shareholder: str | None = None,
              status: str = "LIVE COMPANY") -> Company:
-    chair = Person(chairman[0], chairman[1], "CHAIRMAN", incorporated, "03/09/1975", chairman[2], title=chairman[3])
-    chief = Person(ceo[0], ceo[1], "CHIEF EXECUTIVE OFFICER", incorporated, "21/11/1983",
-                   _home("2", "TAMPINES CENTRAL 7", "11", "08", "529602"), tax=None)
-    return Company(name, uen, incorporated, office, chair, chief,
-                   ((shareholder or chair.name, 1000000),), Decimal(scale), account, branch, status)
+    """A company whose chairman is (name, NRIC, born, home, title), whose CEO is (name, NRIC, born, home) and
+    whose *trade* is (partners, invoice prefix, numbers from, days earlier)."""
+    chair = Person(chairman[0], chairman[1], "CHAIRMAN", incorporated, chairman[2], chairman[3], title=chairman[4])
+    chief = Person(ceo[0], ceo[1], "CHIEF EXECUTIVE OFFICER", incorporated, ceo[2], ceo[3], tax=None)
+    partners, prefix, numbers_from, days_earlier = trade
+    return Company(name, uen, incorporated, office, chair, chief, ((shareholder or chair.name, 1000000),),
+                   Decimal(scale), account, branch, partners, prefix, numbers_from, days_earlier, status)
 
 
 BRIGHTWAVE = _company(
     "BRIGHTWAVE COMPONENTS PTE. LTD.", "201733321K", "2017-11-02",
     Address("21", "UBI ROAD 1", "04", "12", "UBI TECHPARK", "408724"),
-    ("LIM SOO KENG", "S6812345J", _home("456", "ANG MO KIO AVENUE 10", "09", "1180", "560456"), "MR"),
-    ("PRIYA NAIR", "S8023456K"), "1.4", "222-345-678-901", "Ang Mo Kio Branch",
+    ("LIM SOO KENG", "S6812345J", "03/09/1968", _home("456", "ANG MO KIO AVENUE 10", "09", "1180", "560456"), "MR"),
+    ("PRIYA NAIR", "S8023456K", "21/11/1980", _home("2", "TAMPINES CENTRAL 7", "11", "08", "529602")),
+    "1.4", "222-345-678-901", "Ang Mo Kio Branch", (demo_partners.BRIGHTWAVE, "BW", 2600, 3),
 )
 CORVID = _company(
     "CORVID MARINE ENGINEERING PTE. LTD.", "201422219M", "2014-08-19",
     Address("5", "TUAS SOUTH AVENUE 2", "02", "01", "TUAS MARINE HUB", "637503"),
-    ("ONG HUI LING", "S7034567C", _home("88", "PASIR RIS DRIVE 4", "06", "330", "510088"), "MS"),
-    ("ARJUN MEHTA", "S8545678D"), "0.8", "333-456-789-012", "Jurong East Branch",
+    ("ONG HUI LING", "S7034567C", "17/04/1970", _home("88", "PASIR RIS DRIVE 4", "06", "330", "510088"), "MS"),
+    ("ARJUN MEHTA", "S8545678D", "08/06/1985", _home("108", "JURONG EAST STREET 13", "07", "214", "600108")),
+    "0.8", "333-456-789-012", "Jurong East Branch", (demo_partners.CORVID, "CME", 4100, 1),
 )
 DUSKFIELD = _company(
     "DUSKFIELD TRADING PTE. LTD.", "201955532N", "2019-05-27",
     Address("10", "ANSON ROAD", "15", "07", "INTERNATIONAL PLAZA", "079903"),
-    ("KOH WEI JIE", "S7656789E", _home("301", "CLEMENTI AVENUE 2", "12", "45", "120301"), "MR"),
-    ("SARAH LOW", "S8867890F"), "1.2", "444-567-890-123", "Raffles Place Branch",
+    ("KOH WEI JIE", "S7656789E", "29/12/1976", _home("301", "CLEMENTI AVENUE 2", "12", "45", "120301"), "MR"),
+    ("SARAH LOW", "S8867890F", "15/02/1988", _home("9", "TELOK BLANGAH CRESCENT", "18", "62", "090009")),
+    "1.2", "444-567-890-123", "Raffles Place Branch", (demo_partners.DUSKFIELD, "DFT", 3300, 5),
 )
 EASTGATE = _company(
     "EASTGATE HOLDINGS PTE. LTD.", "201611144P", "2016-01-12",
     Address("1", "CHANGI BUSINESS PARK CRESCENT", "06", "02", "PLAZA 8", "486025"),
-    ("GOH MEI XIN", "S7278901G", _home("17", "BEDOK NORTH ROAD", "03", "21", "460017"), "MS"),
-    ("RAHUL BOSE", "S8689012H"), "0.9", "555-678-901-234", "Bedok Branch", shareholder="VIKTOR ALDANE",
+    ("GOH MEI XIN", "S7278901G", "05/07/1972", _home("17", "BEDOK NORTH ROAD", "03", "21", "460017"), "MS"),
+    ("RAHUL BOSE", "S8689012H", "30/10/1986", _home("27", "SIMEI STREET 4", "09", "11", "529871")),
+    "0.9", "555-678-901-234", "Bedok Branch", (demo_partners.EASTGATE, "EGH", 5800, 2), shareholder="VIKTOR ALDANE",
 )
 FERNLEAF = _company(
     "FERNLEAF SUPPLIES PTE. LTD.", "201288855Q", "2012-03-30",
     Address("33", "WOODLANDS LOOP", "05", "18", "WOODLANDS CENTRE", "738330"),
-    ("TEO KAI MING", "S6989012H", _home("620", "YISHUN RING ROAD", "10", "512", "760620"), "MR"),
-    ("NUR AISYAH", "S9090123I"), "0.7", "666-789-012-345", "Woodlands Branch", status="STRUCK OFF",
+    ("TEO KAI MING", "S6989012H", "11/01/1969", _home("620", "YISHUN RING ROAD", "10", "512", "760620"), "MR"),
+    ("NUR AISYAH", "S9090123I", "24/08/1990", _home("681", "WOODLANDS DRIVE 62", "04", "377", "730681")),
+    "0.7", "666-789-012-345", "Woodlands Branch", (demo_partners.FERNLEAF, "FLS", 1400, 4), status="STRUCK OFF",
 )
 
 OAKRIDGE = _company(
     "OAKRIDGE FABRICATION PTE. LTD.", "201833377R", "2018-04-17",
     Address("9", "SIN MING LANE", "03", "14", "SIN MING TECHHUB", "573970"),
-    ("WONG MEI LING", "S7512345M", _home("210", "SERANGOON AVENUE 2", "08", "301", "550210"), "MS"),
-    ("FAISAL HASSAN", "S8156789N"), "1.1", "777-890-123-456", "Serangoon Branch",
+    ("WONG MEI LING", "S7512345M", "19/03/1975", _home("210", "SERANGOON AVENUE 2", "08", "301", "550210"), "MS"),
+    ("FAISAL HASSAN", "S8156789N", "02/05/1981", _home("455", "SEMBAWANG DRIVE", "06", "123", "750455")),
+    "1.1", "777-890-123-456", "Serangoon Branch", (demo_partners.OAKRIDGE, "OKF", 6200, 6),
 )
+KESTREL = _company(
+    "KESTREL AUTOMATION PTE. LTD.", "201526618C", "2015-09-14",
+    Address("2", "JALAN KILANG BARAT", "07", "03", "KILANG BARAT CENTRE", "159346"),
+    ("HO JUN WEI", "S7322841B", "12/06/1973", _home("520", "BUKIT BATOK STREET 52", "07", "88", "650520"), "MR"),
+    ("SITI RAHMAH", "S8433902C", "27/09/1984", _home("33", "PUNGGOL FIELD WALK", "12", "40", "828733")),
+    "1.3", "888-901-234-567", "Bukit Merah Branch", (demo_partners.KESTREL, "KAU", 2200, 2),
+)
+LUMEN = _company(
+    "LUMEN AQUA SYSTEMS PTE. LTD.", "202011479D", "2020-03-09",
+    Address("7", "TAI SENG DRIVE", "04", "06", "TAI SENG CENTRE", "535218"),
+    ("CHUA MING HAN", "S6944517E", "04/02/1969", _home("12", "BISHAN STREET 13", "14", "22", "570012"), "MR"),
+    (*demo_partners.LUMEN_CEO, "18/10/1980", _home("158", "TOA PAYOH LORONG 1", "09", "402", "310158")),
+    "0.6", "999-012-345-678", "Toa Payoh Branch", (demo_partners.LUMEN, "LAS", 4700, 4),
+)
+NORTHSTAR = _company(
+    "NORTHSTAR COLD CHAIN PTE. LTD.", "201708814F", "2017-02-20",
+    Address("18", "SENOKO DRIVE", "02", "11", "SENOKO INDUSTRIAL HUB", "758207"),
+    ("YEO KAH LENG", "S6655120G", "09/08/1966", _home("701", "YISHUN AVENUE 5", "05", "215", "760701"), "MS"),
+    ("DANIEL OOI", "S8266031H", "22/01/1982", _home("246", "COMPASSVALE STREET", "16", "35", "540246")),
+    "0.95", "121-345-678-901", "Sembawang Branch", (demo_partners.NORTHSTAR, "NCC", 6800, 1),
+)
+
+#: How a bank describes a receipt by its payment reference (Case.receipts_name_payers)
+RECEIPT_CHANNEL = "FAST"
+#: A sale paid in parts: the first part is this share, the second follows this many days later
+FIRST_PART_SHARE = Decimal("0.6")
+SECOND_PART_AFTER_DAYS = 8
+#: A round trip: the money comes back this many days later, less this share kept back
+ROUND_TRIP_AFTER_DAYS = 13
+ROUND_TRIP_SHARE = Decimal("0.975")
+ROUND_TRIP_RECEIPT = "Customer Receipt"
 
 CASES: tuple[Case, ...] = (
     Case("clean", ACMA,
@@ -250,7 +321,7 @@ CASES: tuple[Case, ...] = (
          tampers=({"doc": "bank_statement", "type": "credit_raised",
                    "check_ids": ["BANK_RUNNING_BAL", "FORENSIC_INCREMENTAL_UPDATE", "META_MOD_AFTER_CREATE"],
                    "detail": "a sales credit raised by SGD 250,000 in an incremental save three weeks later"},
-                  {"doc": "invoice_INV-1001", "type": "credit_not_invoiced", "check_ids": ["XDOC_INVOICE_BANK"],
+                  {"doc": "invoice_CME-4101", "type": "credit_not_invoiced", "check_ids": ["XDOC_INVOICE_BANK"],
                    "detail": "the invoice for that sale is for SGD 250,000 less than the credit now on the statement"})),
     Case("identity_mismatch", DUSKFIELD,
          "Duskfield's forms disagree with ACRA: a signatory who is no officer, another office, a guarantor's name.",
@@ -278,16 +349,41 @@ CASES: tuple[Case, ...] = (
          "Oakridge's invoices disagree with its other paperwork: two charge more than they were ordered for and paid, "
          "one bills more goods than were shipped, one names an order that was never issued.",
          "High", "enhanced_review", "Complete", ("XDOC_INVOICE_BANK", "XDOC_PO_INVOICE", "XDOC_BL_INVOICE"),
-         trade_faults=(("EFG Company", "overbilled"), ("Metallica Inc.", "short_shipped"),
-                       ("SteelMen Pte Ltd.", "overbilled"), ("Caterpillarz Inc.", "no_order")),
-         tampers=({"doc": "invoice_INV-1001", "type": "sale_overbilled", "check_ids": ["XDOC_PO_INVOICE", "XDOC_INVOICE_BANK"],
-                   "detail": "EFG Company is billed 25% more than its order and than the credit received"},
-                  {"doc": "invoice_INV-1002", "type": "goods_not_shipped", "check_ids": ["XDOC_BL_INVOICE"],
-                   "detail": "Metallica Inc. is billed for 25 units; the bill of lading shows 18 shipped"},
-                  {"doc": "invoice_SM-260128", "type": "purchase_overbilled", "check_ids": ["XDOC_PO_INVOICE", "XDOC_INVOICE_BANK"],
-                   "detail": "SteelMen bills 25% more than the order and than the debit paid"},
-                  {"doc": "invoice_CAT-260331", "type": "order_never_issued", "check_ids": ["XDOC_PO_INVOICE"],
-                   "detail": "Caterpillarz names PO-4004, which is not in the pack"})),
+         trade_faults=(("Gebeng Steelworks Sdn. Bhd.", "overbilled"), ("Melaka Struktur Sdn. Bhd.", "short_shipped"),
+                       ("Jurong Steel Stockists Pte. Ltd.", "overbilled"), ("Tuas Lifting Equipment Pte. Ltd.", "no_order")),
+         tampers=({"doc": "invoice_OKF-6201", "type": "sale_overbilled", "check_ids": ["XDOC_PO_INVOICE", "XDOC_INVOICE_BANK"],
+                   "detail": "Gebeng Steelworks is billed 25% more than its order and than the credit received"},
+                  {"doc": "invoice_OKF-6202", "type": "goods_not_shipped", "check_ids": ["XDOC_BL_INVOICE"],
+                   "detail": "Melaka Struktur is billed for 40 columns; the bill of lading shows 30 shipped"},
+                  {"doc": "invoice_JSS-260122", "type": "purchase_overbilled", "check_ids": ["XDOC_PO_INVOICE", "XDOC_INVOICE_BANK"],
+                   "detail": "Jurong Steel Stockists bills 25% more than the order and than the debit paid"},
+                  {"doc": "invoice_TLE-260325", "type": "order_never_issued", "check_ids": ["XDOC_PO_INVOICE"],
+                   "detail": "Tuas Lifting Equipment names PO-9204, which is not in the pack"})),
+    # Beyond the rules: each paperwork set agrees to the cent, so the rules pass the case; only the AI team,
+    # reading who paid, who runs the counterparties and where money goes, can find what is wrong
+    Case("third_party_payment", KESTREL,
+         "Kestrel's sale to Kulim Hi-Tech Packaging was paid by Golden Reef Trading Limited, a company with no part "
+         "in it. Amount and date agree, so the rules pass it; only the AI team asks who paid.",
+         "Low", "fast_track", "Complete", receipts_name_payers=True,
+         paid_by=(("Kulim Hi-Tech Packaging Sdn. Bhd.", "GOLDEN REEF TRADING LIMITED"),),
+         expected_leads=({"agent": "transaction", "pattern": "third_party_payment"},)),
+    Case("related_party", LUMEN,
+         "Lumen's biggest supplier, Harbour Ridge Filtration, is run by Lumen's own chief executive: ACRA lists her "
+         "as its director. No document says so and no rule compares the two; only the AI team looks it up.",
+         "Low", "fast_track", "Complete",
+         expected_leads=({"agent": "kyc", "pattern": "related_party"},)),
+    Case("round_trip", NORTHSTAR,
+         "Northstar pays Kranji Refrigeration for a machine, and 13 days later nearly all of it comes "
+         "back from Kranji as a customer receipt. Each row looks normal alone; only the AI team connects them.",
+         "Low", "fast_track", "Complete", round_trip="Kranji Refrigeration Pte. Ltd.",
+         expected_leads=({"agent": "transaction", "pattern": "round_trip"},)),
+    Case("split_payment", KESTREL,
+         "Kestrel's buyer Pelabuhan Logistik paid its invoice in two parts. The rules look for one matching credit "
+         "and flag it; the AI team should find both parts came from the buyer, and code should explain the flag.",
+         "Medium", "standard_review", "Complete", ("XDOC_INVOICE_BANK",), receipts_name_payers=True,
+         paid_in_parts=("Pelabuhan Logistik Sdn. Bhd.",),
+         expected_leads=({"agent": "transaction", "pattern": "split_payment"},),
+         expected_triage=({"check_id": "XDOC_INVOICE_BANK", "status": "refuted"},)),
 )
 
 
@@ -315,31 +411,104 @@ def _amount(value: Decimal | None) -> str:
 
 def _scaled_rows(company: Company, until: date | None) -> tuple[Decimal, list[Transaction]]:
     """The sample statement's opening balance and rows at the company's
-    scale, balances recomputed so they add up exactly."""
+    scale and dates, each trade with the company's own partner, balances
+    recomputed so they add up exactly."""
     sample = parse_bank_statement_form("sample", STATEMENT)
+    own = {sample_partner.described: partner.described
+           for sample_partner, partner in zip(demo_partners.ACMA, company.partners, strict=True)}
     balance = money(sample.opening_balance * company.scale)
     opening, rows = balance, []
     for t in sample.transactions:
-        if until is not None and t.date > until:
+        day = max(t.date - timedelta(days=company.days_earlier), t.date.replace(day=1))
+        if until is not None and day > until:
             break
         credit = money(t.credit * company.scale) if t.credit is not None else None
         debit = money(t.debit * company.scale) if t.debit is not None else None
         balance = balance + (credit or 0) - (debit or 0)
-        rows.append(Transaction(date=t.date, description=t.description, credit=credit, debit=debit, balance=balance))
+        rows.append(Transaction(date=day, description=own.get(t.description, t.description), credit=credit, debit=debit,
+                                balance=balance))
     return opening, rows
 
 
 def seller_of(company: Company) -> demo_trade.Seller:
     """*company* as its invoices print it."""
     office = company.office
-    street = f"{office.street.title()}, #{office.floor}-{office.unit}" + (f" {office.building.title()}" if office.building else "")
+    street = (f"{office.block} {office.street.title()}, #{office.floor}-{office.unit}"
+              + (f" {office.building.title()}" if office.building else ""))
     return demo_trade.Seller(company.name, company.uen, (street, f"Singapore {office.postal}"),
-                             f"{demo_trade.BANK}, {company.branch}", company.account)
+                             f"{demo_trade.BANK}, {company.branch}", company.account, company.invoice_prefix,
+                             company.numbers_from)
+
+
+def _balanced(opening: Decimal, rows: list[Transaction]) -> list[Transaction]:
+    """*rows* in date order (same-day rows as they come), each balance recomputed from *opening*."""
+    balance, out = opening, []
+    for t in sorted(rows, key=lambda t: t.date):
+        balance = balance + (t.credit or 0) - (t.debit or 0)
+        out.append(t.model_copy(update={"balance": balance}))
+    return out
+
+
+def _partner(case: Case, name: str) -> demo_trade.Partner:
+    found = next((p for p in case.company.partners if p.name == name), None)
+    if found is None:
+        raise ValueError(f"{case.name}: {name!r} is not one of {case.company.name}'s partners")
+    return found
+
+
+def _trade_rows(case: Case) -> tuple[Decimal, list[Transaction]]:
+    """The statement's rows the trades are read from: the company's own, with
+    the round trip's receipt added (it is no trade, so it has no paperwork)."""
+    opening, rows = _scaled_rows(case.company, case.statement_until)
+    if case.round_trip is not None:
+        supplier = _partner(case, case.round_trip)
+        paid = next(t for t in rows if t.description == supplier.described and t.debit is not None)
+        assert paid.debit is not None
+        rows = [*rows, Transaction(date=paid.date + timedelta(days=ROUND_TRIP_AFTER_DAYS),
+                                   description=f"{ROUND_TRIP_RECEIPT} - {supplier.name}",
+                                   credit=money(paid.debit * ROUND_TRIP_SHARE), debit=None, balance=Decimal(0))]
+    return opening, _balanced(opening, rows)
+
+
+def trades(case: Case) -> list[demo_trade.Trade]:
+    """The paperwork of every sale and goods purchase on *case*'s statement."""
+    company = case.company
+    return demo_trade.plan(seller_of(company), _trade_rows(case)[1], company.partners, case.trade_faults)
+
+
+def _receipts(case: Case, row: Transaction, trade: demo_trade.Trade) -> list[Transaction]:
+    """A sale's receipt as the bank describes it by payment reference: who
+    paid and the invoice, in two parts when the case says so."""
+    assert row.credit is not None
+    payer = dict(case.paid_by).get(trade.partner.name, trade.partner.legal_name)
+    described = f"{RECEIPT_CHANNEL} CR {payer} {trade.invoice.number}"
+    if trade.partner.name not in case.paid_in_parts:
+        return [row.model_copy(update={"description": described})]
+    first = money(row.credit * FIRST_PART_SHARE)
+    return [row.model_copy(update={"description": f"{described} PART 1", "credit": first}),
+            row.model_copy(update={"description": f"{described} PART 2", "credit": row.credit - first,
+                                   "date": row.date + timedelta(days=SECOND_PART_AFTER_DAYS)})]
+
+
+def statement_rows(case: Case) -> tuple[Decimal, list[Transaction]]:
+    """The opening balance and the rows *case*'s statement prints."""
+    opening, rows = _trade_rows(case)
+    if not case.receipts_name_payers:
+        if case.paid_by or case.paid_in_parts:
+            raise ValueError(f"{case.name}: who paid shows only when receipts name their payers")
+        return opening, rows
+    for name in (*(c for c, _ in case.paid_by), *case.paid_in_parts):
+        _partner(case, name)
+    sales = iter(t for t in trades(case) if not t.purchase)
+    sale_rows = {p.described for p in case.company.partners if not p.supplier}
+    printed = [r for row in rows for r in (_receipts(case, row, next(sales)) if row.description in sale_rows and
+                                            row.credit is not None else [row])]
+    return opening, _balanced(opening, printed)
 
 
 def _statement(case: Case, out: Path) -> None:
     company = case.company
-    opening, rows = _scaled_rows(company, case.statement_until)
+    opening, rows = statement_rows(case)
     end = case.statement_until or date(2026, 6, 30)
     values = {
         "F01005": company.account, "F01006": end.strftime("%d/%m/%Y"),
@@ -351,6 +520,8 @@ def _statement(case: Case, out: Path) -> None:
         "F01015": _amount(rows[-1].balance), "F01017": str(len(rows)),
     }
     slots = len({n[:6] for n in PdfReader(str(STATEMENT)).get_fields() or {} if n.startswith("F02")})
+    if len(rows) > slots:
+        raise ValueError(f"{case.name}: {len(rows)} rows do not fit the statement's {slots}")
     for n in range(1, slots + 1):
         t = rows[n - 1] if n <= len(rows) else None
         values.update({
@@ -387,11 +558,19 @@ def _entity_form(case: Case, out: Path) -> None:
         "Postal Code": case.form_postal or office.postal, "Tax Identification Number TIN1": company.uen,
         "Name": first.name, "Designation": first.position, "Name_2": company.chairman.name,
         "Designation_2": company.chairman.position, "Date DDMMYY": SIGNED, "Date DDMMYY_2": SIGNED,
+        # Part 5, the entity type: K a listed company, G an active business (the sample ticks K)
+        ENTITY_TYPE_BOX["K"]: "/Yes" if company.listed else "/Off",
+        ENTITY_TYPE_BOX["G"]: "/Off" if company.listed else "/Yes",
     })
 
 
 def _guarantors(case: Case) -> list[Person]:
     return [case.company.chairman, *case.extra_guarantors]
+
+
+def _declarants(case: Case) -> list[Person]:
+    """Who files an individual form: each signatory (the chairman and the CEO) and each guarantor, once."""
+    return list(dict.fromkeys([case.company.chairman, case.company.ceo, *case.extra_guarantors]))
 
 
 def _individual_form(case: Case, person: Person, out: Path) -> None:
@@ -484,7 +663,8 @@ def _truth(case: Case) -> dict[str, Any]:
         "expected_band": case.expected_band, "expected_path": case.expected_path,
         "expected_readiness": case.expected_readiness, "expected_check_ids": list(case.expected_check_ids),
         "expected_check_ids_ocr": [], "expected_compliance_check_ids": list(case.expected_compliance_check_ids),
-        "expected_leads": [], "expected_triage": [], "tampers": list(case.tampers),
+        "expected_leads": list(case.expected_leads), "expected_triage": list(case.expected_triage),
+        "tampers": list(case.tampers),
     }
 
 
@@ -495,22 +675,30 @@ def build_pack(case: Case, folder: Path) -> None:
     folder.mkdir(parents=True)
     _statement(case, folder / "bank_statement.pdf")
     _entity_form(case, folder / "fatca_crs_entity.pdf")
-    for n, person in enumerate(_guarantors(case), start=1):
+    for n, person in enumerate(_declarants(case), start=1):
         _individual_form(case, person, folder / f"fatca_crs_individual{'' if n == 1 else f'_{n}'}.pdf")
     _workbook(case, folder / "Submitted financials.xlsx")
-    for trade in demo_trade.plan(seller_of(case.company), _scaled_rows(case.company, case.statement_until)[1], case.trade_faults):
+    for trade in trades(case):
         demo_trade.write(folder, trade)
     (folder / "application.json").write_text(json.dumps(_manifest(case), indent=2) + "\n", encoding="utf-8")
     (folder / "ground_truth.json").write_text(json.dumps(_truth(case), indent=2) + "\n", encoding="utf-8")
 
 
+def companies() -> list[Company]:
+    return list({c.company.uen: c.company for c in CASES}.values())
+
+
+def suppliers() -> list[demo_trade.Partner]:
+    """Every demo company's suppliers: the companies registered at ACRA that its documents name."""
+    return [partner for company in companies() for partner in company.partners if partner.supplier]
+
+
 def write_records(mock_dir: Path = MOCK_GOV_DIR) -> None:
     """Put every demo company's, and every supplier's, ACRA records and every demo company's
     IRAS records into the mock service's data."""
-    companies = list({c.company.uen: c.company for c in CASES}.values())
     _upsert(mock_dir / "acra.json", "companies", "uen",
-            [*(acra_record(c) for c in companies), *(demo_trade.acra_record(s) for s in demo_trade.suppliers())])
-    _upsert(mock_dir / "iras.json", "notices", "id_number", [n for c in companies for n in iras_records(c)])
+            [*(acra_record(c) for c in companies()), *(demo_trade.acra_record(s) for s in suppliers())])
+    _upsert(mock_dir / "iras.json", "notices", "id_number", [n for c in companies() for n in iras_records(c)])
 
 
 def generate(packs_dir: str | Path = PACKS_DIR, mock_dir: Path = MOCK_GOV_DIR) -> None:

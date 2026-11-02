@@ -25,7 +25,7 @@ from string import Formatter
 from pydantic import BaseModel
 
 from gldb.checks import PACK_DOC
-from gldb.schemas import CaseResult
+from gldb.schemas import CaseResult, ReviewPoint
 
 #: What the bank asks the applicant for, by check: (request, detail). The
 #: detail is a sentence of fact that may quote the finding's {expected} and
@@ -127,12 +127,11 @@ def _detail(template: str | None, expected: str | None, observed: str | None) ->
     return template.format(**values)
 
 
-def draft_request(result: CaseResult) -> RequestDraft:
-    """The RFI for *result*: one item per request on each document, in
-    finding order, quoting its first finding (repeats of a check, or form
-    errors on one form, ask once, as they score once), and the verified AI
-    questions that are applicant-safe. Findings code explained, and
-    information-only ones, are not asked about."""
+def _items(result: CaseResult) -> tuple[list[RequestItem], int]:
+    """One item per request on each document, in finding order, quoting its
+    first finding (repeats of a check, or form errors on one form, ask once,
+    as they score once), and how many open findings have no request. Findings
+    code explained, and information-only ones, are not asked about."""
     explained = result.ai_team.resolved if result.ai_team else {}
     names = {d.doc_id: d.filename for d in result.pack.docs}
     items: dict[tuple[str, str], RequestItem] = {}
@@ -154,11 +153,29 @@ def draft_request(result: CaseResult) -> RequestDraft:
     for item in items.values():
         if (more := len(item.evidence_ids) - 1) > 0:
             item.text = f"{item.text} The same applies to {more} more {'entry' if more == 1 else 'entries'} on this document."
+    return list(items.values()), withheld
+
+
+def asked_findings(result: CaseResult) -> set[str]:
+    """The findings the request already asks the applicant about."""
+    return {evidence_id for item in _items(result)[0] for evidence_id in item.evidence_ids}
+
+
+def adds_to_request(question: ReviewPoint, asked: set[str]) -> bool:
+    """Whether an AI question asks something new: it rests on more than
+    findings the request already asks about."""
+    return not question.evidence_ids or not set(question.evidence_ids) <= asked
+
+
+def draft_request(result: CaseResult) -> RequestDraft:
+    """The RFI for *result*: the request items (_items), then the verified AI
+    questions that are applicant-safe and ask something the items do not."""
+    items, withheld = _items(result)
+    asked = {evidence_id for item in items for evidence_id in item.evidence_ids}
     memo = result.ai_team.memo if result.ai_team else None
     questions = [q.text for q in (memo.questions if memo else [])
-                 if not UNSAFE.search(q.text) and not _INTERNAL_ID.search(q.text)]
-    return RequestDraft(items=list(items.values()), questions=questions, withheld=withheld,
-                        text=_letter(result, list(items.values()), questions))
+                 if adds_to_request(q, asked) and not UNSAFE.search(q.text) and not _INTERNAL_ID.search(q.text)]
+    return RequestDraft(items=items, questions=questions, withheld=withheld, text=_letter(result, items, questions))
 
 
 def _letter(result: CaseResult, items: list[RequestItem], questions: list[str]) -> str:

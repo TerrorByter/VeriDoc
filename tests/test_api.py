@@ -530,8 +530,9 @@ def test_case_view_carries_the_official_records_with_ids_masked(client: TestClie
 @pytest.mark.parametrize(("name", "doc_type"), [
     ("bank_statement.pdf", "bank_statement"), ("fatca_crs_entity.pdf", "fatca_crs_entity"),
     ("fatca_crs_individual.pdf", "fatca_crs_individual"), ("Submitted financials.xlsx", "financial_statements"),
-    ("invoice_INV-1001.pdf", "invoice"), ("purchase_order_PO-2001.pdf", "purchase_order"),
-    ("bill_of_lading_BL-3001.pdf", "bill_of_lading"), ("application.json", "application"),
+    ("invoice_INV-1001.pdf", "invoice"), ("purchase_order_PO-4001.pdf", "purchase_order"),
+    ("bill_of_lading_LCL2601021.pdf", "bill_of_lading"), ("delivery_order_DO-ABC-251216.pdf", "delivery_order"),
+    ("application.json", "application"),
 ])
 def test_a_file_is_identified_as_a_run_would_read_it(client: TestClient, name: str, doc_type: str) -> None:
     path = Path("data/packs/clean") / name

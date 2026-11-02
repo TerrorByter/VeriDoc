@@ -1,8 +1,9 @@
 """
 gldb/reconciliation.py
 ----------------------
-Transaction chains: each invoice traced through its purchase order, bill of
-lading and bank payment, showing exactly where the chain breaks.
+Transaction chains: each invoice traced through its purchase order, its
+shipment (a bill of lading, or a delivery order for goods delivered in
+Singapore) and bank payment, showing exactly where the chain breaks.
 
 A projection, not a second rule engine. A step's status comes only from the
 evidence the Cross-Document checks already produced (XDOC_PO_INVOICE,
@@ -74,15 +75,17 @@ def _bl_step(inv: Invoice, pack: ExtractedPack, evidence: list[Evidence]) -> Cha
         value=_goods([(i.description, i.quantity) for i in inv.line_items]),
     )
     flags = _findings(evidence, "XDOC_BL_INVOICE", inv.doc_id)
-    if not pack.bills_of_lading:
+    shipments = pack.shipments()
+    if not shipments:
         return ChainStep(step="bill_of_lading", status="not_provided", invoice_claim=claim)
-    bl = next((b for b in pack.bills_of_lading if b.invoice_reference == inv.invoice_number), None)
-    status = _flag_status(flags, bl is not None)
+    sent = next((s for s in shipments if s.invoice_reference == inv.invoice_number), None)
+    status = _flag_status(flags, sent is not None)
     return ChainStep(
         step="bill_of_lading", status=status, invoice_claim=claim,
-        counterpart=ClaimRef(doc_id=bl.doc_id, page=bl.page, label=f"B/L {bl.bl_number} shipped",
-                             value=_goods([(g.description, g.quantity) for g in bl.goods]))
-        if bl else None,
+        counterpart=ClaimRef(doc_id=sent.doc_id, page=sent.page,
+                             label=f"{sent.short} {sent.number} {sent.verb}",
+                             value=_goods([(g.description, g.quantity) for g in sent.goods]))
+        if sent else None,
         evidence_ids=[e.evidence_id for e in flags],
         note="; ".join(e.explanation for e in flags),
     )

@@ -106,7 +106,7 @@ def test_viewer_places_quotes_on_scanned_pages_from_stored_lines(
     result = api._load(cid)
     finding = api.Evidence(evidence_id="E90", check_id="INV_ARITH", severity="high",
                            document="invoice_INV-1001", page=1, quote="Total: SGD 32,700.00",
-                           method="deterministic", confidence=1.0, explanation="x")
+                           method="deterministic", explanation="x")
     monkeypatch.setattr(api, "_load", lambda _: result.model_copy(update={"evidence": [finding]}))
     loc = client.get(f"/api/cases/{cid}/evidence/E90/location").json()
     assert loc["boxes"] == [{"x0": 0.1, "top": 0.3, "x1": 0.5, "bottom": 0.32}]

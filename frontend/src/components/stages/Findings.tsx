@@ -85,9 +85,17 @@ function FindingCard({ ev, signal, decision, editable, explained, subjects, onVi
         </dl>
       )}
       {ev.quote && <blockquote className="quote">{ev.quote}</blockquote>}
+      {signal && (
+        <p className="finding-strength">
+          {signal.strength === "definite" ? (
+            <><strong>Definite.</strong> A fact on the documents, not a pattern; its cause still needs explaining.</>
+          ) : (
+            <><strong>Indicative.</strong> Innocent reasons to rule out first: {signal.innocent}.</>
+          )}
+        </p>
+      )}
       <p className="finding-meta muted">
-        {where}. {ev.rule_group} {ev.method === "llm" ? "model check" : "rule check"}, {Math.round(ev.confidence * 100)}%
-        confidence. Rule severity {ev.severity}.
+        {where}. {ev.rule_group} {ev.method === "llm" ? "model check" : "rule check"}. Rule severity {ev.severity}.
       </p>
     </>
   );

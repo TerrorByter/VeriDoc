@@ -122,28 +122,16 @@ def _minimal_evidence(**overrides) -> dict:
         "document": "invoice_001",
         "page": 1,
         "method": "deterministic",
-        "confidence": 0.9,
         "explanation": "Test finding.",
     }
     base.update(overrides)
     return base
 
 
-def test_evidence_rejects_confidence_above_1():
-    with pytest.raises(ValidationError):
-        Evidence(**_minimal_evidence(confidence=1.5))
-
-
-def test_evidence_rejects_negative_confidence():
-    with pytest.raises(ValidationError):
-        Evidence(**_minimal_evidence(confidence=-0.1))
-
-
-def test_evidence_accepts_boundary_confidence():
-    e0 = Evidence(**_minimal_evidence(confidence=0.0))
-    e1 = Evidence(**_minimal_evidence(confidence=1.0))
-    assert e0.confidence == 0.0
-    assert e1.confidence == 1.0
+def test_a_finding_saved_with_the_old_confidence_still_loads():
+    """Cases saved before findings dropped their confidence keep loading."""
+    e = Evidence(**_minimal_evidence(confidence=0.9))
+    assert "confidence" not in e.model_dump()
 
 
 def test_evidence_defaults_to_fraud_signal():
@@ -325,8 +313,7 @@ def _make_evidence() -> Evidence:
         expected="1090.00",
         observed="1090.00",
         method="deterministic",
-        confidence=1.0,
-        explanation="GST calculation matches.",
+                explanation="GST calculation matches.",
     )
 
 
@@ -412,7 +399,6 @@ def test_evidence_roundtrip():
     original = _make_evidence()
     restored = _roundtrip(original)
     assert restored.evidence_id == "E01"
-    assert restored.confidence == 1.0
     assert restored.category == "fraud_signal"
 
 

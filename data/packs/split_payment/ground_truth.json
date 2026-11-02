@@ -1,0 +1,26 @@
+{
+  "pack": "split_payment",
+  "company": "KESTREL AUTOMATION PTE. LTD.",
+  "note": "Kestrel's buyer Pelabuhan Logistik paid its invoice in two parts. The rules look for one matching credit and flag it; the AI team should find both parts came from the buyer, and code should explain the flag.",
+  "expected_band": "Medium",
+  "expected_path": "standard_review",
+  "expected_readiness": "Complete",
+  "expected_check_ids": [
+    "XDOC_INVOICE_BANK"
+  ],
+  "expected_check_ids_ocr": [],
+  "expected_compliance_check_ids": [],
+  "expected_leads": [
+    {
+      "agent": "transaction",
+      "pattern": "split_payment"
+    }
+  ],
+  "expected_triage": [
+    {
+      "check_id": "XDOC_INVOICE_BANK",
+      "status": "refuted"
+    }
+  ],
+  "tampers": []
+}

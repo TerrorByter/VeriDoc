@@ -341,7 +341,7 @@ def test_checks_never_read_lead_prose() -> None:
 
 def _finding(document: str, check_id: str, severity: str = "high") -> Evidence:
     return Evidence(evidence_id="E99", check_id=check_id, severity=severity, document=document, page=1,
-                    method="deterministic", confidence=0.9, explanation="x")
+                    method="deterministic", explanation="x")
 
 
 def test_corroborated_only_from_verified() -> None:

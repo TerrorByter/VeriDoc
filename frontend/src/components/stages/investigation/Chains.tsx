@@ -4,7 +4,7 @@ import { Empty, Icon, Pill } from "../../ui";
 
 const STEP_LABEL: Record<ChainStep["step"], string> = {
   purchase_order: "Purchase order",
-  bill_of_lading: "Bill of lading",
+  bill_of_lading: "Shipment (bill of lading or delivery order)",
   payment: "Bank payment",
 };
 

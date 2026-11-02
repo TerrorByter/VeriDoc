@@ -16,38 +16,38 @@
   "expected_triage": [],
   "tampers": [
     {
-      "doc": "invoice_INV-1001",
+      "doc": "invoice_OKF-6201",
       "type": "sale_overbilled",
       "check_ids": [
         "XDOC_PO_INVOICE",
         "XDOC_INVOICE_BANK"
       ],
-      "detail": "EFG Company is billed 25% more than its order and than the credit received"
+      "detail": "Gebeng Steelworks is billed 25% more than its order and than the credit received"
     },
     {
-      "doc": "invoice_INV-1002",
+      "doc": "invoice_OKF-6202",
       "type": "goods_not_shipped",
       "check_ids": [
         "XDOC_BL_INVOICE"
       ],
-      "detail": "Metallica Inc. is billed for 25 units; the bill of lading shows 18 shipped"
+      "detail": "Melaka Struktur is billed for 40 columns; the bill of lading shows 30 shipped"
     },
     {
-      "doc": "invoice_SM-260128",
+      "doc": "invoice_JSS-260122",
       "type": "purchase_overbilled",
       "check_ids": [
         "XDOC_PO_INVOICE",
         "XDOC_INVOICE_BANK"
       ],
-      "detail": "SteelMen bills 25% more than the order and than the debit paid"
+      "detail": "Jurong Steel Stockists bills 25% more than the order and than the debit paid"
     },
     {
-      "doc": "invoice_CAT-260331",
+      "doc": "invoice_TLE-260325",
       "type": "order_never_issued",
       "check_ids": [
         "XDOC_PO_INVOICE"
       ],
-      "detail": "Caterpillarz names PO-4004, which is not in the pack"
+      "detail": "Tuas Lifting Equipment names PO-9204, which is not in the pack"
     }
   ]
 }

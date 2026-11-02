@@ -17,7 +17,7 @@ import json
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Any, get_args
+from typing import Any, Literal, get_args
 
 from botocore.exceptions import BotoCoreError, ClientError
 
@@ -33,7 +33,7 @@ from gldb.config import (
     SHADOW_SCORE_ENABLED,
     SHADOW_SCORER_MODEL,
 )
-from gldb.schemas import AgentName, AgentTeam, Lead, Memo, ReviewPoint, SpecialistName
+from gldb.schemas import AgentName, AgentTeam, Lead, Memo, ReviewPoint, SpecialistName, WithheldPoint
 
 _SPECIALISTS: tuple[SpecialistName, ...] = get_args(SpecialistName)
 _PLAN_TASK = "Plan the investigation of this case."
@@ -108,12 +108,14 @@ def _verified_questions(ledger: Ledger, flags: list[Lead]) -> list[dict[str, Any
     return passed
 
 
-def _points(raw: Any, known_ids: set[str], grounding_of: Callable[[list[str]], Known]
-            ) -> tuple[list[ReviewPoint], int]:
-    """The well-formed points of one memo list that pass the verifier, and how
-    many were dropped. A point is grounded in the evidence it cites alone."""
+def _points(raw: Any, section: Literal["observation", "question"], known_ids: set[str],
+            grounding_of: Callable[[list[str]], Known]) -> tuple[list[ReviewPoint], list[WithheldPoint], int]:
+    """The well-formed points of one memo list that pass the verifier, the
+    well-formed ones it withheld (with why), and how many were dropped in all.
+    A point is grounded in the evidence it cites alone."""
     items = raw if isinstance(raw, list) else []
     kept: list[ReviewPoint] = []
+    withheld: list[WithheldPoint] = []
     for item in items:
         if not isinstance(item, dict):
             continue
@@ -121,16 +123,20 @@ def _points(raw: Any, known_ids: set[str], grounding_of: Callable[[list[str]], K
         if not isinstance(text, str) or not isinstance(cites, list) or not all(isinstance(c, str) for c in cites):
             continue
         point = ReviewPoint(text=text, evidence_ids=cites)
-        if check_point(point, known_ids, grounding_of(cites)):
+        if (reason := check_point(point, known_ids, grounding_of(cites))) is None:
             kept.append(point)
-    return kept, len(items) - len(kept)
+        else:
+            withheld.append(WithheldPoint(section=section, text=text, evidence_ids=cites, reason=reason))
+    return kept, withheld, len(items) - len(kept)
 
 
 def _memo(raw: dict[str, Any], known_ids: set[str], grounding_of: Callable[[list[str]], Known]) -> Memo:
-    observations, dropped_observations = _points(raw.get("observations"), known_ids, grounding_of)
-    questions, dropped_questions = _points(raw.get("questions"), known_ids, grounding_of)
+    observations, held_observations, dropped_observations = _points(
+        raw.get("observations"), "observation", known_ids, grounding_of)
+    questions, held_questions, dropped_questions = _points(raw.get("questions"), "question", known_ids, grounding_of)
     return Memo(observations=observations, questions=questions,
-                withheld=dropped_observations + dropped_questions)
+                withheld=dropped_observations + dropped_questions,
+                withheld_points=held_observations + held_questions)
 
 
 def run_team(case: CaseData, models: TeamModels, *, on_activity: Activity = lambda _: None,

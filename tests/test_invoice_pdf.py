@@ -170,7 +170,7 @@ def _figure(text: str, label: str) -> Decimal:
 
 
 def _assert_adds_up(path: Path) -> None:
-    """Add up what the page itself shows."""
+    """Add up what the page itself shows, at the GST rate it prints."""
     text = read_text(path)[0]
     rows = [m.groups() for line in text.splitlines() if (m := _ROW.match(line))]
     assert rows
@@ -179,10 +179,11 @@ def _assert_adds_up(path: Path) -> None:
         unit_price, line_amount = (Decimal(v.replace(",", "")) for v in (unit, amount))
         assert money(int(quantity) * unit_price) == line_amount, description
         amounts.append(line_amount)
-    subtotal, gst, total = _figure(text, "Subtotal"), _figure(text, "GST (9%)"), _figure(text, "TOTAL (SGD)")
+    (rate,) = re.findall(r"^GST \((\d+)%\) ", text, re.MULTILINE)
+    subtotal, gst, total = _figure(text, "Subtotal"), _figure(text, f"GST ({rate}%)"), _figure(text, "TOTAL (SGD)")
     rounding = _figure(text, "Rounding") if "\nRounding " in text else Decimal(0)
     assert sum(amounts) == subtotal
-    assert money(subtotal * GST_RATE) == gst
+    assert money(subtotal * Decimal(rate) / 100) == gst
     assert abs(rounding) <= MAX_ROUNDING
     assert subtotal + gst + rounding == total
 
@@ -291,8 +292,45 @@ def test_the_figures_it_quotes_are_lines_of_the_page(tmp_path: Path) -> None:
     path = tmp_path / "invoice.pdf"
     render_invoice(path, SHEET)
     quotes = _read(path).source_quotes
-    assert quotes == {"Subtotal": "Subtotal 1,532,449.75", "GST (9%)": "GST (9%) 137,920.48", "Total": "TOTAL (SGD) 1,670,370.23"}
+    assert quotes == {"Subtotal": "Subtotal 1,532,449.75", "GST": "GST (9%) 137,920.48", "Total": "TOTAL (SGD) 1,670,370.23"}
     assert all(q in read_text(path)[0] for q in quotes.values())
+
+
+# ---------------------------------------------------------------------------
+# Zero-rated: goods exported from Singapore carry GST at 0%
+# ---------------------------------------------------------------------------
+
+EXPORT = replace(SHEET, buyer="Perdana Klang Sdn. Bhd.", gst_rate=Decimal(0),
+                 buyer_address=("Lot 7, Jalan Kemajuan 2", "42000 Port Klang, Selangor, Malaysia"))
+
+
+def test_an_export_invoice_charges_no_gst_and_says_why(tmp_path: Path) -> None:
+    path = tmp_path / "export.pdf"
+    render_invoice(path, EXPORT)
+    text = read_text(path)[0]
+    assert "GST (0%) 0.00" in text and "Zero-rated supply: goods exported from Singapore" in text
+    assert EXPORT.total == EXPORT.subtotal == Decimal("1532449.75")
+    _assert_adds_up(path)
+
+
+def test_an_export_invoice_reads_back_zero_rated_and_adds_up_to_the_check(tmp_path: Path) -> None:
+    path = tmp_path / "export.pdf"
+    render_invoice(path, EXPORT)
+    read = _read(path)
+    assert (read.gst_rate, read.gst, read.total) == (0, 0, EXPORT.total)
+    assert read.source_quotes["GST"] == "GST (0%) 0.00"
+    assert check_inv_arith(pack(invoices=[read])) == []
+
+
+def test_a_standard_rated_invoice_reads_back_at_nine_percent(tmp_path: Path) -> None:
+    assert _read(_issued(tmp_path)).gst_rate == GST_RATE
+
+
+@pytest.mark.parametrize("total", ["1670370.23", "1000000.09", "250.00"])
+def test_items_can_be_made_to_total_exactly_with_no_gst(total: str) -> None:
+    items, rounding = items_for_total(Decimal(total), ("Pumps", "Spares"), 40, gst_rate=Decimal(0))
+    sheet = replace(SHEET, items=items, rounding=rounding, gst_rate=Decimal(0))
+    assert rounding == 0 and sheet.gst == 0 and sheet.total == sheet.subtotal == Decimal(total)
 
 
 def test_a_table_row_it_cannot_read_is_refused_not_skipped(tmp_path: Path) -> None:

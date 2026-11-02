@@ -566,7 +566,7 @@
   <p class="kicker">Evidence, score, readiness, route</p>
 
   <h3>Everything is Evidence</h3>
-  <p>Each check is a pure function from the extracted pack to a list of Evidence. An Evidence item carries a check id, a category (<span class="m">fraud_signal</span>, <span class="m">compliance</span> or <span class="m">completeness</span>), a severity from info to critical, the document and page, a confidence and a plain explanation. Nothing exists outside Evidence. If a check crashes, it emits <span class="m">SYSTEM_CHECK_ERROR</span> instead of taking the run down, and that forces at least standard review.</p>
+  <p>Each check is a pure function from the extracted pack to a list of Evidence. An Evidence item carries a check id, a category (<span class="m">fraud_signal</span>, <span class="m">compliance</span> or <span class="m">completeness</span>), a severity from info to critical, the document and page, and a plain explanation. The signal library says whether each check's finding is definite (a fact on the documents) or indicative (a pattern ordinary business can also produce, with the innocent reasons to rule out). Nothing exists outside Evidence. If a check crashes, it emits <span class="m">SYSTEM_CHECK_ERROR</span> instead of taking the run down, and that forces at least standard review.</p>
 
   <div class="tbl"><table>
     <thead><tr><th>Rule group</th><th class="n">Checks</th><th>What it catches</th></tr></thead>

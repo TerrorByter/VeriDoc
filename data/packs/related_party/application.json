@@ -1,0 +1,39 @@
+{
+  "application_id": "APP-2026-RELATED_PARTY",
+  "application_date": "2026-07-10",
+  "company_name": "LUMEN AQUA SYSTEMS PTE. LTD.",
+  "uen": "202011479D",
+  "country_of_incorporation": "SINGAPORE",
+  "date_of_incorporation": "2020-03-09",
+  "registered_address": {
+    "block": "7",
+    "street": "TAI SENG DRIVE",
+    "floor": "04",
+    "unit": "06",
+    "building": "TAI SENG CENTRE",
+    "city_state": "SINGAPORE",
+    "postal_code": "535218",
+    "country": "SINGAPORE"
+  },
+  "authorised_signatories": [
+    "NG LI HUA",
+    "CHUA MING HAN"
+  ],
+  "guarantors": [
+    {
+      "name": "CHUA MING HAN",
+      "id_number": "S6944517E",
+      "nationality": "SINGAPORE",
+      "residential_address": {
+        "block": "12",
+        "street": "BISHAN STREET 13",
+        "floor": "14",
+        "unit": "22",
+        "building": "",
+        "city_state": "SINGAPORE",
+        "postal_code": "570012",
+        "country": "SINGAPORE"
+      }
+    }
+  ]
+}

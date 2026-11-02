@@ -3,8 +3,11 @@ tests/test_demo_trade.py
 -----------------------
 The paperwork behind a demo company's trade (gldb.demo_trade): for each sale
 and each goods purchase on its bank statement, an invoice, a purchase order
-and a bill of lading that agree with the payment to the cent, and the
-suppliers' ACRA records. A case may also make one of them disagree. No AWS calls.
+and a shipping document that agree with the payment to the cent, and the
+suppliers' ACRA records. A sale is an export to Malaysia, zero-rated and
+shipped under a bill of lading; a purchase is from a supplier in Singapore,
+with GST, delivered under its delivery order. A case may also make one of them
+disagree. No AWS calls.
 """
 
 from __future__ import annotations
@@ -17,9 +20,10 @@ from pathlib import Path
 import pytest
 
 from gldb import demo_packs, demo_trade, extract_stub
-from gldb.config import MATCH_WINDOW_DAYS
+from gldb.config import GST_RATE, MATCH_WINDOW_DAYS
 from gldb.intake import classify, intake, read_text
 from gldb.schemas import AcraProfile, Transaction
+from gldb.trade_pdf import BillOfLadingSheet, DeliveryOrderSheet
 
 ACMA = demo_packs.ACMA
 SALES = {"EFG Company": Decimal("1670370.23"), "Metallica Inc.": Decimal("1497280.63")}
@@ -35,7 +39,7 @@ def _rows() -> list[Transaction]:
 
 
 def _trades(faults: tuple[tuple[str, str], ...] = ()) -> list[demo_trade.Trade]:
-    return demo_trade.plan(_seller(), _rows(), faults)
+    return demo_trade.plan(_seller(), _rows(), ACMA.partners, faults)
 
 
 def _seller() -> demo_trade.Seller:
@@ -68,7 +72,7 @@ def test_rent_utilities_salaries_and_the_bond_have_no_trade() -> None:
 def test_each_invoice_totals_exactly_the_payment_it_was_paid_by(scale: str) -> None:
     company = replace(ACMA, scale=Decimal(scale))
     rows = demo_packs._scaled_rows(company, None)[1]
-    trades = demo_trade.plan(demo_packs.seller_of(company), rows, ())
+    trades = demo_trade.plan(demo_packs.seller_of(company), rows, company.partners, ())
     paid = {r.description.split(" - ")[1]: (r.debit if r.debit is not None else r.credit) for r in rows if " - " in r.description}
     assert len(trades) == 7
     for trade in trades:
@@ -88,10 +92,15 @@ def test_an_invoice_is_issued_before_its_payment_within_the_matching_window() ->
         assert trade.invoice.due == trade.invoice.issued + timedelta(days=30)
 
 
+def _sent(trade: demo_trade.Trade):
+    shipment = trade.shipment
+    return shipment.delivered if isinstance(shipment, DeliveryOrderSheet) else shipment.shipped
+
+
 def test_the_order_comes_before_the_invoice_and_the_shipment_before_the_invoice() -> None:
     for trade in _trades():
-        assert trade.order.issued < trade.bill.shipped < trade.invoice.issued
-        assert trade.bill.shipped <= trade.order.deliver_by
+        assert trade.order.issued < _sent(trade) < trade.invoice.issued
+        assert _sent(trade) <= trade.order.deliver_by
 
 
 def test_the_seller_of_a_sale_is_the_company_and_the_buyer_of_a_purchase_is_the_company() -> None:
@@ -103,14 +112,39 @@ def test_the_seller_of_a_sale_is_the_company_and_the_buyer_of_a_purchase_is_the_
 
 def test_every_number_in_a_pack_is_its_own() -> None:
     trades = _trades()
-    for numbers in ([t.invoice.number for t in trades], [t.invoice.po_number for t in trades], [t.bill.number for t in trades]):
+    for numbers in ([t.invoice.number for t in trades], [t.invoice.po_number for t in trades], [t.shipment.number for t in trades]):
         assert len(set(numbers)) == len(numbers) == 7
 
 
 def test_goods_ship_and_the_service_line_is_not_shipped() -> None:
     for trade in _trades():
-        assert [(c.description, c.quantity) for c in trade.bill.goods] == [
+        assert [(c.description, c.quantity) for c in trade.shipment.goods] == [
             (trade.invoice.items[0].description, trade.invoice.items[0].quantity)]
+
+
+def test_a_sale_is_a_zero_rated_export_shipped_by_sea_to_the_buyers_port_in_malaysia() -> None:
+    for trade in (t for t in _trades() if not t.purchase):
+        bill = trade.shipment
+        assert isinstance(bill, BillOfLadingSheet)
+        assert trade.invoice.gst_rate == trade.order.gst_rate == 0 and trade.invoice.total == trade.invoice.subtotal
+        assert trade.invoice.buyer_address[-1].endswith("Malaysia") and trade.partner.uen == ""
+        assert (bill.port_of_loading, bill.port_of_discharge) == ("Singapore", trade.partner.port)
+
+
+def test_a_purchase_from_singapore_carries_gst_and_is_delivered_under_the_suppliers_delivery_order() -> None:
+    for trade in (t for t in _trades() if t.purchase):
+        delivery = trade.shipment
+        assert isinstance(delivery, DeliveryOrderSheet)
+        assert trade.invoice.gst_rate == trade.order.gst_rate == GST_RATE
+        assert trade.invoice.seller_address[-1].startswith("Singapore ") and trade.partner.uen
+        assert (delivery.supplier, delivery.consignee, delivery.order_ref) == (
+            trade.invoice.seller, trade.invoice.buyer, trade.invoice.po_number)
+
+
+def test_a_customer_in_singapore_or_a_supplier_abroad_is_refused() -> None:
+    swapped = tuple(replace(p, uen="" if p.uen else "201999999Z") for p in ACMA.partners)
+    with pytest.raises(ValueError, match="buy only from suppliers in Singapore"):
+        demo_trade.plan(_seller(), _rows(), swapped, ())
 
 
 def test_the_order_prices_what_the_invoice_bills_and_totals_what_was_paid() -> None:
@@ -121,14 +155,15 @@ def test_the_order_prices_what_the_invoice_bills_and_totals_what_was_paid() -> N
         assert order.buyer_uen == ("196500233E" if trade.purchase else "")  # a customer is never looked up
 
 
-def test_the_bill_of_lading_carries_the_goods_from_seller_to_buyer_for_the_invoice() -> None:
+def test_the_shipment_carries_the_goods_from_seller_to_buyer_for_the_invoice() -> None:
     for trade in _trades():
-        bill = trade.bill
-        assert (bill.shipper, bill.consignee, bill.invoice_ref) == (trade.invoice.seller, trade.invoice.buyer, trade.invoice.number)
-        (cargo,) = bill.goods
+        sent = trade.shipment
+        sender, receiver = (sent.supplier, sent.consignee) if isinstance(sent, DeliveryOrderSheet) else (sent.shipper, sent.consignee)
+        assert (sender, receiver, sent.invoice_ref) == (trade.invoice.seller, trade.invoice.buyer, trade.invoice.number)
+        (cargo,) = sent.goods
         packing = trade.partner.packing
         assert cargo.packages == -(-cargo.quantity // packing.per_package) and cargo.kind == packing.kind
-        assert (bill.packages, bill.weight_kg, bill.volume_cbm) == (cargo.packages, cargo.weight_kg, cargo.volume_cbm)
+        assert (sent.packages, sent.weight_kg, sent.volume_cbm) == (cargo.packages, cargo.weight_kg, cargo.volume_cbm)
 
 
 # ---------------------------------------------------------------------------
@@ -136,8 +171,8 @@ def test_the_bill_of_lading_carries_the_goods_from_seller_to_buyer_for_the_invoi
 # ---------------------------------------------------------------------------
 
 def test_every_supplier_has_an_acra_record_a_profile_can_be_read_from() -> None:
-    suppliers = demo_trade.suppliers()
-    assert sorted(s.name for s in suppliers) == sorted(PURCHASES)
+    suppliers = demo_packs.suppliers()
+    assert sorted(s.name for s in suppliers if s in ACMA.partners) == sorted(PURCHASES)
     for supplier in suppliers:
         record = AcraProfile.model_validate({**demo_trade.acra_record(supplier), "doc_id": "ACRA"})
         assert record.company_name == supplier.legal_name and record.uen == supplier.uen
@@ -145,7 +180,7 @@ def test_every_supplier_has_an_acra_record_a_profile_can_be_read_from() -> None:
 
 
 def test_no_two_companies_share_a_uen_and_none_is_an_applicant() -> None:
-    uens = [s.uen for s in demo_trade.suppliers()] + list({c.company.uen for c in demo_packs.CASES})
+    uens = [s.uen for s in demo_packs.suppliers()] + list({c.company.uen for c in demo_packs.CASES})
     assert len(set(uens)) == len(uens)
 
 
@@ -153,13 +188,14 @@ def test_no_two_companies_share_a_uen_and_none_is_an_applicant() -> None:
 # The documents
 # ---------------------------------------------------------------------------
 
-def test_a_trade_is_written_as_an_invoice_an_order_and_a_bill_of_lading(tmp_path: Path) -> None:
-    trade = _by_partner(_trades())["SteelMen Pte Ltd."]
+@pytest.mark.parametrize(("partner", "shipping"), [("EFG Company", "bill_of_lading"), ("SteelMen Pte Ltd.", "delivery_order")])
+def test_a_trade_is_written_as_an_invoice_an_order_and_its_shipping_document(tmp_path: Path, partner: str, shipping: str) -> None:
+    trade = _by_partner(_trades())[partner]
     demo_trade.write(tmp_path, trade)
     assert sorted(p.name for p in tmp_path.iterdir()) == sorted([
         f"invoice_{trade.invoice.number}.pdf", f"purchase_order_{trade.invoice.po_number}.pdf",
-        f"bill_of_lading_{trade.bill.number}.pdf"])
-    assert sorted(classify(read_text(p)) for p in tmp_path.iterdir()) == ["bill_of_lading", "invoice", "purchase_order"]
+        f"{shipping}_{trade.shipment.number}.pdf"])
+    assert sorted(classify(read_text(p)) for p in tmp_path.iterdir()) == sorted([shipping, "invoice", "purchase_order"])
 
 
 def test_what_is_written_reads_back_as_planned(tmp_path: Path) -> None:
@@ -169,16 +205,16 @@ def test_what_is_written_reads_back_as_planned(tmp_path: Path) -> None:
         demo_trade.write(folder, trade)
         paths = sorted(folder.iterdir())
         pack = extract_stub.parse_pack("t", intake("t", paths), paths, None)
-        (invoice,), (order,), (bill,) = pack.invoices, pack.purchase_orders, pack.bills_of_lading
-        assert (invoice.invoice_number, invoice.total, invoice.po_number) == (
-            trade.invoice.number, trade.invoice.total, trade.invoice.po_number)
+        (invoice,), (order,), (sent,) = pack.invoices, pack.purchase_orders, pack.shipments()
+        assert (invoice.invoice_number, invoice.total, invoice.po_number, invoice.gst_rate) == (
+            trade.invoice.number, trade.invoice.total, trade.invoice.po_number, trade.invoice.gst_rate)
         assert (order.po_number, order.po_date, order.total, order.buyer_name, order.seller_name, order.seller_uen) == (
             trade.invoice.po_number, trade.order.issued, trade.invoice.total, trade.invoice.buyer, trade.invoice.seller,
             trade.invoice.seller_uen)
         assert sum(i.amount for i in order.line_items) == trade.order.subtotal
-        assert (bill.bl_number, bill.shipped_date, bill.invoice_reference, bill.shipper_name, bill.consignee_name) == (
-            trade.bill.number, trade.bill.shipped, trade.invoice.number, trade.invoice.seller, trade.invoice.buyer)
-        assert [(g.description, g.quantity) for g in bill.goods] == [(c.description, c.quantity) for c in trade.bill.goods]
+        assert (sent.number, sent.shipped_date, sent.invoice_reference, sent.shipper_name, sent.consignee_name) == (
+            trade.shipment.number, _sent(trade), trade.invoice.number, trade.invoice.seller, trade.invoice.buyer)
+        assert [(g.description, g.quantity) for g in sent.goods] == [(c.description, c.quantity) for c in trade.shipment.goods]
 
 
 def test_every_order_written_adds_up_on_the_page(tmp_path: Path) -> None:
@@ -204,13 +240,15 @@ def test_nothing_it_writes_trips_a_forensic_check(tmp_path: Path) -> None:
 def test_a_documents_dates_in_the_file_are_the_day_it_was_made(tmp_path: Path) -> None:
     import pypdf
 
-    trade = _by_partner(_trades())["EFG Company"]
-    demo_trade.write(tmp_path, trade)
-    made = {p.name.split("_")[0]: pypdf.PdfReader(str(p)).metadata for p in tmp_path.iterdir()}
-    assert made["invoice"]["/CreationDate"] == made["invoice"]["/ModDate"]
-    assert made["invoice"]["/CreationDate"].startswith(f"D:{trade.invoice.issued:%Y%m%d}")
-    assert made["purchase"]["/CreationDate"].startswith(f"D:{trade.order.issued:%Y%m%d}")
-    assert made["bill"]["/CreationDate"].startswith(f"D:{trade.bill.shipped:%Y%m%d}")
+    for trade in (_by_partner(_trades())["EFG Company"], _by_partner(_trades())["SteelMen Pte Ltd."]):
+        folder = tmp_path / trade.invoice.number
+        folder.mkdir()
+        demo_trade.write(folder, trade)
+        made = {p.name.split("_")[0]: pypdf.PdfReader(str(p)).metadata for p in folder.iterdir()}
+        assert made["invoice"]["/CreationDate"] == made["invoice"]["/ModDate"]
+        assert made["invoice"]["/CreationDate"].startswith(f"D:{trade.invoice.issued:%Y%m%d}")
+        assert made["purchase"]["/CreationDate"].startswith(f"D:{trade.order.issued:%Y%m%d}")
+        assert made["bill" if not trade.purchase else "delivery"]["/CreationDate"].startswith(f"D:{_sent(trade):%Y%m%d}")
 
 
 # ---------------------------------------------------------------------------
@@ -221,12 +259,12 @@ def test_an_overbilled_invoice_is_dearer_than_its_order_and_its_payment() -> Non
     trade = _by_partner(_trades((("EFG Company", "overbilled"),)))["EFG Company"]
     assert trade.invoice.total == (SALES["EFG Company"] * Decimal("1.25")).quantize(Decimal("0.01"))
     assert trade.order.total == SALES["EFG Company"]
-    assert trade.invoice.items[0].quantity == trade.bill.goods[0].quantity  # the same goods, at a higher price
+    assert trade.invoice.items[0].quantity == trade.shipment.goods[0].quantity  # the same goods, at a higher price
 
 
 def test_a_short_shipped_invoice_bills_more_goods_than_the_bill_of_lading_shows() -> None:
     trade = _by_partner(_trades((("Metallica Inc.", "short_shipped"),)))["Metallica Inc."]
-    (cargo,) = trade.bill.goods
+    (cargo,) = trade.shipment.goods
     assert cargo.quantity == 18 < trade.invoice.items[0].quantity == 25
     assert (cargo.packages, cargo.weight_kg) == (18, Decimal("34200.0"))  # packed and weighed as shipped
     assert trade.invoice.total == trade.order.total == SALES["Metallica Inc."]  # it still matches its order and payment

@@ -18,6 +18,8 @@ Rules the rest of the system relies on:
   its items, never given, and a line that is not quantity times unit price
   cannot be issued. The only figure besides the items is a rounding of at most
   a cent, printed as its own line, for a total GST rounded to the cent cannot reach.
+- GST is charged at 9%, or at 0% on a zero-rated supply (goods exported from
+  Singapore), which the invoice says it is.
 """
 
 from __future__ import annotations
@@ -45,7 +47,6 @@ ROW_H = 22.0
 MAX_ITEMS = 12
 #: The most an invoice may round its total, in either direction
 MAX_ROUNDING = Decimal("0.01")
-GST_LABEL = "GST (9%)"
 TITLE = "TAX INVOICE"
 TITLE_SIZE = 24
 #: The seller's name is set at its full size unless the title would touch it, then smaller; below this it is refused
@@ -72,8 +73,12 @@ class Priced:
     number: str
     items: tuple[LineItem, ...]
     rounding: Decimal = Decimal(0)
+    #: 9%, or 0 for a zero-rated supply
+    gst_rate: Decimal = GST_RATE
 
     def __post_init__(self) -> None:
+        if self.gst_rate not in (GST_RATE, 0):
+            raise ValueError(f"{self.number}: GST is charged at {GST_RATE:.0%} or zero-rated, not at {self.gst_rate:.0%}")
         if abs(self.rounding) > MAX_ROUNDING:
             raise ValueError(f"{self.number}: a rounding of {self.rounding} is more than {MAX_ROUNDING}")
         for item in self.items:
@@ -86,7 +91,11 @@ class Priced:
 
     @property
     def gst(self) -> Decimal:
-        return money(self.subtotal * GST_RATE)
+        return money(self.subtotal * self.gst_rate)
+
+    @property
+    def gst_label(self) -> str:
+        return f"GST ({self.gst_rate:.0%})"
 
     @property
     def total(self) -> Decimal:
@@ -111,13 +120,15 @@ class InvoiceSheet(Priced):
     account_no: str
 
 
-def items_for_total(total: Decimal, descriptions: tuple[str, str], quantity: int) -> tuple[tuple[LineItem, ...], Decimal]:
+def items_for_total(total: Decimal, descriptions: tuple[str, str], quantity: int,
+                    gst_rate: Decimal = GST_RATE) -> tuple[tuple[LineItem, ...], Decimal]:
     """Two lines, the first of *quantity* units and the second of one, and the
-    rounding, so that the invoice they make totals exactly *total*. The rounding
-    is nothing for most totals; for the one in twelve that GST rounded to the
-    cent cannot reach it is a cent either way, as the printed invoice shows."""
-    subtotal = money(total / (1 + GST_RATE))
-    rounding = total - subtotal - money(subtotal * GST_RATE)  # at most a cent: GST moves a total by half a cent
+    rounding, so that the invoice they make at *gst_rate* totals exactly
+    *total*. The rounding is nothing for most totals; for the one in twelve
+    that GST rounded to the cent cannot reach it is a cent either way, as the
+    printed invoice shows. Without GST there is never any."""
+    subtotal = money(total / (1 + gst_rate))
+    rounding = total - subtotal - money(subtotal * gst_rate)  # at most a cent: GST moves a total by half a cent
     unit_price = money(subtotal * MAIN_LINE_SHARE / quantity)
     main = quantity * unit_price
     return (
@@ -247,7 +258,7 @@ def item_table(page: Page, items: tuple[LineItem, ...], colour: Colour, top: flo
 def totals(page: Page, priced: Priced, colour: Colour, below: float) -> float:
     """Subtotal, GST, any rounding and the total, under the item table; the y below the total."""
     left, y = 350.0, below - 22
-    figures = [("Subtotal", priced.subtotal), (GST_LABEL, priced.gst),
+    figures = [("Subtotal", priced.subtotal), (priced.gst_label, priced.gst),
                *([("Rounding", priced.rounding)] if priced.rounding else [])]
     for label, value in figures:
         page.text(left + 12, y, label, colour=MUTED)
@@ -276,9 +287,10 @@ def _payment_and_terms(page: Page, sheet: InvoiceSheet, below: float) -> None:
     page.text(MARGIN, y, "PAYMENT DETAILS", font=BOLD, size=7, colour=MUTED)
     page.lines(MARGIN, y - 14, (f"Account Name: {sheet.seller}", f"Bank: {sheet.bank}",
                                 f"Account No.: {sheet.account_no}", f"Reference: {sheet.number}"))
+    zero_rated = "Zero-rated supply: goods exported from Singapore. " if sheet.gst_rate == 0 else ""
     paragraph(page, y - 78, "TERMS AND CONDITIONS",
-              f"Payment is due on or before the due date shown above. Please quote the invoice number with your payment. "
-              f"Goods remain the property of {sheet.seller} until paid in full.")
+              f"{zero_rated}Payment is due on or before the due date shown above. Please quote the invoice number with "
+              f"your payment. Goods remain the property of {sheet.seller} until paid in full.")
 
 
 def render_invoice(path: Path, sheet: InvoiceSheet) -> None:

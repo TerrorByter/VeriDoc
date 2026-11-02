@@ -32,7 +32,7 @@ def _ev(
 ) -> Evidence:
     return Evidence(
         evidence_id=evidence_id, check_id="X", category=category, severity=severity,
-        document="d", page=1, method="deterministic", confidence=1.0, explanation="x",
+        document="d", page=1, method="deterministic", explanation="x",
     )
 
 

@@ -52,7 +52,6 @@ from gldb.routing import route
 from gldb.schemas import (
     AgentName,
     ApplicationManifest,
-    BillOfLading,
     DocMeta,
     Evidence,
     ExtractedPack,
@@ -61,6 +60,7 @@ from gldb.schemas import (
     Lead,
     Pattern,
     PurchaseOrder,
+    Shipment,
     SpecialistName,
     ToolCall,
 )
@@ -76,7 +76,8 @@ _TRUNCATED = "…[truncated]"
 #: Longest summary kept for a call (the UI shows it; it is never page text)
 _SUMMARY_CHARS = 100
 #: Rows search_bank_transactions returns
-_MAX_ROWS = 20
+#: Rows one bank search returns: a whole statement of the team's form (29 rows) in one call
+_MAX_ROWS = 40
 _DEFAULT_TOLERANCE_PCT = 1
 #: Tools that record an agent's own output: their results are receipts, not evidence
 RECEIPT_TOOLS = frozenset({"record_lead", "draft_question"})
@@ -133,7 +134,8 @@ def case_index(case: CaseData) -> str:
             f"search the statements for it):\n{payment_context(pack)}\n"
             f"Invoices: {_listed(_invoice_numbers(case))}\n"
             f"Purchase orders: {_listed([o.po_number for o in pack.purchase_orders])}\n"
-            f"Bills of lading: {_listed([b.bl_number for b in pack.bills_of_lading])}")
+            f"Bills of lading: {_listed([b.bl_number for b in pack.bills_of_lading])}\n"
+            f"Delivery orders: {_listed([d.do_number for d in pack.delivery_orders])}")
 
 
 class ToolError(Exception):
@@ -262,7 +264,7 @@ def _parties(case: CaseData, *_: Any) -> Any:
                                              _party(i.doc_id, "buyer", i.buyer_name))),
         *(p for o in pack.purchase_orders for p in (_party(o.doc_id, "buyer", o.buyer_name),
                                                     _party(o.doc_id, "seller", o.seller_name, o.seller_uen))),
-        *(p for b in pack.bills_of_lading for p in (_party(b.doc_id, "shipper", b.shipper_name),
+        *(p for b in pack.shipments() for p in (_party(b.doc_id, "shipper", b.shipper_name),
                                                     _party(b.doc_id, "consignee", b.consignee_name))),
     ]
     # One id per company (P01...), the subject of a related_party lead; the applicant has none
@@ -344,17 +346,17 @@ def _search_bank_transactions(case: CaseData, args: Args, agent: AgentName, ledg
     return {"rows": rows[:_MAX_ROWS], "more": max(len(rows) - _MAX_ROWS, 0)}
 
 
-def _records(pack: ExtractedPack) -> list[tuple[Invoice | PurchaseOrder | BillOfLading, str]]:
-    """Each invoice, purchase order and bill of lading with its own number."""
+def _records(pack: ExtractedPack) -> list[tuple[Invoice | PurchaseOrder | Shipment, str]]:
+    """Each invoice, purchase order, bill of lading and delivery order with its own number."""
     return [*((i, i.invoice_number) for i in pack.invoices), *((o, o.po_number) for o in pack.purchase_orders),
-            *((b, b.bl_number) for b in pack.bills_of_lading)]
+            *((s, s.number) for s in pack.shipments())]
 
 
 def _document_fields(case: CaseData, args: Args, agent: AgentName, ledger: Ledger) -> Any:
     key = args["doc_id"]
     record = next((r for r, number in _records(case.pack) if key in (r.doc_id, number)), None)
     # Source quotes are document text: it only reaches a model through get_page_text, which screens it
-    return _require(record, f"no invoice, purchase order or bill of lading {key}").model_dump(
+    return _require(record, f"no invoice, purchase order, bill of lading or delivery order {key}").model_dump(
         mode="json", exclude={"source_quotes"})
 
 
@@ -373,7 +375,12 @@ def _registry_lookup(case: CaseData, args: Args, agent: AgentName, ledger: Ledge
         raise ToolError(str(exc)) from exc
     if entity is None:
         return {"found": False}
-    return {"uen": entity.uen, "name": entity.company_name, "status": entity.status,
+    # Who the company is in this case: the applicant, or a counterparty by its id (the subject of a
+    # related_party lead), so a lead can cite the register result it rests on
+    manifest = case.pack.manifest
+    in_case = ({"applicant": True} if manifest is not None and entity.uen == manifest.uen
+               else {"counterparty": party} if (party := counterparty_id(case.pack, entity.company_name)) else {})
+    return {"uen": entity.uen, "name": entity.company_name, **in_case, "status": entity.status,
             "incorporated": entity.incorporation_date,
             "officers": [{"name": o.name, "role": o.position} for o in entity.officers]}
 
@@ -498,7 +505,8 @@ TOOLS: dict[str, Tool] = {
         "the UEN where the document gives one), each with its document id.",
         _schema(), _parties),
     "registry_lookup": Tool(
-        "Look a company up in ACRA's register by UEN or by name: status, incorporation date, officers.",
+        "Look a company up in ACRA's register by UEN or by name: status, incorporation date, officers, and "
+        "who it is in this case (the applicant, or a counterparty by its id).",
         _schema({"uen": _string("Company UEN"), "name": _string("Company name (closest match)")}),
         _registry_lookup),
     "sanctions_search": Tool(

@@ -27,7 +27,7 @@
       "detail": "a sales credit raised by SGD 250,000 in an incremental save three weeks later"
     },
     {
-      "doc": "invoice_INV-1001",
+      "doc": "invoice_CME-4101",
       "type": "credit_not_invoiced",
       "check_ids": [
         "XDOC_INVOICE_BANK"

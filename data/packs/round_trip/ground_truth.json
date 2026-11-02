@@ -1,0 +1,19 @@
+{
+  "pack": "round_trip",
+  "company": "NORTHSTAR COLD CHAIN PTE. LTD.",
+  "note": "Northstar pays Kranji Refrigeration for a machine, and 13 days later nearly all of it comes back from Kranji as a customer receipt. Each row looks normal alone; only the AI team connects them.",
+  "expected_band": "Low",
+  "expected_path": "fast_track",
+  "expected_readiness": "Complete",
+  "expected_check_ids": [],
+  "expected_check_ids_ocr": [],
+  "expected_compliance_check_ids": [],
+  "expected_leads": [
+    {
+      "agent": "transaction",
+      "pattern": "round_trip"
+    }
+  ],
+  "expected_triage": [],
+  "tampers": []
+}

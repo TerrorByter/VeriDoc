@@ -374,7 +374,12 @@ def _registry_lookup(case: CaseData, args: Args, agent: AgentName, ledger: Ledge
         raise ToolError(str(exc)) from exc
     if entity is None:
         return {"found": False}
-    return {"uen": entity.uen, "name": entity.company_name, "status": entity.status,
+    # Who the company is in this case: the applicant, or a counterparty by its id (the subject of a
+    # related_party lead), so a lead can cite the register result it rests on
+    manifest = case.pack.manifest
+    in_case = ({"applicant": True} if manifest is not None and entity.uen == manifest.uen
+               else {"counterparty": party} if (party := counterparty_id(case.pack, entity.company_name)) else {})
+    return {"uen": entity.uen, "name": entity.company_name, **in_case, "status": entity.status,
             "incorporated": entity.incorporation_date,
             "officers": [{"name": o.name, "role": o.position} for o in entity.officers]}
 
@@ -499,7 +504,8 @@ TOOLS: dict[str, Tool] = {
         "the UEN where the document gives one), each with its document id.",
         _schema(), _parties),
     "registry_lookup": Tool(
-        "Look a company up in ACRA's register by UEN or by name: status, incorporation date, officers.",
+        "Look a company up in ACRA's register by UEN or by name: status, incorporation date, officers, and "
+        "who it is in this case (the applicant, or a counterparty by its id).",
         _schema({"uen": _string("Company UEN"), "name": _string("Company name (closest match)")}),
         _registry_lookup),
     "sanctions_search": Tool(

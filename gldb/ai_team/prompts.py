@@ -52,8 +52,9 @@ DEFAULT_BRIEF = "Triage the risky findings in your domain and hunt your patterns
 _DOMAINS: dict[SpecialistName, str] = {
     "forensics": "document integrity: PDF producer and dates, OCR confidence, and the screened page text of "
                  "invoices, purchase orders, bills of lading and delivery orders.",
-    "transaction": "the trade itself: each invoice traced through its purchase order, its bill of lading or "
-                   "delivery order and bank payment, and who paid what, when, on the bank statements.",
+    "transaction": "the money: who paid each sale, and where money paid out goes and whether it comes back, on "
+                   "the bank statements. The rule checks have already matched every invoice to its purchase order, "
+                   "shipment and payment; the case overview's chain_breaks lists where that failed.",
     "kyc": "the parties: the applicant and each counterparty in the company register (status, incorporation "
            "date, officers) and screened against the sanctions list.",
     "timeline": "dates: the order of purchase orders, invoices, shipments and payments, and the applicant's "
@@ -70,9 +71,11 @@ _METHODS: dict[SpecialistName, str] = {
                    "text) to cite the result, then look at what the documents say about the payer and whether "
                    "the payment makes commercial sense. Look for several credits that add up to an invoice's "
                    "total, none matching it alone (split_payment), and for money paid out that comes back from "
-                   "the same counterparty (round_trip).",
+                   "the same counterparty (round_trip): search the statements for each counterparty paid, and "
+                   "see whether a credit from it follows.",
     "kyc": "Compare the officers of each counterparty in the register with the applicant's directors, "
-           "guarantors and signatories (get_parties).",
+           "guarantors and signatories (get_parties). A register result says which counterparty id the "
+           "company is: cite that result for a related_party lead.",
     "timeline": "Nothing should be dated before its purchase order; an invoice may come before or after "
                 "shipment; payment follows the invoice. An anomaly is a document dated before its purchase "
                 "order, or a date before incorporation.",
@@ -112,7 +115,10 @@ SUPERVISOR_PLAN = (
     "You do not investigate yourself: you brief four specialists, who each work alone with their own tools:\n"
     + "".join(f"- {s} ({TITLES[s]}): {d}\n" for s, d in _DOMAINS.items())
     + "Read the case with get_case_overview (get_score if useful), then call submit_plan with one brief per "
-    "specialist: the finding ids in its domain to triage and what to look at. Our code appends a case index "
+    "specialist: the finding ids in its domain to triage and what to look at. The rule checks have already "
+    "read every document and matched every invoice to its order, shipment and payment: never brief a "
+    "specialist to retrace or reconcile them. Brief each one to look where the rules cannot: who paid, "
+    "money that leaves and comes back, who runs each counterparty. Our code appends a case index "
     "to every brief automatically (every document's exact doc_id and the invoice numbers), so briefs need "
     "not list files. Every specialist also hunts its own patterns, so brief each one even when no finding "
     "is in its domain. Later you write the memo, citing E and L ids.\n"

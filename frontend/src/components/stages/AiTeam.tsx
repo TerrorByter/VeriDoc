@@ -3,10 +3,10 @@ import { flushSync } from "react-dom";
 import { AGENT_TITLE, duration, SPECIALISTS, usd } from "../../catalogue";
 import type { AgentName, Evidence, ReviewPoint, ViewTarget } from "../../types";
 import type { StageProps } from "../workspace/StageDetail";
-import { aiLeads, clearChecks, observations, ruleConfirmed, suspicions } from "../workspace/stageStatus";
+import { aiLeads, clearChecks, explainedFindings, observations, ruleConfirmed, suspicions, triaged } from "../workspace/stageStatus";
 import { ErrorNote } from "../ui";
 import { findingTarget } from "./Findings";
-import { CollapsedLeads, KeptLeads, RuleConfirmations, Suspicions, WithheldLeads } from "./ai-team/Leads";
+import { CollapsedLeads, Headline, LeadList, ReviewedFindings, reviewedFindings, WithheldLeads, WithheldPoints } from "./ai-team/Leads";
 import { Trace } from "./ai-team/Trace";
 import { Fold, OffNote, Section } from "./common";
 
@@ -46,13 +46,14 @@ function Points({ points, evidence, onView }: {
   );
 }
 
-/** The Agents stage: what the AI agent team found and what the Supervisor wrote, first; then how the team got
- * there, folded: its plan, every tool call, and the leads the verifier could not turn into flags. Nothing here
- * feeds the score or the route. */
+/** The Agents stage, in the order an analyst asks: what did the AI add beyond the rules (issues code confirmed),
+ * what did it make of the rules' own findings, what is worth checking by hand, and what would it ask the
+ * applicant that the request does not already ask. How the team got there is one fold below. Nothing here feeds
+ * the score or the route. */
 export function AiTeam({ kase, onView }: StageProps) {
   const [agent, setAgent] = useState<AgentName>("supervisor");
   const [focus, setFocus] = useState<string | null>(null);
-  const [traceOpen, setTraceOpen] = useState(false);
+  const [auditOpen, setAuditOpen] = useState(false);
   const team = kase.ai_team;
 
   if (!team) {
@@ -65,23 +66,29 @@ export function AiTeam({ kase, onView }: StageProps) {
 
   const report = kase.stages.find((s) => s.stage_id === "ai_team");
   const cost = kase.cost?.usd_by_stage.ai_team;
-  const leads = aiLeads(kase);
-  const clear = clearChecks(kase);
+  const issues = aiLeads(kase);
+  const reviewed = reviewedFindings(triaged(kase), ruleConfirmed(kase), explainedFindings(kase));
+  const verdicts = { explained: 0, innocent: 0, unsure: 0, agrees: 0 };
+  reviewed.forEach((r) => { verdicts[r.verdict] += 1; });
   const suspected = suspicions(kase);
-  const unchecked = observations(kase);
-  const confirmed = ruleConfirmed(kase);
+  const unsettled = observations(kase);
+  const clear = clearChecks(kase);
   const withheld = team.leads.filter((l) => l.outcome === "withheld");
   const memo = team.memo;
-  /** The team's note when the Supervisor ended without calling submit_memo */
-  const noMemo = team.notes.includes("supervisor: no memo submitted");
+  /** Questions the request does not already ask: one resting only on findings it asks about adds nothing */
+  const asked = new Set(kase.asked_findings ?? []);
+  const questions = (memo?.questions ?? []).filter((q) => !q.evidence_ids.length || !q.evidence_ids.every((id) => asked.has(id)));
+  const repeated = (memo?.questions.length ?? 0) - questions.length;
+  /** Memo observations that tie leads together; ones citing only rule findings restate them */
+  const links = (memo?.observations ?? []).filter((o) => o.evidence_ids.some((id) => id.startsWith("L")));
   const leadProps = { evidence: kase.evidence, subjects: kase.subjects, onView };
 
-  /** Jump to a cited call: open the trace, switch to its agent's tab, scroll to the row. */
+  /** Jump to a cited call: open the audit trail, switch to its agent's tab, scroll to the row. */
   const cite = (callId: string) => {
     const call = team.tool_calls.find((c) => c.call_id === callId);
     if (!call) return;
     flushSync(() => {
-      setTraceOpen(true);
+      setAuditOpen(true);
       setAgent(call.agent);
       setFocus(callId);
     });
@@ -90,7 +97,7 @@ export function AiTeam({ kase, onView }: StageProps) {
 
   return (
     <>
-      <Section title="What the investigation found" primary aside="AI leads are proposals; none changes the score">
+      <Section title="What the AI team added" primary aside="Nothing here changes the score or the route">
         {team.status === "failed" && (
           <ErrorNote>
             {(team.error ?? "The AI team failed").replace(/\.$/, "")}. The rule findings, score and route are complete
@@ -99,48 +106,45 @@ export function AiTeam({ kase, onView }: StageProps) {
         )}
         {team.status === "ran" && (
           <>
-            <KeptLeads leads={leads} withheld={withheld.length} unchecked={unchecked.length + clear.length}
-              confirmed={confirmed.length} suspected={suspected.length} onCite={cite} {...leadProps} />
-            {confirmed.length > 0 && <RuleConfirmations leads={confirmed} evidence={kase.evidence} />}
-            {suspected.length > 0 && <Suspicions leads={suspected} onCite={cite} {...leadProps} />}
+            <Headline issues={issues.length} reviewed={verdicts} suspected={suspected.length}
+              refused={withheld.length + team.tool_calls.filter((c) => c.tool === "record_lead" && c.error).length} />
+            {issues.length > 0 && (
+              <>
+                <h4 className="memo-head">Issues the rules missed <span className="muted small">(each confirmed by code from the documents)</span></h4>
+                <LeadList leads={issues} onCite={cite} {...leadProps} />
+                {links.length > 0 && <Points points={links} evidence={kase.evidence} onView={onView} />}
+              </>
+            )}
+            {reviewed.length > 0 && (
+              <>
+                <h4 className="memo-head">Rule findings it reviewed <span className="muted small">(the rule's flag and score stand whatever the AI says)</span></h4>
+                <ReviewedFindings rows={reviewed} evidence={kase.evidence} signals={kase.signals} onView={onView} />
+              </>
+            )}
+            {suspected.length > 0 && (
+              <>
+                <h4 className="memo-head">Worth checking by hand <span className="muted small">(the AI's suspicions no code check could confirm: never a flag, a question or the score)</span></h4>
+                <LeadList leads={suspected} onCite={cite} {...leadProps} />
+              </>
+            )}
+            {questions.length > 0 && (
+              <>
+                <h4 className="memo-head">Questions for the applicant <span className="muted small">(drafts for the analyst to approve; they join the request)</span></h4>
+                <Points points={questions} evidence={kase.evidence} onView={onView} />
+              </>
+            )}
+            {repeated > 0 && (
+              <p className="muted small">
+                {repeated === 1 ? "1 more question was" : `${repeated} more questions were`} left out: the request
+                already asks about {repeated === 1 ? "that finding" : "those findings"}.
+              </p>
+            )}
           </>
         )}
       </Section>
 
-      {team.status === "ran" && (
-        <Section
-          title="Case memo"
-          primary
-          aside={memo && memo.withheld > 0 ? `${memo.withheld} unsupported point${memo.withheld === 1 ? "" : "s"} withheld` : "Drafted by the Supervisor from the leads above"}
-        >
-          {memo && (memo.observations.length > 0 || memo.questions.length > 0) ? (
-            <>
-              {memo.observations.length > 0 && (
-                <>
-                  <h4 className="memo-head">Observations</h4>
-                  <Points points={memo.observations} evidence={kase.evidence} onView={onView} />
-                </>
-              )}
-              {memo.questions.length > 0 && (
-                <>
-                  <h4 className="memo-head">Questions for the applicant <span className="muted small">(drafts for the analyst to approve)</span></h4>
-                  <Points points={memo.questions} evidence={kase.evidence} onView={onView} />
-                </>
-              )}
-            </>
-          ) : (
-            <p className="muted">
-              {noMemo
-                ? "The Supervisor submitted no memo."
-                : memo && memo.withheld > 0
-                  ? "Every memo point was withheld by the verifier."
-                  : "The Supervisor's memo had no points."}
-            </p>
-          )}
-        </Section>
-      )}
-
-      <Fold title="How the team got here" aside={`${team.tool_calls.length} tool calls${report ? `, ${duration(report.duration_ms)}` : ""}${cost ? `, ${usd(cost, 4)}` : ""}`}>
+      <Fold title="How the team worked" open={auditOpen} onToggle={setAuditOpen}
+        aside={`${team.tool_calls.length} steps${report ? `, ${duration(report.duration_ms)}` : ""}${cost ? `, US${usd(cost, 2)}` : ""}`}>
         <dl className="facts">
           <div><dt>Supervisor model</dt><dd className="mono">{team.models.supervisor ?? "—"}</dd></div>
           <div><dt>Specialist model</dt><dd className="mono">{team.models.specialist ?? "—"}</dd></div>
@@ -161,35 +165,30 @@ export function AiTeam({ kase, onView }: StageProps) {
                 </li>
               ))}
             </ul>
+            <h4 className="memo-head">Every step <span className="muted small">(read-only tools; full results stay on the server)</span></h4>
+            <Trace calls={team.tool_calls} agent={agent} focus={focus} onAgent={setAgent} onView={onView} />
+            {clear.length > 0 && (
+              <>
+                <h4 className="memo-head">Checks that came back clear <span className="muted small">(a record of what was looked at, not a flag)</span></h4>
+                <CollapsedLeads noun="clear check" leads={clear} onCite={cite} {...leadProps} />
+              </>
+            )}
+            {unsettled.length > 0 && (
+              <>
+                <h4 className="memo-head">Could not settle <span className="muted small">(never a flag or a question)</span></h4>
+                <CollapsedLeads noun="unsettled observation" leads={unsettled} onCite={cite} {...leadProps} />
+              </>
+            )}
+            {(withheld.length > 0 || (memo?.withheld ?? 0) > 0) && (
+              <>
+                <h4 className="memo-head">Withheld by the verifier <span className="muted small">(kept on the record with the reason)</span></h4>
+                {withheld.length > 0 && <WithheldLeads leads={withheld} />}
+                {memo && memo.withheld > 0 && <WithheldPoints points={memo.withheld_points ?? []} count={memo.withheld} />}
+              </>
+            )}
           </>
         )}
       </Fold>
-
-      {team.status === "ran" && (
-        <>
-          <Fold title="Investigation trace" aside="Read-only tools; full results stay on the server" open={traceOpen} onToggle={setTraceOpen}>
-            <Trace calls={team.tool_calls} agent={agent} focus={focus} onAgent={setAgent} onView={onView} />
-          </Fold>
-
-          {unchecked.length > 0 && (
-            <Fold title="AI observations, not checked" aside="No code check could establish these: never a flag or a question">
-              <CollapsedLeads noun="observation" leads={unchecked} onCite={cite} {...leadProps} />
-            </Fold>
-          )}
-
-          {clear.length > 0 && (
-            <Fold title="Checks that came back clear" aside="A record of what was checked, not a flag">
-              <CollapsedLeads noun="clear check" leads={clear} onCite={cite} {...leadProps} />
-            </Fold>
-          )}
-
-          {withheld.length > 0 && (
-            <Fold title="Withheld by the verifier" aside="Kept on the record with the reason">
-              <WithheldLeads leads={withheld} />
-            </Fold>
-          )}
-        </>
-      )}
     </>
   );
 }

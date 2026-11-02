@@ -693,6 +693,11 @@ a, .link { text-underline-offset: 3px; }
 /* ---- Review and audit ------------------------------------------------ */
 .review-points { list-style: none; margin: 0; padding: 0; display: grid; border-bottom: 1px solid var(--border); }
 .review-points li { display: flex; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid var(--border); }
+/* The rule findings the AI reviewed: one row each, the verdict beside the finding, the reason beneath */
+.reviewed { list-style: none; margin: 0; padding: 0; display: grid; border-bottom: 1px solid var(--border); }
+.reviewed li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 16px; padding: 10px 0; border-top: 1px solid var(--border); }
+.reviewed-reason { grid-column: 1 / -1; overflow-wrap: anywhere; }
+@media (max-width: 560px) { .reviewed li { grid-template-columns: minmax(0, 1fr); } }
 .audit { list-style: none; margin: 0; padding: 0; display: grid; }
 .audit li { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 16px; padding: 9px 0; border-bottom: 1px solid var(--border); }
 .audit li:last-child { border-bottom: 0; }

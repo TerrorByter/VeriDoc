@@ -552,6 +552,23 @@ def test_parties_let_kyc_find_a_shared_officer(related_party_result: CaseResult,
     assert _run("supervisor", "get_case_overview", {}, case)["parties"] == parties  # so it can brief KYC
 
 
+def test_a_register_result_names_the_counterparty_so_a_related_party_lead_can_cite_it(
+        related_party_result: CaseResult) -> None:
+    case, ledger = _data(related_party_result), Ledger()
+    seabright = next(p for p in _run("kyc", "get_parties", {}, case)["counterparties"]
+                     if p["name"] == "Seabright Provisions Pte. Ltd.")
+    found = _run("kyc", "registry_lookup", {"name": seabright["name"]}, case, ledger)  # R01
+    assert found["counterparty"] == seabright["id"] and "applicant" not in found
+    manifest = case.pack.manifest
+    assert manifest is not None
+    assert _run("kyc", "registry_lookup", {"uen": manifest.uen}, case, ledger)["applicant"] is True  # R02
+    # The lead cites only the register result it rests on; before, its subject was in no result it could cite
+    lead = _lead_args(pattern="related_party", counterparty=seabright["id"],
+                      hypothesis="Seabright Provisions shares an officer with the applicant",
+                      tests=[{"cites": ["R01"], "expected": "no officer in common", "observed": "Daniel Brooks"}])
+    assert _run("kyc", "record_lead", lead, case, ledger)["lead_id"] == "L01"
+
+
 def test_registry_and_sanctions_lookups(clean: CaseData) -> None:
     by_name = _run("kyc", "registry_lookup", {"name": "Bayview Marine Supplies Pte Ltd"}, clean)
     assert by_name["uen"] == "201845678M" and by_name["status"] == "LIVE COMPANY"

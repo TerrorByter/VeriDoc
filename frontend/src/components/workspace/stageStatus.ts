@@ -14,29 +14,35 @@ const byCheck = (kase: CaseView, ...checks: string[]) =>
   kase.evidence.filter((e) => risky(e) && checks.includes(e.check_id));
 
 const keptLeads = (kase: CaseView) => kase.ai_team?.leads.filter((l) => l.outcome === "kept") ?? [];
+/** Kept pattern leads: the AI's hunts for what the rules cannot see */
+const patternLeads = (kase: CaseView) => keptLeads(kase).filter((l) => l.kind === "pattern");
 
 const verifiedByCode = (l: Lead) => l.evidence_status === "verified" || l.evidence_status === "corroborated";
 
 /** Flags: leads code verified or corroborated against the case data, other than ones that only confirm a rule finding */
 export const aiLeads = (kase: CaseView) =>
-  keptLeads(kase).filter((l) => verifiedByCode(l) && !l.check_facts.rule_finding);
+  patternLeads(kase).filter((l) => verifiedByCode(l) && !l.check_facts.rule_finding);
 
 /** Leads code verified that only confirm an existing rule finding: the rule's flag, not a second one */
 export const ruleConfirmed = (kase: CaseView) =>
-  keptLeads(kase).filter((l) => verifiedByCode(l) && l.check_facts.rule_finding);
+  patternLeads(kase).filter((l) => verifiedByCode(l) && l.check_facts.rule_finding);
 
-/** What the AI found but code could not establish: in front of the analyst to check by hand, never a flag,
+/** The AI's judgement of rule findings (triage): whether each stands or has an ordinary explanation. No code
+ * checks a judgement, so it is a review of the rule's flag, never a flag or a suspicion of its own */
+export const triaged = (kase: CaseView) => keptLeads(kase).filter((l) => l.kind === "triage");
+
+/** Patterns the AI found but code could not establish: in front of the analyst to check by hand, never a flag,
  * a question or a score */
 export const suspicions = (kase: CaseView) =>
-  keptLeads(kase).filter((l) => l.evidence_status === "unverified" && l.investigation_status === "supported");
+  patternLeads(kase).filter((l) => l.evidence_status === "unverified" && l.investigation_status === "supported");
 
-/** What the AI could not settle and code could not establish: on the record, never a flag or a question */
+/** Patterns the AI could not settle and code could not establish: on the record, never a flag or a question */
 export const observations = (kase: CaseView) =>
-  keptLeads(kase).filter((l) => l.evidence_status === "unverified" && l.investigation_status === "unresolved");
+  patternLeads(kase).filter((l) => l.evidence_status === "unverified" && l.investigation_status === "unresolved");
 
-/** Checks that came back clear, by the agent's own tests or by code: a record, never a flag */
+/** Patterns checked and found clear, by the agent's own tests or by code: a record, never a flag */
 export const clearChecks = (kase: CaseView) =>
-  keptLeads(kase).filter((l) => l.evidence_status === "contradicted"
+  patternLeads(kase).filter((l) => l.evidence_status === "contradicted"
     || (l.evidence_status === "unverified" && l.investigation_status === "refuted"));
 
 /** Rule findings (not info) code explained: no action for the analyst, still on the record */

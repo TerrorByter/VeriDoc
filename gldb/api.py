@@ -73,7 +73,7 @@ from gldb.config import (
     UPLOADS_DIR,
 )
 from gldb.evaluate import Report, load_saved
-from gldb.rfi import RequestDraft, draft_request
+from gldb.rfi import RequestDraft, asked_findings, draft_request
 from gldb.scoring import HARD_RULE_IDS
 from gldb.extract_llm import ExtractionError
 from gldb.feedback import CheckFeedback, report
@@ -164,6 +164,8 @@ class CaseView(BaseModel):
     signals: dict[str, Signal]
     #: Bank rows (T01...), invoice numbers and counterparties (P01...) -> the document page they are on
     subjects: dict[str, DocRef]
+    #: Findings the request to the applicant already asks about: an AI question resting only on them adds nothing
+    asked_findings: list[str] = []
 
 
 class RunStarted(BaseModel):
@@ -341,6 +343,7 @@ def _view(result: CaseResult) -> CaseView:
         cost=usage.case_cost(result.case_id),
         signals={e.check_id: signal_for(e.check_id) for e in result.evidence},
         subjects={k: DocRef(doc_id=doc, page=page) for k, (doc, page) in subject_locations(result.pack).items()},
+        asked_findings=sorted(asked_findings(result)),
     )
 
 

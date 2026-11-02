@@ -119,3 +119,17 @@ def test_a_signatory_outside_acra_is_asked_for_a_mandate() -> None:
     """A demo pack whose form is signed by someone who is not an ACRA officer."""
     texts = _items(_case(DEMO / "identity_mismatch"))
     assert any("mandate authorising" in t for t in texts)
+
+
+def test_an_ai_question_about_what_the_request_already_asks_is_left_out() -> None:
+    """The incomplete pack's request already asks for the missing statements: an AI question resting only on
+    that finding would ask the applicant twice."""
+    result = _case(DEMO / "incomplete")
+    asked = rfi.asked_findings(result)
+    coverage = next(e.evidence_id for e in result.evidence if e.check_id == "BANK_COVERAGE")
+    assert coverage in asked
+    again = ReviewPoint(text="Can you provide the bank statements for April to June?", evidence_ids=[coverage])
+    new = ReviewPoint(text="Who is Harbourline Logistics to your buyer?", evidence_ids=[coverage, "L01"])
+    with_ai = result.model_copy(update={"ai_team": AgentTeam(status="ran", memo=Memo(questions=[again, new]))})
+    assert rfi.draft_request(with_ai).questions == [new.text]
+    assert not rfi.adds_to_request(again, asked) and rfi.adds_to_request(new, asked)

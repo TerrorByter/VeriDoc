@@ -691,43 +691,63 @@ def get_request_draft(case_id: str) -> RequestDraft:
 
 
 @app.get("/api/cases/{case_id}/evidence/{evidence_id}/location")
-def get_evidence_location(case_id: str, evidence_id: str) -> EvidenceLocation:
+def get_evidence_location(case_id: str, evidence_id: str, row: int | None = None) -> EvidenceLocation:
     """Where a finding is: its document and page, and boxes around its quote
-    (or, without a quote, its observed value) when the page has a text layer."""
+    (or, without a quote, its observed value) when the page has a text layer.
+    A finding with rows boxes each of its rows on its page; *row* (0-based)
+    points to that one row instead, on its own page."""
     result = _load(case_id)
     ev = next((e for e in result.evidence if e.evidence_id == evidence_id), None)
-    if ev is None:
+    if ev is None or (row is not None and not 0 <= row < len(ev.rows)):
         raise HTTPException(404, "Evidence not found")
     if ev.document == PACK_DOC:
         return EvidenceLocation(evidence_id=evidence_id, doc_id=PACK_DOC, page=0,
                                 page_count=0, highlighted=None, boxes=[])
-    path, doc = _document(result, ev.document, ev.page)
-    highlighted, boxes = _placed(ev, path, _ocr_lines(result.case_id, doc.doc_id, ev.page))
-    return EvidenceLocation(evidence_id=evidence_id, doc_id=doc.doc_id, page=ev.page,
+    page = ev.page if row is None else ev.rows[row].page
+    path, doc = _document(result, ev.document, page)
+    highlighted, boxes = _placed(_spots(ev, page, row), path, page, _ocr_lines(result.case_id, doc.doc_id, page))
+    return EvidenceLocation(evidence_id=evidence_id, doc_id=doc.doc_id, page=page,
                             page_count=doc.page_count, highlighted=highlighted, boxes=boxes)
 
 
-def _placed(ev: Evidence, path: Path, lines: list[OcrLine]) -> tuple[str | None, list[Box]]:
-    """The text of *ev* found on its page and the boxes around it: its quote,
-    else its observed value; (None, []) when neither can be placed."""
-    for text in (ev.quote, ev.observed):
-        if text and (boxes := locate(path, ev.page, text, lines)):
-            return text, boxes
-    return None, []
+def _spots(ev: Evidence, page: int, row: int | None = None) -> list[tuple[str | None, str | None]]:
+    """The (quote, observed) of *ev* to box on *page*: each of its rows on
+    that page (or row *row* alone), else its own when the page is its page."""
+    if ev.rows:
+        rows = ev.rows if row is None else [ev.rows[row]]
+        return [(r.quote, r.observed) for r in rows if r.page == page]
+    return [(ev.quote, ev.observed)] if ev.page == page else []
+
+
+def _placed(spots: list[tuple[str | None, str | None]], path: Path, page: int,
+            lines: list[OcrLine]) -> tuple[str | None, list[Box]]:
+    """The boxes around each spot on *page* (its quote, else its observed
+    value) and the first text placed; (None, []) when none can be placed."""
+    highlighted: str | None = None
+    boxes: list[Box] = []
+    for spot in spots:
+        for text in spot:
+            if text and (found := locate(path, page, text, lines)):
+                highlighted = highlighted or text
+                boxes += found
+                break
+    return highlighted, boxes
 
 
 @app.get("/api/cases/{case_id}/documents/{doc_id}/pages/{page}/findings")
 def get_page_findings(case_id: str, doc_id: str, page: int) -> list[PageFinding]:
     """Every finding on one page that is not information only, most severe
-    first, each with boxes around its text: the forensic overlay."""
+    first, each with boxes around its text: the forensic overlay. A finding
+    with rows is on every page one of its rows is."""
     result = _load(case_id)
     path, _ = _document(result, doc_id, page)
     lines = _ocr_lines(result.case_id, doc_id, page)
-    on_page = sorted((e for e in result.evidence if (e.document, e.page) == (doc_id, page) and e.severity != "info"),
-                     key=lambda e: -SEVERITY_WEIGHTS[e.severity])
+    on_page = sorted(((e, spots) for e in result.evidence
+                      if e.document == doc_id and e.severity != "info" and (spots := _spots(e, page))),
+                     key=lambda found: -SEVERITY_WEIGHTS[found[0].severity])
     return [PageFinding(evidence_id=e.evidence_id, check_id=e.check_id, title=signal_for(e.check_id).name,
                         severity=e.severity, explanation=e.explanation, observed=e.observed,
-                        boxes=_placed(e, path, lines)[1]) for e in on_page]
+                        boxes=_placed(spots, path, page, lines)[1]) for e, spots in on_page]
 
 
 @app.get("/api/feedback")

@@ -71,6 +71,15 @@ BANK_RECENCY_DAYS: int = 45
 #: sample's are SGD millions. Assumption: to be confirmed with GLDB.
 ACRA_FIGURES_UNIT: Decimal = Decimal("1000000")
 
+#: When at least this many figures differ from ACRA's and all by one factor
+#: (within ACRA's rounding), the finding names the factor: one factor across
+#: a whole statement is scaling, not a slip of the pen. Two can share a
+#: factor by chance.
+ACRA_COMMON_FACTOR_MIN_FIGURES: int = 3
+#: A common factor of these (within 1%) is a units slip, thousands written
+#: for dollars or the reverse: a question about presentation, not falsified figures
+ACRA_UNITS_FACTORS: tuple[Decimal, ...] = (Decimal("1000"), Decimal("0.001"))
+
 #: Words in a bank description (lower case) that mark money borrowed, debt
 #: repaid, interest paid and the lender, and credits that are not sales.
 #: Assumptions: the bank's own transaction codes would be better.

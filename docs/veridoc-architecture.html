@@ -393,7 +393,7 @@
         <dt>Does</dt>
         <dd>Checks each file is a real PDF under 10 MB, computes its SHA-256, reads the metadata (producer, creation and modification dates) and the text of each page, then classifies the document from page one: invoice, bank statement, purchase order, bill of lading, FATCA/CRS form and so on.</dd>
         <dt>For</dt>
-        <dd>Junk is rejected before it costs anything. The hash lets the audit log prove exactly which files a decision rested on. The metadata feeds the tamper checks (edited long after creation, a different producer from the rest of the pack). The type decides which parser and checks apply, and a document it cannot classify is marked unknown, which later forces a human review.</dd>
+        <dd>Junk is rejected before it costs anything. The hash lets the audit log prove exactly which files a decision rested on. The metadata feeds the tamper checks (edited long after creation, a different producer from the issuer's other documents). The type decides which parser and checks apply, and a document it cannot classify is marked unknown, which later forces a human review.</dd>
         <dt>In → out</dt>
         <dd>Uploaded files → a record per document: type, hash, metadata, text.</dd>
       </dl>
@@ -571,7 +571,7 @@
   <div class="tbl"><table>
     <thead><tr><th>Rule group</th><th class="n">Checks</th><th>What it catches</th></tr></thead>
     <tbody>
-      <tr><td><strong>Document Integrity</strong></td><td class="n">6</td><td>Invoice arithmetic, bank running balance and continuity, financial-statement balance, a PDF modified long after creation, and a producer that differs from the rest of the pack (compared only within one document type).</td></tr>
+      <tr><td><strong>Document Integrity</strong></td><td class="n">6</td><td>Invoice arithmetic, bank running balance and continuity, financial-statement balance, a PDF modified long after creation, and a producer that differs from the same issuer's other documents of that type (each company makes its documents with its own software, so different issuers are never compared).</td></tr>
       <tr><td><strong>Forensics</strong></td><td class="n">5</td><td>Hidden text (white, tiny or off-page, where injected instructions live), a figure whose digits mix fonts, a PDF re-saved after creation, visible figures that differ from the text layer, and instructions aimed at an AI model.</td></tr>
       <tr><td><strong>Cross-Document</strong></td><td class="n">4</td><td>Identity (UEN and names) across documents, invoice against bank credit, invoice against purchase order, invoice against bill of lading.</td></tr>
       <tr><td><strong>Registry &amp; Screening</strong></td><td class="n">3</td><td>Companies and signatories against the company register, and names against the sanctions list (similarity threshold 0.90).</td></tr>

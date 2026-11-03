@@ -110,8 +110,11 @@ export const LEAD_STATUS_LABEL: Record<Lead["kind"], Record<InvestigationStatus,
 
 /** What code established, as the analyst reads it */
 export const EVIDENCE_LABEL: Record<EvidenceStatus, { label: string; title: string }> = {
-  verified: { label: "Verified by code", title: "A code check of the case data holds" },
-  corroborated: { label: "Corroborated", title: "Verified by code, and an independent rule source agrees" },
+  verified: {
+    label: "Facts confirmed by code",
+    title: "Code re-read the bank lines and records this rests on, and they say what the AI claims. The rule checks do not look for this pattern.",
+  },
+  corroborated: { label: "Corroborated", title: "Facts confirmed by code, and a rule finding on the same documents agrees" },
   unverified: { label: "Not checked", title: "No code check could establish it: the AI's cited evidence only" },
   contradicted: { label: "Contradicted by code", title: "A code check of the case data shows it does not hold" },
 };

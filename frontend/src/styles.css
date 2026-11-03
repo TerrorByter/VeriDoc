@@ -563,6 +563,19 @@ table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
   background: var(--sunken);
   overflow-wrap: anywhere;
 }
+.finding-rows { border-radius: var(--radius); }
+.finding-rows .data td, .finding-rows .data tbody th { padding: 6px 12px; border-bottom: 1px solid var(--border); }
+.finding-rows .data tbody th {
+  position: static;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  background: none;
+  white-space: nowrap;
+}
+.finding-rows .data tbody tr:last-child > * { border-bottom: 0; }
+.finding-rows .data td:last-child { text-align: right; white-space: nowrap; }
 .finding-meta { font-size: 12px; }
 .finding-strength { margin: 0; font-size: 13px; }
 .flag-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
@@ -677,6 +690,76 @@ table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
 .calm .icon { margin-top: 2px; color: var(--low); }
 .calm.check { border-color: color-mix(in hsl, var(--med) 35%, var(--border)); background: color-mix(in hsl, var(--med-soft) 55%, var(--surface)); }
 .calm.check .icon { color: var(--med); }
+.ai-headline > div { display: grid; gap: 4px; }
+.ai-headline p { margin: 0; }
+.ai-headline-lead { font-size: 15px; font-weight: 600; }
+
+/* AI issues: the event, why it matters, the lines it rests on, the question */
+.issues { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.issue {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid color-mix(in hsl, var(--crit) 28%, var(--border));
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  transition: box-shadow 0.15s;
+}
+.issue:hover { box-shadow: 0 1px 0 var(--border), 0 4px 14px -10px color-mix(in hsl, var(--crit) 60%, transparent); }
+.issue-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.issue-title { margin: 0; font-size: 16px; line-height: 1.4; font-weight: 600; text-wrap: pretty; }
+.issue-why { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 16px; margin: 0; font-size: 13px; }
+.issue-why dt { color: var(--muted); }
+.issue-why dd { margin: 0; }
+.issue-lines .data td, .issue-lines .data tbody th { padding: 7px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.issue-lines .data tbody tr:last-child > * { border-bottom: 0; }
+.issue-lines .data tbody th {
+  position: static;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  background: none;
+  white-space: nowrap;
+}
+.issue-lines .link { gap: 4px; white-space: nowrap; }
+.money-out { color: var(--crit); }
+.money-in { color: var(--low); }
+.issue-ask { display: grid; gap: 4px; padding: 10px 14px; border-radius: var(--radius); background: var(--brand-soft); }
+.issue-ask p { margin: 0; font-size: 13px; }
+.issue-ask-label { font-size: 12px; font-weight: 600; color: var(--brand); }
+.issue-working { display: grid; gap: 8px; padding: 12px 14px; border: 1px dashed var(--border-strong); border-radius: var(--radius); }
+
+/* Suspicions: one line each, the lead a click away */
+.suspicions { list-style: none; margin: 0; padding: 0; display: grid; min-width: 0; border-bottom: 1px solid var(--border); }
+.suspicions > li, .suspicions details { min-width: 0; }
+.suspicions > li { border-top: 1px solid var(--border); }
+.suspicions summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 6px 4px;
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--radius);
+  transition: background 0.12s;
+}
+.suspicions summary::-webkit-details-marker { display: none; }
+.suspicions summary:hover { background: var(--sunken); }
+.suspicions summary .icon { flex: none; color: var(--muted); transition: transform 0.15s; }
+.suspicions details[open] > summary .icon { transform: rotate(90deg); }
+.suspicions details[open] > .leads { padding: 4px 0 12px; }
+.suspicion-kind { flex: none; font-size: 12px; font-weight: 600; }
+.suspicion-text { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; }
+.suspicion-agent { flex: none; }
+@media (max-width: 560px) {
+  .issue-why { grid-template-columns: minmax(0, 1fr); }
+  .suspicion-agent { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .issue, .suspicions summary, .suspicions summary .icon { transition: none; }
+}
 .finding.explained { border-style: dashed; border-color: var(--border-strong); background: transparent; }
 .explained-why { display: flex; align-items: flex-start; gap: 8px; font-weight: 500; }
 .explained-why .icon { margin-top: 2px; color: var(--low); }

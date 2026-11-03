@@ -15,6 +15,17 @@ export interface Evidence {
   observed: string | null;
   method: "deterministic" | "llm";
   explanation: string;
+  /** The figures behind it, when one finding stands for several; its own page and quote are the first row's */
+  rows?: EvidenceRow[];
+}
+
+export interface EvidenceRow {
+  label: string;
+  page: number;
+  quote: string | null;
+  expected: string | null;
+  observed: string | null;
+  ratio: string | null;
 }
 
 export interface DocMeta {
@@ -175,6 +186,8 @@ export interface ViewTarget {
   docId: string;
   page: number;
   evidenceId?: string;
+  /** One row of the finding (0-based), shown alone on its own page */
+  row?: number;
 }
 
 /** Findings about the application data have no document page */

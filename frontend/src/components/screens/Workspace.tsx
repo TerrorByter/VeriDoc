@@ -104,7 +104,7 @@ export function Workspace({ caseId, stage }: { caseId: string; stage: RailStageI
         />
         {target && (
           <DocumentPane
-            key={`${target.docId}-${target.page}-${target.evidenceId ?? ""}`}
+            key={`${target.docId}-${target.page}-${target.evidenceId ?? ""}-${target.row ?? ""}`}
             caseId={kase.case_id}
             docs={kase.docs}
             target={target}

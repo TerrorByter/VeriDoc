@@ -241,7 +241,8 @@ def _findings(case: CaseData, doc_id: str | None = None) -> list[dict[str, Any]]
     return [
         {"id": e.evidence_id, "check": e.check_id, "severity": e.severity, "document": e.document,
          "page": e.page, "rule_group": e.rule_group, "explanation": e.explanation, "expected": e.expected,
-         "observed": e.observed}
+         "observed": e.observed,
+         **({"rows": [r.model_dump(exclude={"quote"}) for r in e.rows]} if e.rows else {})}
         for e in case.risky
         if doc_id in (None, e.document)
     ]

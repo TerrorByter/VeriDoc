@@ -33,10 +33,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from gldb.config import GST_RATE, money
-from gldb.data_factory import BL_SHIP_DAYS_BEFORE_INVOICE, PO_LEAD_DAYS, PRODUCER_REPORTLAB, _set_metadata, _sgt
+from gldb.data_factory import BL_SHIP_DAYS_BEFORE_INVOICE, PO_LEAD_DAYS, _set_metadata, _sgt
 from gldb.invoice_pdf import InvoiceSheet, items_for_total, render_invoice
 from gldb.schemas import Transaction
 from gldb.trade_pdf import (
+    CARRIER,
     BillOfLadingSheet,
     DeliveryOrderSheet,
     OrderSheet,
@@ -246,30 +247,65 @@ def plan(seller: Seller, rows: list[Transaction], partners: tuple[Partner, ...],
     return [by_partner[trade.partner.name] for trade in trades]
 
 
-def _stamp(path: Path, day: date) -> None:
-    """Make *path* look made on *day*: created and last saved that day, and never again."""
-    _set_metadata(path, PRODUCER_REPORTLAB, _sgt(day), _sgt(day))
+#: The software companies make their documents with, as a PDF's Producer
+#: names it. Each issuer uses one (see _software), as a real company's
+#: accounts or ERP system does, so documents from different companies differ.
+ISSUER_SOFTWARE: tuple[str, ...] = (
+    "Microsoft: Print To PDF",
+    "Microsoft® Word for Microsoft 365",
+    "Xero",
+    "QuickBooks Online",
+    "Oracle BI Publisher 12.2.1.4.0",
+    "SAP NetWeaver 7.50",
+    "Sage 300 2024",
+    "Odoo",
+    "macOS Version 14.5 (Build 23F79) Quartz PDFContext",
+    "Skia/PDF m126",
+)
+#: Office hours a document is made in: from this hour, for this many minutes
+WORKDAY_START_HOUR = 8
+WORKDAY_MINUTES = 10 * 60
+
+
+def _pick(key: str, n: int) -> int:
+    """A stable choice among *n* for *key*: the same on every run and machine."""
+    return int(hashlib.sha256(key.encode()).hexdigest(), 16) % n
+
+
+def _software(issuer: str) -> str:
+    """The software *issuer* makes its documents with."""
+    return ISSUER_SOFTWARE[_pick(issuer, len(ISSUER_SOFTWARE))]
+
+
+def _stamp(path: Path, issuer: str, number: str, day: date) -> None:
+    """Make *path* look made by *issuer* on *day*: with its own software, at a
+    time in office hours that is the document's own, and never saved again."""
+    minutes = _pick(number, WORKDAY_MINUTES)
+    made = _sgt(day, WORKDAY_START_HOUR + minutes // 60, minutes % 60)
+    _set_metadata(path, _software(issuer), made, made)
 
 
 def write(folder: Path, trade: Trade) -> None:
-    """Write a trade's invoice, order (unless none was issued) and shipping document into *folder*."""
+    """Write a trade's invoice, order (unless none was issued) and shipping
+    document into *folder*, each made by the company whose letterhead it is on."""
     invoice = trade.invoice
     path = folder / f"invoice_{invoice.number}.pdf"
     render_invoice(path, invoice)
-    _stamp(path, invoice.issued)
+    _stamp(path, invoice.seller, invoice.number, invoice.issued)
     if trade.ordered:
-        path = folder / f"purchase_order_{trade.order.number}.pdf"
-        render_purchase_order(path, trade.order)
-        _stamp(path, trade.order.issued)
+        order = trade.order
+        path = folder / f"purchase_order_{order.number}.pdf"
+        render_purchase_order(path, order)
+        _stamp(path, order.buyer, order.number, order.issued)
     shipment = trade.shipment
     if isinstance(shipment, DeliveryOrderSheet):
         path = folder / f"delivery_order_{shipment.number}.pdf"
         render_delivery_order(path, shipment)
-        _stamp(path, shipment.delivered)
+        _stamp(path, shipment.supplier, shipment.number, shipment.delivered)
     else:
         path = folder / f"bill_of_lading_{shipment.number}.pdf"
         render_bill_of_lading(path, shipment)
-        _stamp(path, shipment.shipped)
+        _stamp(path, CARRIER, shipment.number, shipment.shipped)
 
 
 def acra_record(supplier: Partner) -> dict[str, Any]:

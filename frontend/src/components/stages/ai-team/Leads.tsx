@@ -1,6 +1,6 @@
 import { Fragment } from "react";
-import { AGENT_TITLE, EVIDENCE_LABEL, FACT_LABEL, LEAD_STATUS_LABEL, PATTERN_LABEL } from "../../../catalogue";
-import type { DocRef, Evidence, EvidenceStatus, Lead, ViewTarget, WithheldPoint } from "../../../types";
+import { AGENT_TITLE, EVIDENCE_LABEL, FACT_LABEL, LEAD_STATUS_LABEL, PATH_LABEL, PATTERN_LABEL } from "../../../catalogue";
+import type { DocRef, Evidence, EvidenceStatus, GateDecision, Lead, ReviewPath, ViewTarget, WithheldPoint } from "../../../types";
 import { Icon, LEAD_STATUS_TONE, Pill, type IconName, type Tone } from "../../ui";
 import { findingTarget } from "../Findings";
 
@@ -44,13 +44,15 @@ const factLabel = (key: string) => FACT_LABEL[key] ?? key.replace(/_/g, " ").rep
 const MONO_FACTS = new Set(["invoice", "transaction", "amount", "date", "register_uen", "purchase_order", "shipped",
   "payment", "incorporated", "rule_finding", "corroborated_by"]);
 
+/** "SGD 1,946,464.82" from "1946464.82" */
+export const sgdAmount = (value: string) =>
+  `SGD ${Number(value).toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 const factValue = (key: string, value: string) =>
-  key === "amount" && value.trim() !== "" && !Number.isNaN(Number(value))
-    ? `SGD ${Number(value).toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-    : value;
+  key === "amount" && value.trim() !== "" && !Number.isNaN(Number(value)) ? sgdAmount(value) : value;
 
 /** The facts a code check read, as a ruled ledger. */
-function Ledger({ facts }: { facts: Record<string, string> }) {
+export function Ledger({ facts }: { facts: Record<string, string> }) {
   return (
     <dl className="ledger">
       {Object.entries(facts).map(([key, value]) => (
@@ -102,7 +104,7 @@ function Refs({ label, ids, open }: { label: string; ids: string[]; open: (id: s
   );
 }
 
-interface LeadProps {
+export interface LeadProps {
   evidence: Evidence[];
   /** Bank rows, invoices and counterparties -> the page they are on */
   subjects: Record<string, DocRef>;
@@ -111,14 +113,44 @@ interface LeadProps {
   onView: (target: ViewTarget) => void;
 }
 
-/** One lead in two columns: what the agent proposed (its hypothesis and tests, in its own words) beside what code
- * established (the check, its facts and where they are in the documents). */
-function LeadCard({ lead, evidence, subjects, onCite, onView }: LeadProps & { lead: Lead }) {
+/** What the agent proposed, in its own words: its hypothesis, each test with the tool results it rests on, what
+ * it was missing and the findings it judged. */
+export function LeadClaim({ lead, evidence, onCite, onView }: Omit<LeadProps, "subjects"> & { lead: Lead }) {
   const openFinding = (id: string) => {
     const ev = evidence.find((e) => e.evidence_id === id);
     const target = ev && findingTarget(ev);
     return target ? () => onView(target) : null;
   };
+  return (
+    <div className="lead-claim">
+      <strong>{lead.hypothesis}</strong>
+      <span className="muted small">Proposal of the {AGENT_TITLE[lead.agent]}</span>
+      <ul className="lead-tests">
+        {lead.tests.map((t, i) => (
+          <li key={i}>
+            {t.expected && <><span className="muted small">Expected</span><span>{t.expected}</span></>}
+            <span className="muted small">Observed</span><span>{t.observed}</span>
+            <span className="lead-test-refs muted small">
+              <Refs label="Rests on" ids={t.cites} open={(id) => () => onCite(id)} />
+            </span>
+          </li>
+        ))}
+      </ul>
+      {lead.missing_evidence.length > 0 && (
+        <p className="small"><span className="muted">Missing evidence:</span> {lead.missing_evidence.join("; ")}</p>
+      )}
+      {lead.finding_ids.length > 0 && (
+        <p className="muted small">
+          <Refs label={lead.finding_ids.length === 1 ? "Finding" : "Findings"} ids={lead.finding_ids} open={openFinding} />
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** One lead in two columns: what the agent proposed (its hypothesis and tests, in its own words) beside what code
+ * established (the check, its facts and where they are in the documents). */
+export function LeadCard({ lead, evidence, subjects, onCite, onView }: LeadProps & { lead: Lead }) {
   return (
     <li className="lead" id={`lead-${lead.lead_id}`}>
       <div className="finding-top">
@@ -126,29 +158,7 @@ function LeadCard({ lead, evidence, subjects, onCite, onView }: LeadProps & { le
         <LeadTags lead={lead} />
       </div>
       <div className="lead-cols">
-        <div className="lead-claim">
-          <strong>{lead.hypothesis}</strong>
-          <span className="muted small">Proposal of the {AGENT_TITLE[lead.agent]}</span>
-          <ul className="lead-tests">
-            {lead.tests.map((t, i) => (
-              <li key={i}>
-                {t.expected && <><span className="muted small">Expected</span><span>{t.expected}</span></>}
-                <span className="muted small">Observed</span><span>{t.observed}</span>
-                <span className="lead-test-refs muted small">
-                  <Refs label="Rests on" ids={t.cites} open={(id) => () => onCite(id)} />
-                </span>
-              </li>
-            ))}
-          </ul>
-          {lead.missing_evidence.length > 0 && (
-            <p className="small"><span className="muted">Missing evidence:</span> {lead.missing_evidence.join("; ")}</p>
-          )}
-          {lead.finding_ids.length > 0 && (
-            <p className="muted small">
-              <Refs label={lead.finding_ids.length === 1 ? "Finding" : "Findings"} ids={lead.finding_ids} open={openFinding} />
-            </p>
-          )}
-        </div>
+        <LeadClaim lead={lead} evidence={evidence} onCite={onCite} onView={onView} />
         <aside className="lead-ledger" aria-label={`Established by code for ${lead.lead_id}`}>
           {lead.evidence_status && <StateMark status={lead.evidence_status} agent={lead.investigation_status} />}
           {lead.check_reason && <p className="small">{lead.check_reason}</p>}
@@ -160,11 +170,16 @@ function LeadCard({ lead, evidence, subjects, onCite, onView }: LeadProps & { le
   );
 }
 
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/** The tab's first line: what the AI added beyond the rules, in one sentence, then what it did with the rules'
- * own findings. Never colour alone: an icon and words. */
-export function Headline({ issues, reviewed, suspected, refused }: {
+/** The tab's first line: what the AI added beyond the rules, set against the route the rules chose (an issue on a
+ * fast-track case is the point of the team), then what the shadow gate would do with it and what the AI made of the
+ * rules' own findings. Never colour alone: an icon and words. */
+export function Headline({ route, gate, issues, reviewed, suspected, refused }: {
+  /** The route the rules chose */
+  route: ReviewPath | null;
+  /** The route the disposition gate would take with the AI's verified leads: logged, never applied */
+  gate: GateDecision | null;
   /** Issues the rules missed that code confirmed */
   issues: number;
   /** The rule findings it reviewed, by verdict */
@@ -184,18 +199,27 @@ export function Headline({ issues, reviewed, suspected, refused }: {
   const review = total ? ` Of the ${plural(total, "rule finding")} it reviewed, it ${parts.join("; ")}.` : "";
   const byHand = suspected ? ` ${plural(suspected, "suspicion")} it could not confirm ${suspected === 1 ? "is" : "are"} below, to check by hand.` : "";
   const held = refused ? ` The verifier refused ${plural(refused, "lead")} it tried to record (see How the team worked).` : "";
+  const found = plural(issues, "issue");
+  const lead = !issues
+    ? "The AI team found nothing the rule checks missed."
+    : route === "fast_track"
+      ? `The rules would fast-track this case. The AI team found ${found} they cannot see.`
+      : `The AI team found ${found} the rule checks cannot see.`;
+  const raised = issues > 0 && route && gate && gate.would_route !== route;
   return (
-    <p className={`calm${issues ? " check" : ""}`}>
+    <div className={`calm ai-headline${issues ? " check" : ""}`}>
       <Icon name={issues ? "flag" : "done"} size={16} />
-      <span>
-        <strong>
-          {issues
-            ? `The AI team found ${plural(issues, "issue")} the rule checks missed, each confirmed by code from the documents.`
-            : "The AI team found nothing the rule checks missed."}
-        </strong>
-        {review}{byHand}{held}
-      </span>
-    </p>
+      <div>
+        <p className="ai-headline-lead">{lead}</p>
+        {issues > 0 && (
+          <p>
+            {issues === 1 ? "It is" : "Each is"} confirmed by code from the documents.
+            {raised && ` With ${issues === 1 ? "it" : "them"}, the AI route would be ${PATH_LABEL[gate.would_route].toLowerCase()}, not ${PATH_LABEL[route].toLowerCase()}; that route is logged, not applied, so the analyst decides.`}
+          </p>
+        )}
+        {(review || byHand || held) && <p className="muted small">{`${review}${byHand}${held}`.trim()}</p>}
+      </div>
+    </div>
   );
 }
 

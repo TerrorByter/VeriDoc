@@ -558,6 +558,19 @@ SignalStrength = Literal["definite", "indicative"]
 RiskBand = Literal["Low", "Medium", "High"]
 
 
+class EvidenceRow(BaseModel):
+    """One of the figures behind a finding that one cause explains (every
+    figure a statement misstates), each traceable to its own page and quote."""
+
+    label: str
+    page: int
+    quote: str | None = None
+    expected: str | None = None
+    observed: str | None = None
+    #: observed over expected, as printed (e.g. "2.00×"); None when it means nothing
+    ratio: str | None = None
+
+
 class Evidence(BaseModel):
     evidence_id: str = ""          # assigned later as E01, E02, …
     rule_group: str = ""           # name of the rule group that produced this finding
@@ -572,6 +585,15 @@ class Evidence(BaseModel):
     observed: str | None = None
     method: Literal["deterministic", "llm"]
     explanation: str
+    #: The figures behind it, when one finding stands for several (its page,
+    #: quote, expected and observed are then the first row's)
+    rows: list[EvidenceRow] = []
+
+    def facts(self) -> list[str]:
+        """What the finding states, rows included, without its quotes (document text)."""
+        return [s for s in (self.explanation, self.expected, self.observed,
+                            *(v for r in self.rows for v in (r.label, r.expected, r.observed, r.ratio)))
+                if s]
 
 
 # ---------------------------------------------------------------------------

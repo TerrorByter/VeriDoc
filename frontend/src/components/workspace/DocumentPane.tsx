@@ -60,11 +60,11 @@ export function DocumentPane({
 
   useEffect(() => {
     if (!target.evidenceId) return;
-    getEvidenceLocation(caseId, target.evidenceId)
+    getEvidenceLocation(caseId, target.evidenceId, target.row)
       .then(setLocation)
       .catch(() => setLocation(null))
       .finally(() => setLocating(false));
-  }, [caseId, target.evidenceId]);
+  }, [caseId, target.evidenceId, target.row]);
 
   useEffect(() => {
     if (!overlay) return;

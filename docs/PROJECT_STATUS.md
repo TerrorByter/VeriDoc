@@ -41,7 +41,7 @@ OCR -> Intake -> Prompt screen -> Extract -> Official records -> Rule checks
 
 | Rule group | Checks | What it catches |
 |---|---|---|
-| **Document Integrity** | 6 | Invoice arithmetic, bank running balance and continuity, financial-statement balance, PDF modified after creation, producer mismatch |
+| **Document Integrity** | 6 | Invoice arithmetic, bank running balance and continuity, financial-statement balance, PDF modified after creation, producer mismatch within one issuer's documents |
 | **Forensics** | 5 | Hidden text (white, tiny or off-page), figures whose digits mix fonts, PDFs re-saved after creation, visible figures that differ from the stored text (OCR comparison), instructions aimed at AI models (the guardrail) |
 | **Cross-Document** | 12 | Identity (UEN, names) across documents; each invoice against its bank payment, purchase order and bill of lading or delivery order; the workbook against the bank statement and ACRA (cash, debt, revenue); money that only passes through the account; ACRA's entity, signatories and people against the forms |
 | **Registry & Screening** | 6 | ACRA and IRAS records fetched or missing, uploaded copies that differ from the originals, companies struck off or not registered, signatories who are not officers, sanctions (UN lists named by MAS plus the bank's own names), FATF high-risk countries |

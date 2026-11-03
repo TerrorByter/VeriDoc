@@ -107,8 +107,10 @@ export const addDocuments = (caseId: string, files: File[]) =>
 export const pageUrl = (caseId: string, docId: string, page: number) =>
   `/api/cases/${caseId}/documents/${encodeURIComponent(docId)}/pages/${page}`;
 
-export const getEvidenceLocation = (caseId: string, evidenceId: string) =>
-  request<EvidenceLocation>(`/api/cases/${caseId}/evidence/${evidenceId}/location`);
+export const getEvidenceLocation = (caseId: string, evidenceId: string, row?: number) =>
+  request<EvidenceLocation>(
+    `/api/cases/${caseId}/evidence/${evidenceId}/location${row === undefined ? "" : `?row=${row}`}`,
+  );
 
 export const getPageFindings = (caseId: string, docId: string, page: number) =>
   request<PageFinding[]>(`${pageUrl(caseId, docId, page)}/findings`);

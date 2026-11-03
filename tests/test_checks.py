@@ -827,6 +827,19 @@ class TestMetaProducerMismatch:
         evs = check_meta_producer_mismatch(pack)
         assert [(e.check_id, e.document, e.severity) for e in evs] == [("META_PRODUCER_MISMATCH", "inv_3", "low")]
 
+    def test_invoices_from_different_sellers_are_not_compared(self):
+        """Each supplier makes its invoices with its own software: only one seller's invoices are compared."""
+        docs = [
+            _make_doc_meta("inv_1", producer="Xero"),
+            _make_doc_meta("inv_2", producer="Xero"),
+            _make_doc_meta("inv_3", producer="SAP NetWeaver 7.50"),
+            _make_doc_meta("inv_4", producer="QuickPDF Editor 9.2"),
+        ]
+        sellers = {"inv_1": "ACME LTD", "inv_2": "ACME LTD", "inv_3": "OTHER SUPPLIER LTD", "inv_4": "ACME LTD"}
+        invoices = [_make_invoice(doc_id=d, seller_name=s) for d, s in sellers.items()]
+        evs = check_meta_producer_mismatch(_make_pack(docs=docs, invoices=invoices))
+        assert [(e.document, e.expected, e.observed) for e in evs] == [("inv_4", "Xero", "QuickPDF Editor 9.2")]
+
     def test_form_types_excluded(self):
         """FATCA/CRS form with different producer must not fire."""
         docs = [

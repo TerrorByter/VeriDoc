@@ -27,10 +27,10 @@ _INDEX = "Documents in this case:\n- invoice_INV-1001 (invoice, 1 pages)\n- invo
 _ALL = {"R01", "R02"}
 
 
-def _finding(evidence_id: str = "E01", **fields: str) -> Evidence:
+def _finding(evidence_id: str = "E01", explanation: str = "Total differs.", expected: str | None = None,
+             observed: str | None = None) -> Evidence:
     return Evidence(evidence_id=evidence_id, check_id="invoice_total", severity="high", document="D1", page=1,
-                    method="deterministic", explanation=fields.pop("explanation", "Total differs."),
-                    **fields)
+                    method="deterministic", explanation=explanation, expected=expected, observed=observed)
 
 
 def _test(cites: list[str] | None = None, expected: str = "payer: Bayview Marine Supplies",

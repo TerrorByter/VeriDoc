@@ -16,7 +16,7 @@ import pytest
 from botocore.exceptions import NoCredentialsError
 from fastapi.testclient import TestClient
 
-from gldb import api, pipeline, rfi
+from gldb import api, config, pipeline, rfi
 from gldb.schemas import AgentTeam, GateDecision, Lead, LeadTest, ShadowReason, ShadowScore
 from tests.acra_profiles import profile_pdf
 from tests.workbooks import INCOME, STATEMENTS, workbook
@@ -191,6 +191,27 @@ def test_a_workbook_is_assessed_against_the_acra_profile_and_shown(client: TestC
     assert client.get(f"/api/cases/{cid}/documents/Submitted financials/pages/4").status_code == 404
     loc = client.get(f"/api/cases/{cid}/evidence/{finding['evidence_id']}/location").json()
     assert (loc["doc_id"], loc["page_count"], len(loc["boxes"])) == ("Submitted financials", 3, 1)
+
+
+def test_a_finding_with_rows_shows_each_row_where_it_is(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Inflated financials (the demo pack): one finding for the 12 figures.
+    Shown, it boxes the four on its own page; one row is shown on its own
+    page; the overlay of each page boxes the rows on it."""
+    monkeypatch.setattr(api, "PACKS_DIR", config.PACKS_DIR)
+    case = _case(client, "inflated_financials")
+    cid = case["case_id"]
+    (finding,) = [e for e in case["evidence"] if e["check_id"] == "FS_ACRA_MISMATCH"]
+    url = f"/api/cases/{cid}/evidence/{finding['evidence_id']}/location"
+    pages = [r["page"] for r in finding["rows"]]
+    assert pages == [1] * 4 + [2] * 5 + [3] * 3
+    whole = client.get(url).json()
+    assert (whole["page"], len(whole["boxes"])) == (1, 4)
+    one = client.get(url, params={"row": 4}).json()
+    assert (one["page"], one["highlighted"], len(one["boxes"])) == (2, "Total Assets 18.8972", 1)
+    assert client.get(url, params={"row": 12}).status_code == 404
+    overlay = client.get(f"/api/cases/{cid}/documents/Submitted financials/pages/2/findings").json()
+    (on_page,) = [f for f in overlay if f["evidence_id"] == finding["evidence_id"]]
+    assert len(on_page["boxes"]) == 5
 
 
 def _flags(case: dict[str, Any]) -> list[str]:

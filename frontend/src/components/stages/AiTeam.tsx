@@ -6,7 +6,8 @@ import type { StageProps } from "../workspace/StageDetail";
 import { aiLeads, clearChecks, explainedFindings, observations, ruleConfirmed, suspicions, triaged } from "../workspace/stageStatus";
 import { ErrorNote } from "../ui";
 import { findingTarget } from "./Findings";
-import { CollapsedLeads, Headline, LeadList, ReviewedFindings, reviewedFindings, WithheldLeads, WithheldPoints } from "./ai-team/Leads";
+import { IssueList, Suspicions } from "./ai-team/Issues";
+import { CollapsedLeads, Headline, ReviewedFindings, reviewedFindings, WithheldLeads, WithheldPoints } from "./ai-team/Leads";
 import { Trace } from "./ai-team/Trace";
 import { Fold, OffNote, Section } from "./common";
 
@@ -77,8 +78,11 @@ export function AiTeam({ kase, onView }: StageProps) {
   const memo = team.memo;
   /** Questions the request does not already ask: one resting only on findings it asks about adds nothing */
   const asked = new Set(kase.asked_findings ?? []);
-  const questions = (memo?.questions ?? []).filter((q) => !q.evidence_ids.length || !q.evidence_ids.every((id) => asked.has(id)));
-  const repeated = (memo?.questions.length ?? 0) - questions.length;
+  const adding = (memo?.questions ?? []).filter((q) => !q.evidence_ids.length || !q.evidence_ids.every((id) => asked.has(id)));
+  const repeated = (memo?.questions.length ?? 0) - adding.length;
+  /** A question that cites an issue sits on that issue's card; the rest are listed on their own */
+  const issueIds = new Set(issues.map((l) => l.lead_id));
+  const questions = adding.filter((q) => !q.evidence_ids.some((id) => issueIds.has(id)));
   /** Memo observations that tie leads together; ones citing only rule findings restate them */
   const links = (memo?.observations ?? []).filter((o) => o.evidence_ids.some((id) => id.startsWith("L")));
   const leadProps = { evidence: kase.evidence, subjects: kase.subjects, onView };
@@ -106,12 +110,13 @@ export function AiTeam({ kase, onView }: StageProps) {
         )}
         {team.status === "ran" && (
           <>
-            <Headline issues={issues.length} reviewed={verdicts} suspected={suspected.length}
+            <Headline route={kase.routing?.path ?? null} gate={kase.gate} issues={issues.length} reviewed={verdicts}
+              suspected={suspected.length}
               refused={withheld.length + team.tool_calls.filter((c) => c.tool === "record_lead" && c.error).length} />
             {issues.length > 0 && (
               <>
                 <h4 className="memo-head">Issues the rules missed <span className="muted small">(each confirmed by code from the documents)</span></h4>
-                <LeadList leads={issues} onCite={cite} {...leadProps} />
+                <IssueList leads={issues} questions={adding} onCite={cite} {...leadProps} />
                 {links.length > 0 && <Points points={links} evidence={kase.evidence} onView={onView} />}
               </>
             )}
@@ -123,13 +128,13 @@ export function AiTeam({ kase, onView }: StageProps) {
             )}
             {suspected.length > 0 && (
               <>
-                <h4 className="memo-head">Worth checking by hand <span className="muted small">(the AI's suspicions no code check could confirm: never a flag, a question or the score)</span></h4>
-                <LeadList leads={suspected} onCite={cite} {...leadProps} />
+                <h4 className="memo-head">Worth checking by hand <span className="muted small">(suspicions no code check could confirm: never a flag, a question or the score)</span></h4>
+                <Suspicions leads={suspected} onCite={cite} {...leadProps} />
               </>
             )}
             {questions.length > 0 && (
               <>
-                <h4 className="memo-head">Questions for the applicant <span className="muted small">(drafts for the analyst to approve; they join the request)</span></h4>
+                <h4 className="memo-head">{issues.length ? "Other questions" : "Questions"} for the applicant <span className="muted small">(drafts for the analyst to approve; they join the request)</span></h4>
                 <Points points={questions} evidence={kase.evidence} onView={onView} />
               </>
             )}

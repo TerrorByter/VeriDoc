@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { APPLICATION_DOC, REASON_CODES } from "../../types";
-import type { AuditEvent, DocRef, Evidence, ReasonCode, Severity, Signal, ViewTarget } from "../../types";
+import type { AuditEvent, DocRef, Evidence, EvidenceRow, ReasonCode, Severity, Signal, ViewTarget } from "../../types";
 import type { StageProps } from "../workspace/StageDetail";
 import { Icon, LinkedText, Pill, SEVERITY_TONE } from "../ui";
 
@@ -15,6 +15,61 @@ export const findingTarget = (ev: Evidence): ViewTarget | null =>
 function latestDecision(audit: AuditEvent[], evidenceId: string): string | null {
   const events = audit.filter((e) => e.evidence_id === evidenceId && e.action.startsWith("flag_"));
   return events.length ? events[events.length - 1].decision : null;
+}
+
+/** "page 2" or "pages 1 to 3" */
+const pages = (all: number[]) => {
+  const low = Math.min(...all);
+  const high = Math.max(...all);
+  return low === high ? `page ${low}` : `pages ${low} to ${high}`;
+};
+
+/** The figures behind one finding, each with its own page to show it on. The quote is what the button highlights. */
+function FindingRows({ rows, target, onView }: {
+  rows: EvidenceRow[];
+  target: ViewTarget | null;
+} & Pick<StageProps, "onView">) {
+  const ratios = rows.some((r) => r.ratio);
+  return (
+    <div className="table-wrap finding-rows">
+      <table className="data">
+        <thead>
+          <tr>
+            <th scope="col">Figure</th>
+            <th scope="col" className="num">Expected</th>
+            <th scope="col" className="num">Observed</th>
+            {ratios && <th scope="col" className="num">Ratio</th>}
+            <th scope="col"><span className="sr-only">Where</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={r.label}>
+              <th scope="row">{r.label}</th>
+              <td className="num mono">{r.expected}</td>
+              <td className="num mono">{r.observed}</td>
+              {ratios && <td className="num mono">{r.ratio}</td>}
+              <td>
+                {target ? (
+                  <button
+                    type="button"
+                    className="link"
+                    title={r.quote ?? undefined}
+                    aria-label={`Show ${r.label} on page ${r.page}`}
+                    onClick={() => onView({ ...target, page: r.page, row: i })}
+                  >
+                    Page {r.page}
+                  </button>
+                ) : (
+                  <span className="muted">Page {r.page}</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 function FindingCard({ ev, signal, decision, editable, explained, subjects, onView, onDecideFlag }: {
@@ -74,17 +129,26 @@ function FindingCard({ ev, signal, decision, editable, explained, subjects, onVi
     </div>
   );
 
-  const where = ev.document === APPLICATION_DOC ? "Application data" : `${ev.document}, page ${ev.page}`;
+  const rows = ev.rows ?? [];
+  const where = ev.document === APPLICATION_DOC
+    ? "Application data"
+    : rows.length ? `${ev.document}, ${pages(rows.map((r) => r.page))}` : `${ev.document}, page ${ev.page}`;
   const detail = (
     <>
       <p className={explained ? "muted" : undefined}>{ev.explanation}</p>
-      {(ev.expected || ev.observed) && (
-        <dl className="compare">
-          {ev.expected && (<><dt>Expected</dt><dd>{ev.expected}</dd></>)}
-          {ev.observed && (<><dt>Observed</dt><dd>{ev.observed}</dd></>)}
-        </dl>
+      {rows.length > 0 ? (
+        <FindingRows rows={rows} target={target} onView={onView} />
+      ) : (
+        <>
+          {(ev.expected || ev.observed) && (
+            <dl className="compare">
+              {ev.expected && (<><dt>Expected</dt><dd>{ev.expected}</dd></>)}
+              {ev.observed && (<><dt>Observed</dt><dd>{ev.observed}</dd></>)}
+            </dl>
+          )}
+          {ev.quote && <blockquote className="quote">{ev.quote}</blockquote>}
+        </>
       )}
-      {ev.quote && <blockquote className="quote">{ev.quote}</blockquote>}
       {signal && (
         <p className="finding-strength">
           {signal.strength === "definite" ? (

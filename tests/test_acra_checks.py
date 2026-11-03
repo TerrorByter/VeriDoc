@@ -15,7 +15,7 @@ import pytest
 from gldb import checks
 from gldb.checks import check_acra_entity, check_acra_persons, check_acra_signatories, check_fs_acra, check_xdoc_identity
 from gldb.schemas import Address, BankStatement, Signatory, TaxResidencyRow
-from tests.acma_records import D, FIGURES
+from tests.acma_records import D, FIGURES, UNIT
 from tests.acma_records import acra as _acra
 from tests.acma_records import acra_financials as _acra_financials
 from tests.acma_records import cert as _cert
@@ -41,10 +41,39 @@ def test_a_figure_that_differs_is_cited_at_its_row() -> None:
     assert finding.expected == "SGD 7,935,000.00" and finding.observed == "SGD 9,935,000.00"
 
 
-def test_every_figure_that_differs_is_reported() -> None:
+def test_every_figure_that_differs_is_a_row_of_one_finding_each_at_its_own_page() -> None:
     pack = _pack(financial_statements=[_fs(revenue=D("9935000"), total_assets=D("1000"))],
                  acra_profiles=[_acra(financials=_acra_financials())])
-    assert len(check_fs_acra(pack)) == 2
+    (finding,) = check_fs_acra(pack)
+    assert [(r.label, r.page, r.quote, r.expected, r.observed) for r in finding.rows] == [
+        ("Revenue", 1, "Total Revenue 7.935", "SGD 7,935,000.00", "SGD 9,935,000.00"),
+        ("Total assets", 2, "Total Assets 6.749", "SGD 6,749,000.00", "SGD 1,000.00"),
+    ]
+    assert (finding.page, finding.quote, finding.severity) == (1, "Total Revenue 7.935", "critical")
+    assert "2 of the 12 figures" in finding.explanation
+
+
+def test_a_whole_statement_scaled_by_one_factor_says_so() -> None:
+    """2.00× within ACRA's rounding on every figure: the statement was scaled, not mistyped."""
+    doubled = {field: value * 2 * UNIT + D("300") for field, value in FIGURES.items()}
+    (finding,) = check_fs_acra(_pack(financial_statements=[_fs(**doubled)], acra_profiles=[_acra(financials=_acra_financials())]))
+    assert finding.severity == "critical" and len(finding.rows) == len(FIGURES)
+    assert {r.ratio for r in finding.rows} == {"2.00×"}
+    assert finding.explanation.startswith("The submitted financial statements are 2.00× ACRA's filing on all 12 figures")
+    assert "scaled as a whole" in finding.explanation
+
+
+def test_figures_that_differ_by_different_factors_name_none() -> None:
+    fs = _fs(revenue=D("9935000"), total_assets=D("1000"), ebit=D("-3000000"))
+    (finding,) = check_fs_acra(_pack(financial_statements=[fs], acra_profiles=[_acra(financials=_acra_financials())]))
+    assert finding.severity == "critical" and "by no common factor" in finding.explanation
+
+
+def test_a_statement_in_another_unit_is_a_units_question_not_a_falsified_one() -> None:
+    thousands = {field: value * UNIT / 1000 for field, value in FIGURES.items()}
+    (finding,) = check_fs_acra(_pack(financial_statements=[_fs(**thousands)], acra_profiles=[_acra(financials=_acra_financials())]))
+    assert finding.severity == "medium" and "0.001×" in finding.explanation
+    assert "Confirm the unit" in finding.explanation
 
 
 @pytest.mark.parametrize(("revenue", "findings"), [("7935400", 0), ("7934600", 0), ("7936000", 1), ("7934000", 1)])
@@ -57,7 +86,8 @@ def test_acra_rounds_to_what_it_prints(revenue: str, findings: int) -> None:
 def test_the_unit_acra_prints_in_is_a_stated_assumption(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(checks, "ACRA_FIGURES_UNIT", D("1000"))
     pack = _pack(financial_statements=[_fs()], acra_profiles=[_acra(financials=_acra_financials())])
-    assert len(check_fs_acra(pack)) == len(FIGURES)
+    (finding,) = check_fs_acra(pack)
+    assert len(finding.rows) == len(FIGURES) and "1,000.00×" in finding.explanation
 
 
 def test_statements_for_another_year_are_noted_not_compared() -> None:

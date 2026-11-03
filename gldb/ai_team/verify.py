@@ -184,8 +184,7 @@ def check_lead(lead: Lead, issued: set[str], citable: set[str], results: dict[st
     the case index its agent was given (its identifiers may be named)."""
     if reason := _contract_reason(lead, findings, issued, citable, results):
         return reason
-    judged = known(*(s for f in lead.finding_ids
-                     for s in (findings[f].explanation, findings[f].expected, findings[f].observed) if s))
+    judged = known(*(s for f in lead.finding_ids for s in findings[f].facts()))
     base = judged | _identifiers_only(known(index))
     everything = base | known(*(results.get(c, "") for c in lead.cites))
     # Each test states only what its own citations show; the rest may draw on all of them
@@ -206,8 +205,7 @@ def lead_grounding(lead: Lead) -> Known:
 
 def finding_grounding(finding: Evidence) -> Known:
     """What text about a rule finding may state: its own record."""
-    return known(finding.check_id, finding.document, finding.explanation, finding.expected or "",
-                 finding.observed or "")
+    return known(finding.check_id, finding.document, *finding.facts())
 
 
 def check_question(text: str, cites: list[str], issued: set[str], citable: set[str],

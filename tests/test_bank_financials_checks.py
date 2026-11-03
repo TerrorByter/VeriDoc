@@ -13,6 +13,7 @@ from decimal import Decimal
 
 from gldb.checks import check_xdoc_bank_cash, check_xdoc_bank_debt, check_xdoc_bank_revenue
 from gldb.schemas import BankStatement, ExtractedPack, FinancialStatementSummary, Transaction
+from tests.acma_records import acra, acra_financials
 
 D = Decimal
 
@@ -155,6 +156,29 @@ def test_receipts_far_below_revenue_are_reported_at_the_revenue_figure() -> None
 def test_receipts_far_above_revenue_are_reported() -> None:
     (finding,) = check_xdoc_bank_revenue(_pack([_stmt(_sales("9000000.00"))]))
     assert finding.observed == "2.29 times revenue"
+
+
+def _filed(fs: FinancialStatementSummary, *statements: BankStatement) -> ExtractedPack:
+    """A pack whose ACRA profile files revenue of SGD 7.935m."""
+    return _pack(list(statements), fs).model_copy(update={"acra_profiles": [acra(financials=acra_financials())]})
+
+
+def test_receipts_that_fit_acras_revenue_but_not_the_submitted_one_say_which_the_bank_supports() -> None:
+    (finding,) = check_xdoc_bank_revenue(_filed(_fs(revenue=D("15870000")), _stmt(_sales("3147900.00"))))
+    assert finding.observed == "0.40 times revenue"
+    assert finding.explanation.endswith(
+        "Against the SGD 7,935,000.00 of revenue filed with ACRA they are 0.80 times, within range: the bank "
+        "statements support the filed figures, not the submitted ones.")
+
+
+def test_receipts_that_fit_neither_revenue_say_so() -> None:
+    (finding,) = check_xdoc_bank_revenue(_filed(_fs(revenue=D("15870000")), _stmt(_sales("500000.00"))))
+    assert finding.explanation.endswith("also outside the range.")
+
+
+def test_revenue_that_agrees_with_acra_adds_nothing() -> None:
+    (finding,) = check_xdoc_bank_revenue(_filed(_fs(), _stmt(_sales("500000.00"))))
+    assert "ACRA" not in finding.explanation
 
 
 def test_money_that_is_not_sales_is_not_counted() -> None:

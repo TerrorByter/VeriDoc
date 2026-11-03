@@ -29,7 +29,9 @@ from time import perf_counter
 from typing import Callable
 
 from gldb.config import (
+    ACRA_COMMON_FACTOR_MIN_FIGURES,
     ACRA_FIGURES_UNIT,
+    ACRA_UNITS_FACTORS,
     BANK_DESCRIPTION_WORDS,
     BANK_RECENCY_DAYS,
     BANK_REVENUE_MIN_DAYS,
@@ -65,6 +67,7 @@ from gldb.ordering import TradeDates, breaks, violations
 from gldb.privacy import mask_id
 from gldb.reference import HighRiskCountry, high_risk_countries, watchlist
 from gldb.schemas import (
+    AcraFinancials,
     AcraProfile,
     ApplicationManifest,
     BankStatement,
@@ -72,6 +75,7 @@ from gldb.schemas import (
     EntitySelfCert,
     Evidence,
     EvidenceCategory,
+    EvidenceRow,
     ExtractedPack,
     FinancialStatementSummary,
     Guarantor,
@@ -683,31 +687,112 @@ def check_xdoc_bl_invoice(pack: ExtractedPack) -> list[Evidence]:
 # FS_ACRA_MISMATCH ------------------------------------------------------
 
 #: Figures a financial statement and an ACRA profile both state, by the name
-#: both models give them, with how an analyst reads them
+#: both models give them, with how an analyst reads them, in reading order:
+#: profit and loss, balance sheet, cash flow
 _ACRA_COMPARED = {
+    "revenue": "Revenue",
+    "ebit": "EBIT",
+    "profit_before_tax": "Profit before tax",
+    "profit_after_tax": "Profit after tax",
     "total_assets": "Total assets",
     "total_current_assets": "Total current assets",
     "total_liabilities": "Total liabilities",
     "total_current_liabilities": "Total current liabilities",
     "retained_earnings": "Retained earnings",
-    "revenue": "Revenue",
-    "profit_before_tax": "Profit before tax",
-    "profit_after_tax": "Profit after tax",
-    "ebit": "EBIT",
     "operating_cashflow": "Operating cash flow",
     "investing_cashflow": "Investing cash flow",
     "financing_cashflow": "Financing cash flow",
 }
 
 
+@dataclass(frozen=True)
+class _Figure:
+    """One figure as ACRA filed it and as submitted, with how far ACRA's
+    printed rounding lets them differ."""
+
+    field: str
+    filed: Decimal
+    submitted: Decimal
+    rounding: Decimal
+
+    @property
+    def differs(self) -> bool:
+        return abs(self.submitted - self.filed) > self.rounding
+
+
+def _acra_figures(filed: AcraFinancials, fs: FinancialStatementSummary) -> list[_Figure]:
+    """The figures both state, in reading order. ACRA prints rounded (to a
+    thousandth of its unit), so a figure agrees if it rounds to what ACRA prints."""
+    figures = []
+    for field in _ACRA_COMPARED:
+        printed, submitted = getattr(filed, field), getattr(fs, field)
+        if printed is not None and submitted is not None:
+            rounding = max(Decimal(10) ** printed.as_tuple().exponent / 2 * ACRA_FIGURES_UNIT, TOLERANCE_SGD)
+            figures.append(_Figure(field, printed * ACRA_FIGURES_UNIT, submitted, rounding))
+    return figures
+
+
+def _common_factor(differ: list[_Figure]) -> Decimal | None:
+    """The one factor every differing figure is of ACRA's, within ACRA's
+    rounding; None when they share none, or too few differ to say. ACRA's
+    true figure lies within its rounding of what it prints, so each figure
+    allows the factors between submitted / (printed ± rounding); a common
+    factor is one all of them allow (the middle of where they overlap)."""
+    if len(differ) < ACRA_COMMON_FACTOR_MIN_FIGURES or any(abs(f.filed) <= f.rounding for f in differ):
+        return None
+    allowed = [sorted((f.submitted / (f.filed - f.rounding), f.submitted / (f.filed + f.rounding))) for f in differ]
+    low, high = max(lo for lo, _ in allowed), min(hi for _, hi in allowed)
+    return (low + high) / 2 if low <= high else None
+
+
+def _times(ratio: Decimal) -> str:
+    return f"{ratio:,.2f}×" if abs(ratio) >= Decimal("0.01") else f"{float(ratio):.3g}×"
+
+
+def _acra_mismatch(fs: FinancialStatementSummary, compared: int, differ: list[_Figure]) -> Evidence:
+    """One finding for every figure of one statement that differs from ACRA's:
+    they are one fact about one document, decided once. Each figure stays a
+    row with its own page and quote."""
+    rows = [EvidenceRow(
+        label=_ACRA_COMPARED[f.field], page=fs.figure_pages.get(f.field, fs.page),
+        quote=fs.source_quotes.get(f.field), expected=f"SGD {f.filed:,.2f}", observed=f"SGD {f.submitted:,.2f}",
+        ratio=_times(f.submitted / f.filed) if f.filed else None,
+    ) for f in differ]
+    year = f"for the year ended {fs.financial_year_end}"
+    which = f"all {compared}" if len(differ) == compared else f"{len(differ)} of the {compared}"
+    factor = _common_factor(differ)
+    severity: Severity = "critical"
+    if factor is not None and any(abs(factor / unit - 1) <= Decimal("0.01") for unit in ACRA_UNITS_FACTORS):
+        severity = "medium"
+        explanation = (f"The submitted financial statements are {_times(factor)} ACRA's filing on {which} figures "
+                       f"compared, {year}: one set of figures stated in thousands where the other is in dollars, "
+                       "or the reverse. Confirm the unit the statements are stated in.")
+    elif factor is not None:
+        explanation = (f"The submitted financial statements are {_times(factor)} ACRA's filing on {which} figures "
+                       f"compared, {year}. One factor across every figure is the statement scaled as a whole, "
+                       "not a slip in one figure.")
+    elif len(differ) == 1:
+        (row,) = rows
+        explanation = (f"{row.label} in the submitted financial statements ({row.observed}) differs from the ACRA "
+                       f"profile ({row.expected}) {year}.")
+    else:
+        explanation = (f"The submitted financial statements differ from ACRA's filing on {which} figures "
+                       f"compared, {year}, by no common factor.")
+    first = rows[0]
+    return Evidence(
+        check_id="FS_ACRA_MISMATCH", category="fraud_signal", severity=severity, document=fs.doc_id,
+        page=first.page, quote=first.quote, expected=first.expected, observed=first.observed,
+        method="deterministic", explanation=explanation, rows=rows if len(rows) > 1 else [],
+    )
+
+
 def check_fs_acra(pack: ExtractedPack) -> list[Evidence]:
     """The submitted financial statements state the figures ACRA holds for the
-    same year. ACRA prints its figures rounded (to a thousandth of its unit),
-    so a figure agrees if it rounds to what ACRA prints. Statements for a
-    different year than ACRA's latest are noted, not compared. A difference
-    is critical: financials that contradict the statutory filing are a
-    falsified document on their own, however many figures differ (repeats on
-    one document score once)."""
+    same year. Statements for a different year than ACRA's latest are noted,
+    not compared. A difference is critical: financials that contradict the
+    statutory filing are a falsified document on their own. Every figure that
+    differs is one finding on its statement, with a row per figure, and says
+    when they share one factor (a units slip, at 1,000×, is medium)."""
     profile = acra_record(pack)
     filed = profile.financials if profile else None
     if filed is None:
@@ -721,21 +806,9 @@ def check_fs_acra(pack: ExtractedPack) -> list[Evidence]:
                 f"profile's latest filed period ends {filed.period_end}. Their figures were not compared.",
             ))
             continue
-        for field, label in _ACRA_COMPARED.items():
-            printed, submitted = getattr(filed, field), getattr(fs, field)
-            if printed is None or submitted is None:
-                continue
-            expected = printed * ACRA_FIGURES_UNIT
-            rounding = max(Decimal(10) ** printed.as_tuple().exponent / 2 * ACRA_FIGURES_UNIT, TOLERANCE_SGD)
-            if abs(submitted - expected) > rounding:
-                results.append(_ev(
-                    "FS_ACRA_MISMATCH", "fraud_signal", "critical", fs.doc_id, fs.figure_pages.get(field, fs.page),
-                    f"{label} in the submitted financial statements (SGD {submitted:,.2f}) differs from the "
-                    f"ACRA profile (SGD {expected:,.2f}) for the year ended {fs.financial_year_end}.",
-                    quote=fs.source_quotes.get(field),
-                    expected=f"SGD {expected:,.2f}",
-                    observed=f"SGD {submitted:,.2f}",
-                ))
+        figures = _acra_figures(filed, fs)
+        if differ := [f for f in figures if f.differs]:
+            results.append(_acra_mismatch(fs, len(figures), differ))
     return results
 
 
@@ -822,6 +895,16 @@ def check_xdoc_bank_debt(pack: ExtractedPack) -> list[Evidence]:
     return results
 
 
+def _filed_revenue(pack: ExtractedPack, fs: FinancialStatementSummary) -> Decimal | None:
+    """The revenue ACRA holds for the statement's year, when it differs from the statement's."""
+    profile = acra_record(pack)
+    filed = profile.financials if profile else None
+    if filed is None or filed.period_end != fs.financial_year_end:
+        return None
+    revenue = next((f for f in _acra_figures(filed, fs) if f.field == "revenue"), None)
+    return revenue.filed if revenue and revenue.differs else None
+
+
 def check_xdoc_bank_revenue(pack: ExtractedPack) -> list[Evidence]:
     """Sales receipts in the bank statements that follow the balance sheet
     date, annualised, are in line with the revenue the financial statements
@@ -841,11 +924,22 @@ def check_xdoc_bank_revenue(pack: ExtractedPack) -> list[Evidence]:
         annualised = receipts * 365 / days
         ratio = annualised / fs.revenue
         if not BANK_REVENUE_RATIO_MIN <= ratio <= BANK_REVENUE_RATIO_MAX:
+            filed = _filed_revenue(pack, fs)
+            against_filed = ""
+            if filed:
+                filed_ratio = annualised / filed
+                against_filed = (
+                    f" Against the SGD {filed:,.2f} of revenue filed with ACRA they are {filed_ratio:.2f} times, "
+                    + ("within range: the bank statements support the filed figures, not the submitted ones."
+                       if BANK_REVENUE_RATIO_MIN <= filed_ratio <= BANK_REVENUE_RATIO_MAX
+                       else "also outside the range.")
+                )
             results.append(_ev(
                 "XDOC_BANK_REVENUE", "fraud_signal", "medium", fs.doc_id, fs.figure_pages.get("revenue", fs.page),
                 f"Sales receipts in the bank statements (SGD {receipts:,.2f} over {days} days, "
                 f"SGD {annualised:,.2f} a year) are {ratio:.2f} times the SGD {fs.revenue:,.2f} of revenue "
-                f"the financial statements report, outside {BANK_REVENUE_RATIO_MIN} to {BANK_REVENUE_RATIO_MAX}.",
+                f"the financial statements report, outside {BANK_REVENUE_RATIO_MIN} to {BANK_REVENUE_RATIO_MAX}."
+                f"{against_filed}",
                 quote=fs.source_quotes.get("revenue"),
                 expected=f"{BANK_REVENUE_RATIO_MIN} to {BANK_REVENUE_RATIO_MAX} times revenue",
                 observed=f"{ratio:.2f} times revenue",
@@ -988,21 +1082,37 @@ def check_meta_mod_after_create(pack: ExtractedPack) -> list[Evidence]:
 
 # 8. META_PRODUCER_MISMATCH ----------------------------------------------
 
+def _issuers(pack: ExtractedPack) -> dict[str, str]:
+    """doc_id -> the company that issued it, where the document says: an
+    invoice's seller, an order's buyer, a delivery order's supplier. A bill
+    of lading is the carrier's, and statements are the bank's or the
+    applicant's: their type alone says who made them."""
+    issuers = {
+        **{i.doc_id: i.seller_name for i in pack.invoices},
+        **{o.doc_id: o.buyer_name for o in pack.purchase_orders},
+        **{s.doc_id: s.shipper_name for s in pack.shipments() if s.doc_id.startswith("delivery_order")},
+    }
+    return {doc_id: normalise_name(name) for doc_id, name in issuers.items() if name}
+
+
 def check_meta_producer_mismatch(pack: ExtractedPack) -> list[Evidence]:
-    """Within one document type, any doc whose producer differs from that
-    type's majority triggers a flag. Different types come from different
-    issuers (the bank, IRAS, the applicant's accounts software), so their
-    producers are never compared with each other. Low: a different tool
-    (a scan, a print to PDF) is common, so this only corroborates."""
+    """Among documents of one type from one issuer, any doc whose producer
+    differs from their majority triggers a flag: a company makes its invoices
+    with one system, so one made with other software may have been edited.
+    Different issuers (the bank, IRAS, each supplier's own software) are never
+    compared with each other, so a document is only compared when its issuer
+    issued others of its type in the pack. Low: a different tool (a scan, a
+    print to PDF) is common, so this only corroborates."""
     from collections import Counter
 
+    issuers = _issuers(pack)
     results: list[Evidence] = []
-    by_type: dict[str, list[DocMeta]] = {}
+    by_issuer: dict[tuple[str, str | None], list[DocMeta]] = {}
     for d in pack.docs:
         if d.doc_type not in FORM_DOC_TYPES and d.producer and not is_workbook(d.filename):
-            by_type.setdefault(d.doc_type, []).append(d)
+            by_issuer.setdefault((d.doc_type, issuers.get(d.doc_id)), []).append(d)
 
-    for docs in by_type.values():
+    for docs in by_issuer.values():
         majority_producer, _ = Counter(d.producer for d in docs).most_common(1)[0]
         for doc in docs:
             if doc.producer != majority_producer:
@@ -1010,7 +1120,7 @@ def check_meta_producer_mismatch(pack: ExtractedPack) -> list[Evidence]:
                     "META_PRODUCER_MISMATCH", "fraud_signal", "low",
                     doc.doc_id, 1,
                     f"PDF producer '{doc.producer}' differs from '{majority_producer}', "
-                    f"which made the other {doc.doc_type.replace('_', ' ')} documents in the pack. "
+                    f"which made the issuer's other {doc.doc_type.replace('_', ' ')} documents in the pack. "
                     f"This may indicate the file was edited or regenerated with different software.",
                     expected=majority_producer,
                     observed=doc.producer,

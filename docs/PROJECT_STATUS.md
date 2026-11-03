@@ -93,7 +93,7 @@ Live runs (October 2026, on the test packs): the planted third-party payment in 
 
 The three packs marked AI team only are clean to the rules, which would fast-track them; each plants a pattern only the AI team looks for, and a code check confirms it from the documents and ACRA (`tests/test_demo_packs.py`).
 
-`python -m gldb.evaluate` reports, per pack, band, readiness and route against the ground truth, each planted fault and whether it was found, precision, recall and false positives. With the deterministic parser it scores 1.00 on every measure and finds all 14 planted faults. `python -m gldb.agent_eval` scores the AI team the same way (it calls Bedrock).
+`python -m gldb.evaluate` reports, per pack, band, readiness and route against the ground truth, each planted fault and whether it was found, precision, recall and false positives. With the deterministic parser it scores 1.00 on every measure and finds all 14 planted faults. `python -m gldb.agent_eval` scores the AI team the same way (it calls Bedrock), as many runs as asked. On the server, the GitHub workflow Run evaluation runs both and saves them for the Model & controls page, which shows counts with 95% intervals (14 of 14 is consistent with a true rate as low as 78%) and which planted frauds reach review with the rules alone and with the AI team. The packs are synthetic and were built knowing the checks: these figures show the pipeline catches what was planted, not a detection rate on real applications.
 
 `tests/fixtures/packs/` holds the older text-layout test packs (`data_factory.py`) used by the test suite and the live AI-team runs.
 

@@ -129,6 +129,24 @@ def test_metrics_count_recall_noise_and_withheld(monkeypatch: pytest.MonkeyPatch
     assert row.evaluated_at
 
 
+def test_each_run_of_each_pack_is_its_own_case_and_the_rates_are_over_every_run(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The team found the planted payment in the first run and not the second: recall is 1 of 2."""
+    packs = _packs(tmp_path, "third_party_payment")
+    _script(monkeypatch, [
+        _search(), _lead(["R01"], pattern="third_party_payment", **_tpp()), DONE,
+        _search(), DONE,
+    ])
+
+    row = agent_eval.evaluate_team(MODELS, packs, runs=2)
+
+    first, second = row.packs
+    assert (row.runs, first.run, second.run) == (2, 1, 2)
+    assert (first.found_leads, second.found_leads) == (["transaction:third_party_payment"], [])
+    assert row.supported_recall == 0.5
+    assert first.usd is not None and second.usd is not None  # metered per run: each is its own case
+
+
 def _script_all(monkeypatch: pytest.MonkeyPatch, transaction: list[list[dict[str, Any]]],
                 shadow: list[list[dict[str, Any]]]) -> None:
     """The transaction specialist plays *transaction* and the shadow scorer *shadow*, pack after pack."""
@@ -374,20 +392,20 @@ def test_load_saved_of_a_malformed_or_stale_file_is_empty_with_a_warning(
 def test_main_defaults_to_the_configured_models_and_prints_without_saving(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    seen: list[TeamModels] = []
+    seen: list[tuple[TeamModels, int]] = []
 
-    def fake_evaluate(models: TeamModels, packs_dir: Path) -> AgentEvalRow:
-        seen.append(models)
+    def fake_evaluate(models: TeamModels, packs_dir: Path, runs: int) -> AgentEvalRow:
+        seen.append((models, runs))
         return _row(models.supervisor, models.specialist)
 
     monkeypatch.setattr(agent_eval, "evaluate_team", fake_evaluate)
 
     assert agent_eval.main([]) == 0
 
-    assert seen == [TeamModels(agent_eval.AGENT_SUPERVISOR_MODEL, agent_eval.AGENT_SPECIALIST_MODEL,
-                               agent_eval.SHADOW_SCORER_MODEL)]  # the scorer is always evaluated
+    assert seen == [(TeamModels(agent_eval.AGENT_SUPERVISOR_MODEL, agent_eval.AGENT_SPECIALIST_MODEL,
+                                agent_eval.SHADOW_SCORER_MODEL), 1)]  # the scorer is always evaluated; one run
     out = capsys.readouterr().out
-    assert out.startswith("This calls Bedrock for every pack (estimated US$1-3).")
+    assert out.startswith("This calls Bedrock for every pack, 1 time(s) (estimated US$1-3 a run).")
     assert agent_eval.AGENT_SUPERVISOR_MODEL in out
     assert agent_eval.load_saved() == []
 
@@ -395,7 +413,7 @@ def test_main_defaults_to_the_configured_models_and_prints_without_saving(
 def test_main_takes_models_and_saves_only_with_the_flag(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(agent_eval, "evaluate_team", lambda models, _: _row(models.supervisor, models.specialist))
+    monkeypatch.setattr(agent_eval, "evaluate_team", lambda models, _, __: _row(models.supervisor, models.specialist))
 
     assert agent_eval.main(["--supervisor", "big", "--specialist", "small", "--save"]) == 0
 
@@ -404,7 +422,7 @@ def test_main_takes_models_and_saves_only_with_the_flag(
 
 def test_main_prints_the_table_before_saving(monkeypatch: pytest.MonkeyPatch) -> None:
     events: list[str] = []
-    monkeypatch.setattr(agent_eval, "evaluate_team", lambda models, _: _row(models.supervisor, models.specialist))
+    monkeypatch.setattr(agent_eval, "evaluate_team", lambda models, _, __: _row(models.supervisor, models.specialist))
     monkeypatch.setattr(agent_eval, "_print", lambda row: events.append("print"))
     monkeypatch.setattr(agent_eval, "save", lambda row: events.append("save"))
 
@@ -413,12 +431,23 @@ def test_main_prints_the_table_before_saving(monkeypatch: pytest.MonkeyPatch) ->
     assert events == ["print", "save"]
 
 
+def test_main_runs_each_pack_as_often_as_asked_up_to_the_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    runs: list[int] = []
+    monkeypatch.setattr(agent_eval, "evaluate_team",
+                        lambda models, _, n: runs.append(n) or _row(models.supervisor, models.specialist))
+
+    assert agent_eval.main(["--runs", "3"]) == 0
+    assert runs == [3]
+    with pytest.raises(SystemExit):
+        agent_eval.main(["--runs", str(agent_eval.MAX_RUNS + 1)])
+
+
 @pytest.mark.parametrize("statuses", [(), ("error: RuntimeError: x", "failed: AWS call failed")])
 def test_main_fails_and_saves_nothing_when_no_pack_ran(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], statuses: tuple[str, ...]
 ) -> None:
     monkeypatch.setattr(agent_eval, "evaluate_team",
-                        lambda models, _: _row(models.supervisor, models.specialist, statuses=statuses))
+                        lambda models, _, __: _row(models.supervisor, models.specialist, statuses=statuses))
 
     assert agent_eval.main(["--save"]) == 1
 

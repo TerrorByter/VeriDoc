@@ -562,6 +562,10 @@ export interface PackResult {
 
 export interface EvaluationReport {
   packs: PackResult[];
+  /** Expected findings found / unexpected findings / expected findings missed, over every pack */
+  true_positives: number;
+  false_positives: number;
+  false_negatives: number;
   precision: number;
   recall: number;
   band_accuracy: number;
@@ -584,6 +588,8 @@ export interface Capability {
 
 export interface AgentPackResult {
   pack: string;
+  /** Which run of the pack (1, 2...); absent on rows saved before runs were counted */
+  run?: number;
   /** "agent:pattern" */
   expected_leads: string[];
   found_leads: string[];
@@ -620,6 +626,8 @@ export interface AgentEvalRow {
   supervisor: string;
   specialist: string;
   shadow: string | null;
+  /** How many times each pack ran; absent on rows saved before runs were counted */
+  runs?: number;
   packs: AgentPackResult[];
   supported_recall: number;
   triage_accuracy: number;

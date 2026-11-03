@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { getControls } from "../../api";
 import { duration, PATH_LABEL, usd, when } from "../../catalogue";
 import type { AgentEvalRow, Capability, Controls, EvaluationReport, ReviewPath, ScoringPolicy, Severity, SignalFamily } from "../../types";
+import { interval } from "../../stats";
 import { Metric, Section } from "../stages/common";
 import { Empty, ErrorNote, Pill } from "../ui";
 
@@ -30,22 +31,51 @@ const sentence = (s: string) =>
 const pct = (x: number | null) => (x === null ? "-" : x.toFixed(2));
 const pathLabel = (p: string) => PATH_LABEL[p as ReviewPath] ?? p;
 
-function Evaluation({ report }: { report: EvaluationReport }) {
+/** A count, and the 95% interval of the rate behind it, as a metric */
+function Counted({ label, of, total, note }: { label: string; of: number; total: number; note: string }) {
+  if (total === 0) return <Metric label={label} value="None run" note={`${note} · nothing to count`} />;
+  return (
+    <Metric label={label} value={`${of} of ${total}`}
+      note={`${note} · 95% interval ${interval(of, total)}`} />
+  );
+}
+
+/** What a score on these packs can and cannot show, said before any number */
+function Caveat() {
+  return (
+    <p className="eval-caveat small">
+      <strong>What these numbers show.</strong> The demo packs are synthetic, and the team built them knowing what the
+      checks look for, so a full score shows the pipeline catches what was planted. It is not a detection rate on real
+      applications. Each count is small, so each comes with the range the true rate could lie in (a 95% interval):
+      14 of 14 is consistent with a true rate as low as 78%.
+    </p>
+  );
+}
+
+/** The rules' evaluation: what it shows, its counts, then *children* (the comparison with the AI team, the result
+ * that matters most), then the attack and pack tables behind the counts. */
+function Evaluation({ report, children }: { report: EvaluationReport; children: ReactNode }) {
   const run = report.attacks.filter((a) => a.detected !== null);
   const caught = run.filter((a) => a.detected).length;
+  const { true_positives: tp, false_positives: fp, false_negatives: fn } = report;
+  const routed = report.packs.filter((p) => p.path === p.expected_path).length;
   return (
     <>
+      <Caveat />
       <div className="metrics wide">
-        <Metric label="Precision" value={pct(report.precision)} note="Findings that were real" />
-        <Metric label="Recall" value={pct(report.recall)} note="Planted risks that were found" />
-        <Metric label="Attacks caught" value={`${caught} of ${run.length}`} note={`${report.attacks.length - run.length} not run`} />
+        <Counted label="Attacks caught" of={caught} total={run.length}
+          note={run.length < report.attacks.length ? `${report.attacks.length - run.length} not run` : "planted tampering"} />
+        <Counted label="Planted findings found" of={tp} total={tp + fn} note="recall" />
+        <Counted label="Findings that were expected" of={tp} total={tp + fp} note="precision" />
+        <Counted label="Packs routed as expected" of={routed} total={report.packs.length} note="route" />
         <Metric label="Evidence coverage" value={pct(report.evidence_coverage)} note="Findings traceable to a page" />
-        <Metric label="Routing accuracy" value={pct(report.routing_accuracy)} note={`${report.packs.length} packs`} />
       </div>
       <p className="muted small">
         Last run {when(report.evaluated_at)}, extraction {report.extraction_mode || "unknown"}, with{" "}
         {Object.entries(report.capabilities).filter(([, on]) => on).map(([c]) => CAPABILITY_LABEL[c as Capability["name"]] ?? c).join(" and ") || "no optional capabilities"}.
       </p>
+
+      {children}
 
       <Section title="Attack coverage" aside="Each planted tampering and the signal that caught it">
         <div className="table-wrap">
@@ -132,6 +162,102 @@ function Scoring({ policy }: { policy: ScoringPolicy }) {
   );
 }
 
+interface PackRuns {
+  pack: string;
+  planted: boolean;
+  rules: string;
+  /** Runs the gate would send for review (the rules' route when the gate did not decide) */
+  review: number;
+  runs: number;
+}
+
+/** Each pack's rule route beside the route the AI team's gate would take in each run */
+function packRuns(report: EvaluationReport, row: AgentEvalRow): PackRuns[] {
+  const rules = new Map(report.packs.map((p) => [p.pack, p.path]));
+  const byPack = new Map<string, AgentEvalRow["packs"]>();
+  row.packs.forEach((p) => byPack.set(p.pack, [...(byPack.get(p.pack) ?? []), p]));
+  return [...byPack].map(([pack, runs]) => {
+    const route = rules.get(pack) ?? "-";
+    return {
+      pack,
+      planted: runs.some((r) => r.planted),
+      rules: route,
+      review: runs.filter((r) => (r.would_route ?? route) !== "fast_track").length,
+      runs: runs.length,
+    };
+  });
+}
+
+/** The question the AI team has to answer: which planted frauds reach a person with it that would not without it,
+ * and whether it sends clean packs to a person for nothing. */
+function Comparison({ report, row }: { report: EvaluationReport; row: AgentEvalRow }) {
+  const packs = packRuns(report, row);
+  const planted = packs.filter((p) => p.planted);
+  const clean = packs.filter((p) => !p.planted);
+  const sum = (ps: PackRuns[], f: (p: PackRuns) => number) => ps.reduce((n, p) => n + f(p), 0);
+  const rulesCaught = planted.filter((p) => p.rules !== "fast_track").length;
+  const aiCaught = sum(planted, (p) => p.review);
+  const aiRuns = sum(planted, (p) => p.runs);
+  const cleanKept = sum(clean, (p) => p.runs - p.review);
+  const cleanRuns = sum(clean, (p) => p.runs);
+  const runs = row.runs ?? 1;
+  return (
+    <>
+      <div className="metrics wide">
+        <Counted label="Planted frauds sent for review, rules alone" of={rulesCaught} total={planted.length} note="packs" />
+        <Counted label="With the AI team" of={aiCaught} total={aiRuns} note={runs > 1 ? `pack runs (${runs} runs each)` : "packs, one run"} />
+        <Counted label="Clean packs kept on fast track" of={cleanKept} total={cleanRuns} note="no review for nothing" />
+      </div>
+      <p className="muted small">
+        With the AI team means the route its log-only gate would take: a fact code confirmed raises fast track to
+        standard review, and nothing lowers a route. The gate is not applied; the rules' route stands.
+      </p>
+      <div className="table-wrap">
+        <table className="data">
+          <thead>
+            <tr>
+              <th scope="col">Pack</th>
+              <th scope="col">Planted fraud</th>
+              <th scope="col">Rules alone</th>
+              <th scope="col">With the AI team</th>
+            </tr>
+          </thead>
+          <tbody>
+            {packs.map((p) => {
+              const good = p.planted ? p.review : p.runs - p.review;
+              const tone = good === p.runs ? "low" : good === 0 ? "crit" : "med";
+              return (
+                <tr key={p.pack}>
+                  <td className="mono">{p.pack}</td>
+                  <td>{p.planted ? "Yes" : <span className="muted">No</span>}</td>
+                  <td>
+                    {pathLabel(p.rules)}
+                    {p.planted && p.rules === "fast_track" && <span className="muted small block">missed by the rules</span>}
+                  </td>
+                  <td>
+                    <Pill tone={tone}>
+                      {p.planted
+                        ? `Review in ${p.review} of ${p.runs} run${p.runs === 1 ? "" : "s"}`
+                        : `Fast track in ${p.runs - p.review} of ${p.runs} run${p.runs === 1 ? "" : "s"}`}
+                    </Pill>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+/** Planted patterns found, as "k of n" with the 95% interval on hover */
+function share(row: AgentEvalRow, found: (p: AgentEvalRow["packs"][number]) => string[]) {
+  const expected = row.packs.reduce((n, p) => n + p.expected_leads.length, 0);
+  const hit = row.packs.reduce((n, p) => n + p.expected_leads.filter((l) => found(p).includes(l)).length, 0);
+  return <span title={`95% interval ${interval(hit, expected)}`}>{hit} of {expected}</span>;
+}
+
 /** One row per model setup, so a challenger is read against the champion */
 function AgentEvaluation({ rows }: { rows: AgentEvalRow[] }) {
   return (
@@ -140,8 +266,9 @@ function AgentEvaluation({ rows }: { rows: AgentEvalRow[] }) {
         <thead>
           <tr>
             <th scope="col">Setup</th>
-            <th scope="col" className="num" title="Planted patterns the agents reported as supported">Supported recall</th>
-            <th scope="col" className="num" title="Planted patterns code verified">Verified recall</th>
+            <th scope="col" className="num">Runs</th>
+            <th scope="col" className="num" title="Planted patterns the agents reported as supported, over every run">Patterns reported</th>
+            <th scope="col" className="num" title="Planted patterns code verified, over every run">Facts confirmed by code</th>
             <th scope="col" className="num">Triage accuracy</th>
             <th scope="col" className="num" title="Supported leads matching nothing planted, before code checks">Noise</th>
             <th scope="col" className="num" title="Leads code verified that match nothing planted: the false flags an analyst would get">Flag noise</th>
@@ -164,8 +291,9 @@ function AgentEvaluation({ rows }: { rows: AgentEvalRow[] }) {
                 <span className="muted small block">+ <span className="mono">{r.specialist}</span></span>
                 {r.shadow && <span className="muted small block">scorer <span className="mono">{r.shadow}</span></span>}
               </td>
-              <td className="num mono">{pct(r.supported_recall)}</td>
-              <td className="num mono">{pct(r.verified_recall)}</td>
+              <td className="num mono">{r.runs ?? 1}</td>
+              <td className="num mono">{share(r, (p) => p.found_leads)}</td>
+              <td className="num mono">{r.verified_recall === null ? "-" : share(r, (p) => p.verified_leads)}</td>
               <td className="num mono">{pct(r.triage_accuracy)}</td>
               <td className="num mono">{r.noise}</td>
               <td className="num mono">{r.flag_noise ?? "-"}</td>
@@ -208,6 +336,8 @@ export function ControlsScreen() {
     ),
   );
   const biggest = Math.max(...families.map(([, list]) => list.length));
+  /** The most recently evaluated model setup is the one compared with the rules */
+  const latest = [...controls.agent_eval].sort((a, b) => a.evaluated_at.localeCompare(b.evaluated_at)).at(-1);
 
   return (
     <main className="page">
@@ -224,10 +354,22 @@ export function ControlsScreen() {
 
       <Section title="Evaluation">
         {controls.evaluation ? (
-          <Evaluation report={controls.evaluation} />
+          <Evaluation report={controls.evaluation}>
+            <Section title="Rules alone and with the AI team" aside="Does each planted fraud reach a person, and does a clean pack stay on fast track">
+              {latest ? (
+                <Comparison report={controls.evaluation} row={latest} />
+              ) : (
+                <Empty title="Not compared yet">
+                  Run <strong>Actions › Run evaluation</strong> with the AI team ticked (about US$3 a run) to see which
+                  planted frauds reach a person only because of it.
+                </Empty>
+              )}
+            </Section>
+          </Evaluation>
         ) : (
           <Empty title="No saved evaluation yet">
-            Run the evaluation on the server with <code>--save</code> to score the pipeline against every test pack.
+            On GitHub, run <strong>Actions › Run evaluation</strong> to score the deployed pipeline against every test
+            pack. The rule checks cost nothing to evaluate.
           </Empty>
         )}
       </Section>
@@ -237,7 +379,7 @@ export function ControlsScreen() {
           <AgentEvaluation rows={controls.agent_eval} />
         ) : (
           <Empty title="No agent evaluation yet">
-            Run <code>python -m gldb.agent_eval --save</code> on the server to score the AI team against every test pack.
+            Run <strong>Actions › Run evaluation</strong> with the AI team ticked to score it against every test pack.
           </Empty>
         )}
       </Section>

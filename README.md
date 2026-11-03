@@ -82,10 +82,16 @@ python -m gldb.evaluate --save                 # also keep the report for the UI
 To score the AI team (champion vs challenger) on the same packs:
 
 ```bash
-python -m gldb.agent_eval [--supervisor M] [--specialist M] [--save]
+python -m gldb.agent_eval [--supervisor M] [--specialist M] [--runs N] [--save]
 # One model setup per run (defaults: the configured models). Calls Bedrock whatever
-# AGENTS_ENABLED says; about US$1-3 per run. Run it again with other models for the challenger.
+# AGENTS_ENABLED says; about US$1-3 per pass. The team is not deterministic, so --runs 1-3
+# runs every pack that many times. Run it again with other models for the challenger.
 ```
+
+On the prototype server, run **Actions > Run evaluation** on GitHub instead (the server must be running). It
+evaluates the deployed code and saves both reports for the Model & controls page: the rules evaluation always, at
+no cost, and the AI team when ticked, for 1 to 3 runs. The page shows counts with 95% intervals, and each planted
+fraud's route with the rules alone and with the AI team.
 
 ### 6. Run the app
 

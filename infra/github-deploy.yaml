@@ -1,9 +1,9 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
-  GLDB prototype - lets GitHub Actions start the prototype server and deploy
-  main to it. GitHub signs in through OIDC (no stored AWS keys), and the role
-  it gets can start one server and run one fixed deploy command on it, and
-  nothing else.
+  GLDB prototype - lets GitHub Actions start the prototype server, deploy
+  main to it and evaluate it. GitHub signs in through OIDC (no stored AWS
+  keys), and the role it gets can start one server and run two fixed commands
+  on it (deploy, evaluate), and nothing else.
 
 Parameters:
   # GitHub names the repository by owner and repository IDs as well as names,
@@ -64,6 +64,49 @@ Resources:
                   echo "The API did not come back after the restart" >&2
                   exit 1
 
+  # The evaluation: score the deployed code against every demo pack and save
+  # the reports the controls page shows. The rules evaluation costs nothing;
+  # the AI team, when asked for, calls Bedrock for every pack and run. Both
+  # parameters allow fixed values only, so nothing else can be run through it.
+  EvaluateDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: gldb-evaluate
+      DocumentType: Command
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: "2.2"
+        description: Evaluate the deployed prototype against its demo packs and save the reports
+        parameters:
+          aiTeam:
+            type: String
+            description: Also run the AI team over every pack (calls Bedrock)
+            allowedValues: ["off", "on"]
+            default: "off"
+          runs:
+            type: String
+            description: How many times the AI team runs each pack
+            allowedValues: ["1", "2", "3"]
+            default: "1"
+        mainSteps:
+          - action: aws:runShellScript
+            name: evaluate
+            inputs:
+              timeoutSeconds: "7200"
+              runCommand:
+                - |
+                  set -eu
+                  sudo -u ubuntu -H bash -c 'set -uo pipefail
+                  cd /opt/gldb
+                  echo "Evaluating $(git log --oneline -1)"
+                  status=0
+                  # Exit 1 means a pack differs from its ground truth: the report is still saved
+                  .venv/bin/python -m gldb.evaluate --save || status=$?
+                  if [ "{{ aiTeam }}" = on ]; then
+                    .venv/bin/python -m gldb.agent_eval --save --runs {{ runs }} || status=$?
+                  fi
+                  exit $status'
+
   DeployRole:
     Type: AWS::IAM::Role
     Properties:
@@ -85,12 +128,13 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Sid: RunTheDeployCommandOnTheServer
+              - Sid: RunTheDeployAndEvaluateCommandsOnTheServer
                 Effect: Allow
                 Action: ssm:SendCommand
                 Resource:
                   - !Sub arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${InstanceId}
                   - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:document/${DeployDocument}
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:document/${EvaluateDocument}
               # The Start server workflow; stopping is left to infra/server-schedule.yaml
               - Sid: StartTheServer
                 Effect: Allow
@@ -109,3 +153,5 @@ Outputs:
     Value: !GetAtt DeployRole.Arn
   DeployDocument:
     Value: !Ref DeployDocument
+  EvaluateDocument:
+    Value: !Ref EvaluateDocument

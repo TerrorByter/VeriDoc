@@ -1,16 +1,25 @@
-name: Deploy to the prototype server
+name: Run a command on the prototype server
 description: >-
-  Run the deploy command (pull main, install, build, restart) on the server
-  through Session Manager and fail unless it succeeds. Needs AWS credentials
-  for the deploy role.
+  Run one of the fixed Session Manager documents (deploy, evaluate) on the
+  server, print its output and fail unless it succeeds. Needs AWS credentials
+  for the deploy role, which may run only those documents.
 
 inputs:
   instance-id:
     description: The prototype server
     required: true
   document:
-    description: The Session Manager document that deploys
+    description: The Session Manager document to run
     required: true
+  parameters:
+    description: The document's parameters, as JSON (each limited to the values the document allows)
+    default: "{}"
+  what:
+    description: What the command does, for the messages
+    default: Deploy
+  wait-minutes:
+    description: How long to wait for it to finish
+    default: "15"
 
 runs:
   using: composite
@@ -19,20 +28,23 @@ runs:
       env:
         INSTANCE_ID: ${{ inputs.instance-id }}
         DOCUMENT: ${{ inputs.document }}
+        PARAMETERS: ${{ inputs.parameters }}
+        WHAT: ${{ inputs.what }}
+        WAIT_MINUTES: ${{ inputs.wait-minutes }}
       run: |
         # A server that has just started takes a few seconds to register with Session Manager
         for _ in $(seq 1 24); do
           id=$(aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name "$DOCUMENT" \
-            --document-version '$LATEST' --comment "deploy ${GITHUB_SHA::7}" \
+            --document-version '$LATEST' --parameters "$PARAMETERS" --comment "$WHAT ${GITHUB_SHA::7}" \
             --query Command.CommandId --output text 2>/dev/null) && break
           sleep 5
         done
         [ -n "${id:-}" ] || { echo "::error::Session Manager could not reach the server"; exit 1; }
-        for _ in $(seq 1 180); do
+        for _ in $(seq 1 $((WAIT_MINUTES * 12))); do
           status=$(aws ssm get-command-invocation --command-id "$id" --instance-id "$INSTANCE_ID" \
             --query Status --output text 2>/dev/null || echo Pending)
           case "$status" in Pending|InProgress|Delayed) sleep 5 ;; *) break ;; esac
         done
         aws ssm get-command-invocation --command-id "$id" --instance-id "$INSTANCE_ID" \
           --query '[StandardOutputContent, StandardErrorContent]' --output text
-        [ "$status" = Success ] || { echo "::error::Deploy ended with status $status"; exit 1; }
+        [ "$status" = Success ] || { echo "::error::$WHAT ended with status $status"; exit 1; }

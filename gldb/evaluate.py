@@ -54,6 +54,7 @@ from gldb.intake import document_paths, load_manifest
 from gldb.pipeline import assess
 from gldb.schemas import Evidence
 from gldb.signal_library import signal_for
+from gldb.stats import counted
 
 
 #: Optional capabilities and whether this run has them
@@ -268,8 +269,13 @@ def _print(report: Report) -> None:
         ready = f"{r.readiness}/{r.expected_readiness}"
         path = f"{r.path}/{r.expected_path}"
         print(f"{r.pack:<{width}}{band:<16}{ready:<24}{path:<36}{r.missed or '-'} / {r.unexpected or '-'}")
+    tp, fp, fn = report.true_positives, report.false_positives, report.false_negatives
+    routed = sum(r.path == r.expected_path for r in report.packs)
     print(
-        f"\nprecision {report.precision:.2f}  recall {report.recall:.2f}  "
+        f"\nfindings that were expected {counted(tp, tp + fp)}\n"
+        f"planted findings found {counted(tp, tp + fn)}\n"
+        f"packs routed as expected {counted(routed, len(report.packs))}\n"
+        f"precision {report.precision:.2f}  recall {report.recall:.2f}  "
         f"band accuracy {report.band_accuracy:.2f}  "
         f"readiness accuracy {report.readiness_accuracy:.2f}  "
         f"routing accuracy {report.routing_accuracy:.2f}  "
@@ -280,10 +286,14 @@ def _print(report: Report) -> None:
         mark = {True: "yes", False: "NO", None: "not run"}[a.detected]
         found = f"{', '.join(a.signals)} ({', '.join(a.evidence_ids)})" if a.evidence_ids else "-"
         print(f"{a.attack:<28}{a.pack:<{width}}{a.document:<26}{mark:<10}{found}")
+    run = [a for a in report.attacks if a.detected is not None]
     print(
-        f"\nattacks detected {report.attack_detection_rate:.2f} of those run  "
+        f"\nattacks detected {report.attack_detection_rate:.2f} of those run: "
+        f"{counted(sum(bool(a.detected) for a in run), len(run))}  "
         f"evidence coverage {report.evidence_coverage:.2f}"
     )
+    print("Synthetic packs the team built knowing the checks: they show the pipeline catches what was "
+          "planted, not a detection rate on real applications.")
     for r in report.packs:
         if r.untraceable:
             print(f"untraceable findings in {r.pack}: {', '.join(r.untraceable)}")

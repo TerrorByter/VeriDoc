@@ -73,7 +73,7 @@ jobs:
             echo "::notice::The server is $state, so nothing was deployed. The Start server workflow deploys main when it starts it."
           fi
       - if: steps.server.outputs.state == 'running'
-        uses: ./.github/actions/deploy
+        uses: ./.github/actions/server-command
         with:
           instance-id: ${{ env.INSTANCE_ID }}
           document: ${{ env.DOCUMENT }}

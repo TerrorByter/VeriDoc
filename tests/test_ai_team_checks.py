@@ -24,6 +24,7 @@ from gldb import official
 from gldb.ai_team.checks import (
     Outcome,
     bank_rows,
+    candidate_leads,
     check_pattern,
     corroborate,
     counterparties,
@@ -35,7 +36,7 @@ from gldb.ai_team.checks import (
 from gldb.checks import check_temp_trade_sequence as check_trade_rules
 from gldb.intake import load_manifest
 from gldb.pipeline import assess
-from gldb.schemas import Evidence, ExtractedPack, Lead
+from gldb.schemas import Disclosure, Evidence, ExtractedPack, Lead
 from gldb.screening import screening_key
 
 PACKS = Path(__file__).parent / "fixtures" / "packs"
@@ -69,6 +70,18 @@ def _tpp(pack: ExtractedPack, invoice: str, rows: list[str]) -> Lead:
 def _check(name: str, lead: Lead) -> Outcome:
     pack, evidence = _case(name)
     return check_pattern(lead, pack, list(evidence))
+
+
+def test_candidate_leads_propose_only_undisclosed_third_party_payers() -> None:
+    pack, _ = _case("third_party_payment")
+    (lead,) = candidate_leads(pack)
+    assert (lead.agent, lead.pattern, lead.invoice_number, lead.transaction_ids) == (
+        "transaction", "third_party_payment", "INV-1002", _rows(pack, "HARBOURLINE LOGISTICS INV-1002"))
+    # The same case with the payer disclosed by the application proposes nothing
+    manifest = pack.manifest.model_copy(update={"disclosures": [
+        Disclosure(kind="payment_agent", counterparty="HARBOURLINE LOGISTICS", detail="a disclosed payment agent")]})
+    disclosed = pack.model_copy(update={"manifest": manifest})
+    assert candidate_leads(disclosed) == []
 
 
 # ---------------------------------------------------------------------------

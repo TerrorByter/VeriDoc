@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { getControls } from "../../api";
 import { duration, PATH_LABEL, usd, when } from "../../catalogue";
-import type { AgentEvalRow, Capability, Controls, EvaluationReport, ReviewPath, ScoringPolicy, Severity, SignalFamily } from "../../types";
+import type { AgentEvalRow, Capability, Controls, EvaluationReport, HeldoutReport, ReviewPath, ScoringPolicy, Severity, SignalFamily } from "../../types";
 import { interval } from "../../stats";
 import { Metric, Section } from "../stages/common";
 import { Empty, ErrorNote, Pill } from "../ui";
@@ -135,6 +135,83 @@ function Evaluation({ report, children }: { report: EvaluationReport; children: 
 }
 
 const SEVERITIES: Severity[] = ["low", "medium", "high", "critical"];
+
+const OUTCOME_LABEL: Record<HeldoutReport["packs"][number]["outcome"], string> = {
+  caught: "Caught",
+  missed: "Missed",
+  clear: "Clear",
+  false_alarm: "False alarm",
+  error: "Error",
+};
+
+const OUTCOME_TONE: Record<HeldoutReport["packs"][number]["outcome"], "low" | "crit" | "med" | "neutral"> = {
+  caught: "low",
+  missed: "crit",
+  clear: "low",
+  false_alarm: "crit",
+  error: "neutral",
+};
+
+/** The blind held-out test: the labels were written by someone who did not build the checks, sealed before the
+ * run, and revealed only to score it. This is the detection-rate claim the demo packs cannot make. */
+function Heldout({ report }: { report: HeldoutReport }) {
+  const pilot = report.kind === "pilot";
+  return (
+    <>
+      {pilot && (
+        <p className="eval-caveat small">
+          <strong>Pilot.</strong> This set was written by the build team to test the renderer and the scoring, not
+          independently, so its numbers are development data. An official set needs an independent author, a
+          pre-registered plan, and a sealed key.
+        </p>
+      )}
+      <div className="metrics wide">
+        <Counted label="Fraudulent packs caught" of={report.caught} total={report.fraud_packs} note="recall, rules route" />
+        <Counted label="Legitimate packs sent for review" of={report.false_alarms} total={report.legitimate_packs} note="false alarms" />
+        <Metric label="Errors" value={`${report.errors}`} note="packs that did not run" />
+        <Metric label="Extraction" value={report.extraction_mode || "unknown"} note="how the fields were read" />
+      </div>
+      <p className="muted small">
+        Test set <span className="mono">{report.test_set}</span> · author {report.author} · {report.fraud_packs}{" "}
+        fraudulent and {report.legitimate_packs} legitimate packs · run {when(report.evaluated_at)} · seal{" "}
+        <span className="mono">{report.seal.slice(0, 12)}…</span>
+      </p>
+      {report.gate_runs > 0 && (
+        <p className="muted small">
+          With the AI team, the log-only gate would send {report.gate_review_runs} of {report.gate_runs} pack runs for
+          review; {report.verified_lead_runs} runs carried a code-verified lead. The gate is not applied; the rules'
+          route stands.
+        </p>
+      )}
+      <Section title="Every pack, misses included" aside="The label is revealed here; the run never saw it">
+        <div className="table-wrap">
+          <table className="data">
+            <thead>
+              <tr>
+                <th scope="col">Pack</th>
+                <th scope="col">Label</th>
+                <th scope="col">What it carries</th>
+                <th scope="col">Route</th>
+                <th scope="col">Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.packs.map((p) => (
+                <tr key={p.pack}>
+                  <td className="mono">{p.pack}<span className="muted small block">{p.company}</span></td>
+                  <td>{p.label}</td>
+                  <td className="mono">{p.typology ?? p.quirk ?? "—"}</td>
+                  <td>{pathLabel(p.path)}</td>
+                  <td><Pill tone={OUTCOME_TONE[p.outcome]}>{OUTCOME_LABEL[p.outcome]}</Pill></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Section>
+    </>
+  );
+}
 
 /** How findings become points, a band and a route: the policy the server runs with */
 function Scoring({ policy }: { policy: ScoringPolicy }) {
@@ -380,6 +457,17 @@ export function ControlsScreen() {
         ) : (
           <Empty title="No agent evaluation yet">
             Run <strong>Actions › Run evaluation</strong> with the AI team ticked to score it against every test pack.
+          </Empty>
+        )}
+      </Section>
+
+      <Section title="Held-out test" aside="Scored on a set the checks were not built against">
+        {controls.heldout ? (
+          <Heldout report={controls.heldout} />
+        ) : (
+          <Empty title="No held-out set scored yet">
+            A blind held-out set needs an independent author, a pre-registered plan and a sealed key. Until one is
+            scored, the numbers above are the demo packs only, which were built knowing the checks.
           </Empty>
         )}
       </Section>

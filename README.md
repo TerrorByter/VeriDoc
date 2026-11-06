@@ -82,16 +82,34 @@ python -m gldb.evaluate --save                 # also keep the report for the UI
 To score the AI team (champion vs challenger) on the same packs:
 
 ```bash
-python -m gldb.agent_eval [--supervisor M] [--specialist M] [--runs N] [--save]
+python -m gldb.agent_eval [--supervisor M] [--specialist M] [--runs N] [--only PACK,...] [--save]
 # One model setup per run (defaults: the configured models). Calls Bedrock whatever
 # AGENTS_ENABLED says; about US$1-3 per pass. The team is not deterministic, so --runs 1-3
 # runs every pack that many times. Run it again with other models for the challenger.
+# --only PACK,... runs just those packs (about US$0.25 a pack); with --save it patches
+# the saved row instead of replacing it, so one pack can be refreshed without re-running the rest.
 ```
 
 On the prototype server, run **Actions > Run evaluation** on GitHub instead (the server must be running). It
 evaluates the deployed code and saves both reports for the Model & controls page: the rules evaluation always, at
 no cost, and the AI team when ticked, for 1 to 3 runs. The page shows counts with 95% intervals, and each planted
 fraud's route with the rules alone and with the AI team.
+
+### The blind held-out test
+
+The demo packs were built knowing the checks, so they show only that the pipeline catches what was planted. A blind
+held-out test closes that gap: an independent author writes a scenario sheet (which packs are fraudulent, which are
+legitimate, and where), the renderer draws the documents mechanically, and the system is scored against a sealed
+answer key it never saw. See `docs/heldout-preregistration.md` and `docs/heldout-author-guide.md`.
+
+```bash
+python -m gldb.heldout generate --sheets SHEET.json --out DIR --key KEY.json --seed SEED  # render + seal
+python -m gldb.heldout run --packs DIR/packs --out RESULTS.json [--ai-team] [--runs N]     # blind: never reads the key
+python -m gldb.heldout score --results RESULTS.json --key KEY.json --seal DIR/seal.json --out REPORT.json
+```
+
+The score verifies the seal, reveals the labels, and writes the report the Model & controls page shows. A pilot sheet
+is development data; an official set needs an independent author, a pre-registered plan and a sealed key.
 
 ### 6. Run the app
 
@@ -207,6 +225,7 @@ gldb/               Core package
     shadow.py       Shadow case scorer and the log-only gate (never changes the route)
   evaluate.py       Scores the pipeline against each demo pack's ground truth
   agent_eval.py     Champion vs challenger evaluation of the AI team on the packs
+  heldout.py        The blind held-out test: render sheets, seal the key, run blind, score per pack
   api.py            FastAPI app used by the frontend
   jobs.py           Progress of background pipeline runs, for the live run screen
   ocr.py            Textract OCR of every PDF page except the FATCA/CRS forms

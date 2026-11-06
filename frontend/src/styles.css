@@ -938,14 +938,59 @@ a, .link { text-underline-offset: 3px; }
 .risk.high { color: var(--high); }
 .status { font-size: 13px; white-space: nowrap; }
 .status.failed { color: var(--crit); }
+.categories { display: flex; flex-wrap: wrap; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.category {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border-radius: var(--radius);
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--border);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.category.more { background: none; box-shadow: none; padding-inline: 2px; }
+.category-ai {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
 .cases-more { justify-self: start; margin-top: 8px; }
+
+/* Investigation summary */
+.summary { display: grid; gap: 16px; }
+.summary-cards, .summary-items, .summary-next { margin: 0; padding: 0; list-style: none; }
+.summary-cards { display: grid; gap: 10px; }
+.summary-card {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  transition: border-color 0.15s ease;
+}
+.summary-card:hover { border-left-color: var(--brand); }
+.summary-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px 6px; }
+.summary-card-head h4 { margin: 0; font-size: 15px; font-weight: 600; }
+.summary-item { padding: 8px 14px; border-top: 1px solid var(--border); }
+.summary-item-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 13.5px; }
+.summary-item p { margin: 3px 0 0; }
+.summary-none { padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.summary-none p { margin: 4px 0 0; }
+.summary-next { display: flex; flex-wrap: wrap; gap: 6px 20px; }
+.summary-more { margin: 2px 8px 8px; }
+.summary-next .link:disabled { color: var(--faint); text-decoration: none; cursor: default; }
 .cases-none { padding: 12px 2px; }
 @media (max-width: 480px) {
   .logo span { display: none; }
 }
 @media (max-width: 720px) {
   .cases-tools .segmented { max-width: 100%; }
-  .cases-table th:nth-child(4), .cases-table td:nth-child(4),
-  .cases-table th:nth-child(5), .cases-table td:nth-child(5) { display: none; }
+  .cases-table th:nth-child(5), .cases-table td:nth-child(5),
+  .cases-table th:nth-child(6), .cases-table td:nth-child(6) { display: none; }
   .search { max-width: none; }
 }

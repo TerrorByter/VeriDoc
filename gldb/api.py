@@ -46,9 +46,11 @@ from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Response, Upl
 from pydantic import BaseModel, Field, model_validator
 
 from gldb import agent_eval, jobs, lifecycle, usage
+from gldb.heldout import HeldoutReport, load_saved as load_heldout
 from gldb.ai_team.checks import subject_locations
 from gldb.agent_eval import AgentEvalRow
 from gldb.audit import log_event, read_all_events, read_events
+from gldb.categories import CaseCategory, categorise
 from gldb.checks import PACK_DOC
 from gldb.config import (
     AGENT_SPECIALIST_MODEL,
@@ -166,6 +168,8 @@ class CaseView(BaseModel):
     subjects: dict[str, DocRef]
     #: Findings the request to the applicant already asks about: an AI question resting only on them adds nothing
     asked_findings: list[str] = []
+    #: What kind of problem the case shows, set by code (gldb.categories); empty if none
+    categories: list[CaseCategory] = []
 
 
 class RunStarted(BaseModel):
@@ -186,6 +190,8 @@ class CaseSummary(BaseModel):
     status: CaseStatus | Literal["running", "failed"]
     #: When the case was opened (ISO 8601); empty if the run has not logged it yet
     created_at: str
+    #: What kind of problem the case shows, set by code (gldb.categories); empty if none or still running
+    categories: list[CaseCategory] = []
 
 
 class Capability(BaseModel):
@@ -234,6 +240,8 @@ class Controls(BaseModel):
     evaluation: Report | None
     #: Saved AI team evaluations, one per model setup; empty until one has run
     agent_eval: list[AgentEvalRow]
+    #: The blind held-out test report; None until one has been scored
+    heldout: HeldoutReport | None = None
     feedback: list[CheckFeedback]
 
 
@@ -344,6 +352,7 @@ def _view(result: CaseResult) -> CaseView:
         signals={e.check_id: signal_for(e.check_id) for e in result.evidence},
         subjects={k: DocRef(doc_id=doc, page=page) for k, (doc, page) in subject_locations(result.pack).items()},
         asked_findings=sorted(asked_findings(result)),
+        categories=categorise(result),
     )
 
 
@@ -523,6 +532,7 @@ def _summary(result: CaseResult, events: list[AuditEvent]) -> CaseSummary:
         path=result.routing.path if result.routing else None,
         status=lifecycle.status(events),
         created_at=created.isoformat() if created else "",
+        categories=categorise(result),
     )
 
 
@@ -792,5 +802,6 @@ def get_controls() -> Controls:
         cost=_cost_summary(),
         evaluation=load_saved(),
         agent_eval=agent_eval.load_saved(),
+        heldout=load_heldout(),
         feedback=report(read_all_events()),
     )

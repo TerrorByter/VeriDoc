@@ -21,6 +21,7 @@ env/
 data/uploads/
 data/cases/
 data/reference/history/
+data/heldout/
 logs/*.jsonl
 logs/evaluation.json
 

@@ -406,6 +406,8 @@ export interface CaseView {
   subjects: Record<string, DocRef>;
   /** Findings the request to the applicant already asks about */
   asked_findings: string[];
+  /** What kind of problem the case shows, set by code (gldb/categories.py); empty if none */
+  categories: CaseCategory[];
 }
 
 /** Money as the server sends it: a decimal string */
@@ -520,6 +522,16 @@ export interface CaseSummary {
   path: ReviewPath | null;
   status: CaseStatus | "running" | "failed";
   created_at: string;
+  /** What kind of problem the case shows, set by code (gldb/categories.py); empty if none */
+  categories: CaseCategory[];
+}
+
+/** One kind of problem a case shows, and the findings (E…) or verified AI-team leads (L…) behind it */
+export interface CaseCategory {
+  category: string;
+  label: string;
+  source: "rules" | "ai_team";
+  ids: string[];
 }
 
 export type SignalFamily = "DOC" | "FIN" | "TXN" | "REG" | "ENT" | "TEMP" | "COMP" | "SYS";
@@ -655,6 +667,57 @@ export interface CheckFeedback {
   reasons: Record<string, number>;
 }
 
+/** One pack in the blind held-out test, scored after the answer key was revealed */
+export interface HeldoutPackResult {
+  pack: string;
+  scenario_id: string;
+  label: "fraud" | "legitimate";
+  typology: string | null;
+  quirk: string | null;
+  placement: { trade: string | null; index: number } | null;
+  company: string;
+  uen: string;
+  band: string;
+  readiness: string;
+  path: string;
+  qa_sampled: boolean;
+  risk_findings: number;
+  verified_leads: string[];
+  gate_route: string | null;
+  gate_review_runs: number;
+  gate_runs: number;
+  verified_lead_runs: number;
+  error: string | null;
+  outcome: "caught" | "missed" | "clear" | "false_alarm" | "error";
+}
+
+/** The published result of a blind held-out test: nothing here was built knowing the checks */
+export interface HeldoutReport {
+  test_set: string;
+  kind: "pilot" | "official";
+  author: string;
+  /** SHA-256 of the answer key, published before the run */
+  seal: string;
+  scored_at: string;
+  evaluated_at: string;
+  extraction_mode: string;
+  capabilities: Record<string, boolean>;
+  runs: number;
+  fraud_packs: number;
+  legitimate_packs: number;
+  caught: number;
+  missed: number;
+  clear: number;
+  false_alarms: number;
+  errors: number;
+  recall: number;
+  false_alarm_rate: number;
+  gate_review_runs: number;
+  gate_runs: number;
+  verified_lead_runs: number;
+  packs: HeldoutPackResult[];
+}
+
 /** One thing the applicant is asked for, on one document */
 export interface RequestItem {
   /** The findings behind it: for the analyst, never in the letter */
@@ -696,6 +759,7 @@ export interface Controls {
   cost: { cases: number; usd_total: Usd; usd_per_case: Usd | null };
   evaluation: EvaluationReport | null;
   agent_eval: AgentEvalRow[];
+  heldout: HeldoutReport | null;
   feedback: CheckFeedback[];
 }
 

@@ -260,6 +260,10 @@ def _parties(case: CaseData, *_: Any) -> Any:
         "doc_id": PACK_DOC, "name": manifest.company_name, "uen": manifest.uen,
         "guarantors": [g.name for g in manifest.guarantors], "signatories": manifest.authorised_signatories,
     }
+    # What the applicant declared is context, never a finding: a disclosed
+    # interest explains a relationship the AI should not call undisclosed.
+    if applicant is not None and manifest.disclosures:
+        applicant["disclosures"] = [d.model_dump() for d in manifest.disclosures]
     parties = [
         *(p for i in pack.invoices for p in (_party(i.doc_id, "seller", i.seller_name, i.seller_uen),
                                              _party(i.doc_id, "buyer", i.buyer_name))),

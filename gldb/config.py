@@ -373,6 +373,10 @@ USAGE_LOG_PATH: str = os.getenv("USAGE_LOG_PATH", "logs/usage.jsonl")
 #: which the API's controls page shows (gldb.evaluate).
 EVAL_REPORT_PATH: str = os.getenv("EVAL_REPORT_PATH", "logs/evaluation.json")
 
+#: Where `python -m gldb.heldout score` keeps the blind held-out report the
+#: controls page shows. The report is the published result; the key is not.
+HELDOUT_REPORT_PATH: str = os.getenv("HELDOUT_REPORT_PATH", "data/heldout/report.json")
+
 # ---------------------------------------------------------------------------
 # Unit prices for cost estimates (gldb.usage). From the AWS Price List API,
 # ap-southeast-1 on-demand list prices, as of PRICES_AS_OF. Estimates only:

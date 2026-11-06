@@ -268,21 +268,9 @@ def _pack_result(folder: Path, truth: dict, models: TeamModels, stamp: str, run:
     )
 
 
-def evaluate_team(models: TeamModels, packs_dir: Path, runs: int = 1) -> AgentEvalRow:
-    """Run the AI team on *models* *runs* times over every pack in
-    *packs_dir* whose required capabilities are on, each run of each pack as
-    its own case so its cost is metered on its own."""
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    truths = {
-        folder: json.loads((folder / "ground_truth.json").read_text(encoding="utf-8"))
-        for folder in sorted(p for p in packs_dir.iterdir() if (p / "ground_truth.json").is_file())
-    }
-    results = [
-        _pack_result(folder, truth, models, stamp, run)
-        for run in range(1, runs + 1)
-        for folder, truth in truths.items()
-        if not _missing(truth.get("requires", []))
-    ]
+def _row(models: TeamModels, runs: int, results: list[AgentPackResult]) -> AgentEvalRow:
+    """The aggregate row over *results*. A subset run or a merge passes its own
+    list here, so every rate is over exactly the packs the row lists."""
     usds = [r.usd for r in results if r.usd is not None]
     return AgentEvalRow(
         evaluated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -307,6 +295,50 @@ def evaluate_team(models: TeamModels, packs_dir: Path, runs: int = 1) -> AgentEv
         usd_per_case=sum(usds, Decimal(0)) / len(usds) if usds else None,
         seconds_per_case=_ratio(sum(r.seconds for r in results), len(results)),
     )
+
+
+def evaluate_team(models: TeamModels, packs_dir: Path, runs: int = 1,
+                  only: set[str] | None = None) -> AgentEvalRow:
+    """Run the AI team on *models* *runs* times over every pack in
+    *packs_dir* whose required capabilities are on (or only the *only* packs),
+    each run of each pack as its own case so its cost is metered on its own."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    truths = {
+        folder: json.loads((folder / "ground_truth.json").read_text(encoding="utf-8"))
+        for folder in sorted(p for p in packs_dir.iterdir() if (p / "ground_truth.json").is_file())
+        if only is None or folder.name in only
+    }
+    results = [
+        _pack_result(folder, truth, models, stamp, run)
+        for run in range(1, runs + 1)
+        for folder, truth in truths.items()
+        if not _missing(truth.get("requires", []))
+    ]
+    return _row(models, runs, results)
+
+
+def _merge(existing: AgentEvalRow, fresh: AgentEvalRow, runs: int) -> AgentEvalRow:
+    """*existing* with its packs named in *fresh* replaced by *fresh*'s, every
+    rate recomputed over the merged list. Re-running one pack refreshes it
+    without dropping the packs already saved."""
+    refreshed = {p.pack for p in fresh.packs}
+    kept = [p for p in existing.packs if p.pack not in refreshed]
+    merged = sorted([*kept, *fresh.packs], key=lambda p: (p.pack, p.run))
+    return _row(TeamModels(existing.supervisor, existing.specialist, existing.shadow), runs, merged)
+
+
+def merge_saved(models: TeamModels, packs_dir: Path, runs: int, only: set[str]) -> AgentEvalRow | None:
+    """Run only the *only* packs fresh and patch them into the saved row of the
+    same models, keeping every other pack's saved result. None when nothing ran
+    (nothing to merge). Costs one pass over the named packs, not the whole set."""
+    fresh = evaluate_team(models, packs_dir, runs, only=only)
+    if not any(r.status == "ran" for r in fresh.packs):
+        return None
+    existing = next(
+        (r for r in load_saved() if (r.supervisor, r.specialist) == (models.supervisor, models.specialist)),
+        None,
+    )
+    return fresh if existing is None else _merge(existing, fresh, runs)
 
 
 def _usd(amount: Decimal | None) -> str:
@@ -358,11 +390,32 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--shadow", default=SHADOW_SCORER_MODEL, help="shadow case scorer model ID")
     parser.add_argument("--runs", type=int, choices=range(1, MAX_RUNS + 1), default=1,
                         help="how many times to run each pack (the team is not deterministic)")
+    parser.add_argument("--only", metavar="PACK[,PACK...]",
+                        help="run only these packs; with --save, patch the saved row instead of replacing it")
     parser.add_argument("--save", action="store_true", help="keep the row for the API's controls page")
     args = parser.parse_args(argv)
-    print(f"This calls Bedrock for every pack, {args.runs} time(s) (estimated US$1-3 a run).")
+    only = set(args.only.split(",")) if args.only else None
+    if only:
+        known = {p.name for p in Path(PACKS_DIR).iterdir() if (p / "ground_truth.json").is_file()}
+        if unknown := (only - known):
+            print(f"unknown pack(s): {', '.join(sorted(unknown))}; the packs are {', '.join(sorted(known))}",
+                  file=sys.stderr)
+            return 1
+    models = TeamModels(args.supervisor, args.specialist, args.shadow)
+    if only:
+        print(f"This calls Bedrock for {len(only)} pack(s), {args.runs} time(s) each (about US$0.25 a pack).")
+    else:
+        print(f"This calls Bedrock for every pack, {args.runs} time(s) (estimated US$1-3 a run).")
     # Always runs the team, whatever AGENTS_ENABLED says: evaluating it is the point
-    row = evaluate_team(TeamModels(args.supervisor, args.specialist, args.shadow), Path(PACKS_DIR), args.runs)
+    if args.only and args.save:
+        row = merge_saved(models, Path(PACKS_DIR), args.runs, only)
+        if row is None:
+            print("no pack ran: nothing saved")
+            return 1
+    elif args.only:
+        row = evaluate_team(models, Path(PACKS_DIR), args.runs, only=only)
+    else:
+        row = evaluate_team(models, Path(PACKS_DIR), args.runs)
     _print(row)
     if not any(r.status == "ran" for r in row.packs):
         print("no pack ran: nothing saved")

@@ -237,7 +237,7 @@ def test_an_agents_refutation_alone_never_suppresses_a_rule_finding() -> None:
 
     team = run_team(case, MODELS, client=fake)
 
-    (lead,) = team.leads
+    lead = next(l for l in team.leads if l.kind == "triage")
     assert lead.investigation_status == "refuted" and lead.outcome == "kept"
     assert team.memo is not None
     assert [p.evidence_ids for p in team.memo.questions] == [[finding]]

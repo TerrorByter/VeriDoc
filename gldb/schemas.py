@@ -332,6 +332,19 @@ class Guarantor(BaseModel):
     residential_address: Address
 
 
+class Disclosure(BaseModel):
+    """An interest or arrangement the applicant declares with its application.
+
+    Rules do not read it: a disclosure is context for the analyst and the AI
+    team, not evidence that changes a score or a route. A pack without one has
+    an empty list.
+    """
+
+    kind: str
+    counterparty: str
+    detail: str = ""
+
+
 class ApplicationManifest(BaseModel):
     application_id: str
     application_date: date
@@ -342,6 +355,8 @@ class ApplicationManifest(BaseModel):
     registered_address: Address
     authorised_signatories: list[str]
     guarantors: list[Guarantor]
+    #: Declared interests and arrangements; empty for an application that declares none
+    disclosures: list[Disclosure] = []
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,101 @@
+{
+  "test_set": "pilot-v0",
+  "kind": "pilot",
+  "author": "build team (not independent)",
+  "scenarios": [
+    {
+      "scenario_id": "P-001",
+      "label": "fraud",
+      "typology": "invoice_overbilled",
+      "placement": {"trade": "sale", "index": 1},
+      "company": {"profile": "metal_fabrication", "name": "NORTHERN ARC FABRICATION PTE. LTD."},
+      "notes": "Renderer pilot: an invoice overbilled against its order and payment."
+    },
+    {
+      "scenario_id": "P-002",
+      "label": "fraud",
+      "typology": "goods_not_shipped",
+      "placement": {"trade": "purchase", "index": 2},
+      "company": {"profile": "precision_electronics", "name": "VOLTBRIDGE COMPONENTS PTE. LTD."},
+      "notes": "Renderer pilot: goods billed but not delivered."
+    },
+    {
+      "scenario_id": "P-003",
+      "label": "fraud",
+      "typology": "financials_inflated",
+      "company": {"profile": "commodity_trading", "name": "MERIDIAN STRAIT TRADING PTE. LTD."},
+      "notes": "Renderer pilot: the submitted financials double the ACRA filing."
+    },
+    {
+      "scenario_id": "P-004",
+      "label": "fraud",
+      "typology": "statement_credit_raised",
+      "placement": {"trade": "sale", "index": 2},
+      "company": {"profile": "water_treatment", "name": "AQUA RIDGE SYSTEMS PTE. LTD."},
+      "notes": "Renderer pilot: the second sales credit was raised in an incremental save."
+    },
+    {
+      "scenario_id": "P-005",
+      "label": "fraud",
+      "typology": "third_party_payment",
+      "placement": {"trade": "sale", "index": 1},
+      "company": {"profile": "cold_chain_logistics", "name": "POLAR LINK LOGISTICS PTE. LTD."},
+      "notes": "Renderer pilot: a buyer's invoice paid by an unrelated company."
+    },
+    {
+      "scenario_id": "P-006",
+      "label": "fraud",
+      "typology": "related_party_undisclosed",
+      "placement": {"trade": "purchase", "index": 1},
+      "company": {"profile": "marine_engineering", "name": "SEAHAVEN MARINE WORKS PTE. LTD."},
+      "notes": "Renderer pilot: a supplier run by the applicant's own CEO, not declared."
+    },
+    {
+      "scenario_id": "P-007",
+      "label": "legitimate",
+      "quirk": "clean",
+      "company": {"profile": "factory_automation", "name": "AXIS MOTION AUTOMATION PTE. LTD."},
+      "notes": "Renderer pilot: nothing planted."
+    },
+    {
+      "scenario_id": "P-008",
+      "label": "legitimate",
+      "quirk": "supplier_refund",
+      "placement": {"trade": "purchase", "index": 2},
+      "company": {"profile": "building_supplies", "name": "STONEFIELD SUPPLIES PTE. LTD."},
+      "notes": "Renderer pilot: a supplier refunds part of a purchase; the credit has no invoice."
+    },
+    {
+      "scenario_id": "P-009",
+      "label": "legitimate",
+      "quirk": "agent_payment",
+      "placement": {"trade": "sale", "index": 1},
+      "company": {"profile": "industrial_equipment", "name": "CRESTLINE EQUIPMENT PTE. LTD."},
+      "notes": "Renderer pilot: a payment agent settles the buyer's invoice and the application declares it."
+    },
+    {
+      "scenario_id": "P-010",
+      "label": "legitimate",
+      "quirk": "intra_group_payer",
+      "placement": {"trade": "sale", "index": 2},
+      "company": {"profile": "investment_holding", "name": "HARBOUR GATE HOLDINGS PTE. LTD."},
+      "notes": "Renderer pilot: a group company settles the buyer's invoice and the application declares it."
+    },
+    {
+      "scenario_id": "P-011",
+      "label": "legitimate",
+      "quirk": "disclosed_directorship",
+      "placement": {"trade": "purchase", "index": 3},
+      "company": {"profile": "precision_electronics", "name": "CIRCUIT CRAFT COMPONENTS PTE. LTD."},
+      "notes": "Renderer pilot: the CEO sits on a supplier's board; the application declares it."
+    },
+    {
+      "scenario_id": "P-012",
+      "label": "legitimate",
+      "quirk": "split_payment",
+      "placement": {"trade": "sale", "index": 1},
+      "company": {"profile": "metal_fabrication", "name": "IRONVALE FABRICATION PTE. LTD."},
+      "notes": "Renderer pilot: the buyer pays the invoice in two instalments."
+    }
+  ]
+}

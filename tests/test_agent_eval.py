@@ -79,6 +79,20 @@ def _tpp() -> dict[str, Any]:
     return {"invoice_number": "INV-1002", "transaction_ids": [row]}
 
 
+@cache
+def _rt() -> dict[str, Any]:
+    """The subject of the planted round trip: the supplier payment (a debit)."""
+    folder = PACKS / "round_trip"
+    pack = assess("rt", sorted(folder.glob("*.pdf")), load_manifest(folder), team=None).pack
+    row = next(row_id for row_id, _, txn in bank_rows(pack)
+               if txn.debit is not None and "SUPPLIER PAYMENT" in txn.description)
+    return {"transaction_ids": [row]}
+
+
+def _search_rt() -> list[dict[str, Any]]:
+    return [use("search_bank_transactions", text="SUPPLIER PAYMENT")]
+
+
 def _triage(cites: list[str], finding: str, status: str) -> list[dict[str, Any]]:
     return [use("record_lead", kind="triage", hypothesis="The payment differs from the invoice",
                 tests=[_test(cites)], finding_ids=[finding], investigation_status=status,
@@ -97,6 +111,57 @@ def _row(supervisor: str, specialist: str, noise: int = 0, statuses: tuple[str, 
         pattern_recall=1.0, triage_accuracy=1.0, noise=noise, withheld_rate=0.0,
         usd_per_case=Decimal("0.5"), seconds_per_case=1.0,
     )
+
+
+def test_merge_refreshes_only_the_named_pack_and_recomputes_rates() -> None:
+    from gldb.agent_eval import _merge
+
+    def result(name: str, found: bool) -> AgentPackResult:
+        expected = ["transaction:third_party_payment"] if name == "third_party_payment" else []
+        return AgentPackResult(
+            pack=name, expected_leads=expected,
+            found_leads=["transaction:third_party_payment"] if found else [],
+            triage_expected=0, triage_correct=0, noise=0, withheld=0, leads=1 if found else 0,
+            usd=None, seconds=1.0, status="ran",
+        )
+
+    existing = AgentEvalRow(
+        evaluated_at="2026-10-04T00:00:00+00:00", supervisor="s", specialist="p",
+        packs=[result("clean", False), result("third_party_payment", False)],
+        supported_recall=0.0, triage_accuracy=0.0, noise=0, withheld_rate=0.0,
+        usd_per_case=None, seconds_per_case=1.0,
+    )
+    fresh = AgentEvalRow(
+        evaluated_at="2026-10-05T00:00:00+00:00", supervisor="s", specialist="p",
+        packs=[result("third_party_payment", True)],
+        supported_recall=1.0, triage_accuracy=0.0, noise=0, withheld_rate=0.0,
+        usd_per_case=None, seconds_per_case=1.0,
+    )
+    merged = _merge(existing, fresh, runs=1)
+    assert [p.pack for p in merged.packs] == ["clean", "third_party_payment"]
+    assert next(p for p in merged.packs if p.pack == "third_party_payment").found_leads == ["transaction:third_party_payment"]
+    assert next(p for p in merged.packs if p.pack == "clean").found_leads == []  # kept
+    assert merged.supported_recall == 1.0  # recomputed: 1 of 1 expected lead found
+
+
+def test_only_runs_just_the_named_packs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    packs = _packs(tmp_path, "clean", "third_party_payment")
+    _script(monkeypatch, [_search(), _lead(["R01"], pattern="third_party_payment", **_tpp()), DONE])
+    row = agent_eval.evaluate_team(MODELS, packs, only={"third_party_payment"})
+    assert [p.pack for p in row.packs] == ["third_party_payment"]
+    assert row.packs[0].found_leads == ["transaction:third_party_payment"]
+
+
+def test_code_proposes_the_third_party_when_the_agent_is_silent(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A fact the checks establish is not lost to a specialist's miss: code
+    proposes the third-party lead and verifies it, whatever the agent did."""
+    packs = _packs(tmp_path, "third_party_payment")
+    _script(monkeypatch, [_search(), DONE])  # the agent searches and records nothing
+    (third,) = agent_eval.evaluate_team(MODELS, packs).packs
+    assert third.found_leads == ["transaction:third_party_payment"]
+    assert third.verified_leads == ["transaction:third_party_payment"]
+    assert third.noise == 0 and third.flag_noise == 0
 
 
 def test_metrics_count_recall_noise_and_withheld(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -131,18 +196,18 @@ def test_metrics_count_recall_noise_and_withheld(monkeypatch: pytest.MonkeyPatch
 
 def test_each_run_of_each_pack_is_its_own_case_and_the_rates_are_over_every_run(
         monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """The team found the planted payment in the first run and not the second: recall is 1 of 2."""
-    packs = _packs(tmp_path, "third_party_payment")
+    """The team found the planted round trip in the first run and not the second: recall is 1 of 2."""
+    packs = _packs(tmp_path, "round_trip")
     _script(monkeypatch, [
-        _search(), _lead(["R01"], pattern="third_party_payment", **_tpp()), DONE,
-        _search(), DONE,
+        _search_rt(), _lead(["R01"], pattern="round_trip", **_rt()), DONE,  # run 1: found
+        _search_rt(), DONE,  # run 2: missed
     ])
 
     row = agent_eval.evaluate_team(MODELS, packs, runs=2)
 
     first, second = row.packs
     assert (row.runs, first.run, second.run) == (2, 1, 2)
-    assert (first.found_leads, second.found_leads) == (["transaction:third_party_payment"], [])
+    assert (first.found_leads, second.found_leads) == (["transaction:round_trip"], [])
     assert row.supported_recall == 0.5
     assert first.usd is not None and second.usd is not None  # metered per run: each is its own case
 
@@ -202,13 +267,15 @@ def test_verified_recall_flag_noise_observations_and_shadow_are_scored(monkeypat
 
 def test_a_planted_fraud_the_gate_sends_to_fast_track_is_a_miss(monkeypatch: pytest.MonkeyPatch,
                                                                 tmp_path: Path) -> None:
-    packs = _packs(tmp_path, "third_party_payment")
-    _script_all(monkeypatch, _both_statuses(planted_found=False), [[_disposition("fast_track", "no_issue")[0]]])
+    """A planted fraud the agent does not raise and code cannot propose (the
+    round trip) is missed: the gate keeps it on fast track."""
+    packs = _packs(tmp_path, "round_trip")
+    _script_all(monkeypatch, [_search_rt(), DONE], [[_disposition("fast_track", "no_issue")[0]]])
 
     row = agent_eval.evaluate_team(replace(MODELS, shadow="shadow-model"), packs)
 
-    (third,) = row.packs
-    assert (third.planted, third.would_route, third.miss) == (True, "fast_track", True)
+    (pack,) = row.packs
+    assert (pack.planted, pack.would_route, pack.miss) == (True, "fast_track", True)
     assert (row.miss_rate, row.auto_clear_rate, row.verified_recall) == (1.0, 1.0, 0.0)
 
 

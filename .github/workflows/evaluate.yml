@@ -17,6 +17,13 @@ on:
         type: choice
         options: ["1", "2", "3"]
         default: "1"
+      only:
+        description: Which pack the AI team runs (all, or one)
+        type: choice
+        options: ["all", "clean", "identity_mismatch", "incomplete", "inflated_financials",
+                  "invoice_mismatch", "related_party", "round_trip", "sanctioned", "split_payment",
+                  "struck_off", "tampered_statement", "third_party_payment"]
+        default: "all"
 
 permissions:
   contents: read
@@ -55,7 +62,7 @@ jobs:
           instance-id: ${{ env.INSTANCE_ID }}
           document: ${{ vars.EVALUATE_DOCUMENT || 'gldb-evaluate' }}
           parameters: >-
-            {"aiTeam": ["${{ inputs.ai-team && 'on' || 'off' }}"], "runs": ["${{ inputs.runs }}"]}
+            {"aiTeam": ["${{ inputs.ai-team && 'on' || 'off' }}"], "runs": ["${{ inputs.runs }}"], "only": ["${{ inputs.only }}"]}
           what: Evaluation
           wait-minutes: "125"
       - run: echo "::notice::Saved. The server's Model & controls page shows the new results."

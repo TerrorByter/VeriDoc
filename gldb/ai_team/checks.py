@@ -244,6 +244,24 @@ def resolved_findings(pack: ExtractedPack, evidence: list[Evidence]) -> dict[str
     return resolved
 
 
+def _disclosed(payer: str, pack: ExtractedPack) -> bool:
+    """Whether *payer* is an arrangement the application declared (a payment
+    agent, a group company): a payment from it is explained, not a third-party
+    red flag. The payer may read "AGENT FOR BUYER", so containment on the name
+    key is the primary test, with a similarity fallback."""
+    if pack.manifest is None or not pack.manifest.disclosures:
+        return False
+    key = screening_key(payer)
+    for disclosure in pack.manifest.disclosures:
+        if not disclosure.counterparty:
+            continue
+        counterparty = screening_key(disclosure.counterparty)
+        if counterparty and (counterparty in key or key in counterparty
+                             or similarity(payer, disclosure.counterparty) >= PAYER_SAME_THRESHOLD):
+            return True
+    return False
+
+
 def _third_party_payment(lead: Lead, pack: ExtractedPack, evidence: list[Evidence]) -> Outcome:
     """A sale paid by someone other than its buyer. Every row of the lead
     is a credit naming the invoice, and every credit naming it has its payer
@@ -280,6 +298,9 @@ def _third_party_payment(lead: Lead, pack: ExtractedPack, evidence: list[Evidenc
         if not found:
             return _unverified("no credit names the invoice", **facts)
         return Outcome("contradicted", f"paid by the buyer {invoice.buyer_name}", _paid(facts, found[0]))
+    if _disclosed(other.payer, pack):
+        return Outcome("contradicted", f"{other.row_id}: payer {other.payer} is an arrangement the application "
+                       "disclosed, so the payment is explained", _paid(facts, other))
     return Outcome("verified", f"{other.row_id}: payer {other.payer} is not the buyer {invoice.buyer_name}",
                    _paid(facts, other))
 
@@ -288,6 +309,30 @@ def _paid(facts: dict[str, str], payment: Payment) -> dict[str, str]:
     """*facts* with the payment a check rests on: its payer, row, amount and date."""
     return {**facts, "payer": str(payment.payer), "transaction": payment.row_id,
             "amount": str(payment.transaction.credit), "date": str(payment.transaction.date)}
+
+
+def candidate_leads(pack: ExtractedPack) -> list[Lead]:
+    """Leads code can propose from the case data alone: a sale paid by a party
+    who is not its buyer and whom the application does not disclose. The agent
+    need not rediscover a fact the checks already establish; disclosure is
+    checked here, so a disclosed agent or group payer is never proposed."""
+    leads: list[Lead] = []
+    for invoice in pack.invoices:
+        if is_purchase(invoice.buyer_name, pack) or not invoice.buyer_name.strip():
+            continue
+        for payment in payments(invoice, pack):
+            if payment.relation != "other" or payment.payer is None:
+                continue
+            if _disclosed(payment.payer, pack):
+                continue
+            leads.append(Lead(
+                agent="transaction", kind="pattern", pattern="third_party_payment",
+                invoice_number=invoice.invoice_number, transaction_ids=[payment.row_id],
+                hypothesis=f"{invoice.invoice_number} was paid by someone other than its buyer",
+                tests=[], investigation_status="supported",
+            ))
+            break  # one lead per invoice: its check reads every credit naming it
+    return leads
 
 
 def _round_trip(lead: Lead, pack: ExtractedPack, evidence: list[Evidence]) -> Outcome:

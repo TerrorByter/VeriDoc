@@ -16,12 +16,16 @@ version, which a case records with what it fetched.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "mock_gov"
+#: The records this service serves. A held-out run starts it with
+#: MOCK_GOV_DATA_DIR pointing at the held-out set's own records, so its
+#: companies never enter the demo data.
+DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "mock_gov"
 
 #: Words of a company name too common to search by
 _COMMON = frozenset({"PTE", "PRIVATE", "LTD", "LIMITED", "CO", "COMPANY", "THE", "AND"})
@@ -29,8 +33,15 @@ _COMMON = frozenset({"PTE", "PRIVATE", "LTD", "LIMITED", "CO", "COMPANY", "THE",
 app = FastAPI(title="Mock ACRA and IRAS records")
 
 
+def _data_dir() -> Path:
+    """The directory the service reads on each request: MOCK_GOV_DATA_DIR if
+    set, else the demo records."""
+    configured = os.environ.get("MOCK_GOV_DATA_DIR")
+    return Path(configured) if configured else DEFAULT_DATA_DIR
+
+
 def _load(name: str) -> dict[str, Any]:
-    return json.loads((DATA_DIR / name).read_text(encoding="utf-8"))
+    return json.loads((_data_dir() / name).read_text(encoding="utf-8"))
 
 
 def _key(text: str) -> str:

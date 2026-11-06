@@ -88,6 +88,13 @@ Resources:
             description: How many times the AI team runs each pack
             allowedValues: ["1", "2", "3"]
             default: "1"
+          only:
+            type: String
+            description: Which pack the AI team runs (all, or one)
+            allowedValues: ["all", "clean", "identity_mismatch", "incomplete", "inflated_financials",
+                            "invoice_mismatch", "related_party", "round_trip", "sanctioned", "split_payment",
+                            "struck_off", "tampered_statement", "third_party_payment"]
+            default: "all"
         mainSteps:
           - action: aws:runShellScript
             name: evaluate
@@ -103,7 +110,11 @@ Resources:
                   # Exit 1 means a pack differs from its ground truth: the report is still saved
                   .venv/bin/python -m gldb.evaluate --save || status=$?
                   if [ "{{ aiTeam }}" = on ]; then
-                    .venv/bin/python -m gldb.agent_eval --save --runs {{ runs }} || status=$?
+                    if [ "{{ only }}" = "all" ]; then
+                      .venv/bin/python -m gldb.agent_eval --save --runs {{ runs }} || status=$?
+                    else
+                      .venv/bin/python -m gldb.agent_eval --save --runs {{ runs }} --only "{{ only }}" || status=$?
+                    fi
                   fi
                   exit $status'
 

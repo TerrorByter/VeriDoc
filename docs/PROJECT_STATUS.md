@@ -97,6 +97,13 @@ The three packs marked AI team only are clean to the rules, which would fast-tra
 
 `tests/fixtures/packs/` holds the older text-layout test packs (`data_factory.py`) used by the test suite and the live AI-team runs.
 
+A **blind held-out test** (`gldb/heldout.py`) renders packs from an independent
+author's scenario sheet, seals the answer key, runs the system without the key,
+and scores per pack after the seal is verified. It is the detection-rate claim
+the demo packs cannot make; the pre-registration and author guide are in
+`docs/`. A pilot sheet (`tests/fixtures/heldout/pilot.json`) exercises the
+renderer and scoring; its numbers are development data.
+
 ## 7. API and frontend
 
 `uvicorn mock_gov.app:app --port 8001`, `uvicorn gldb.api:app --reload`, and `cd frontend && npm install && npm run dev` (UI on http://localhost:5173).

@@ -96,10 +96,10 @@ def test_l12_the_planted_payment_is_verified_a_flag_and_asks_the_harbourline_que
 
 
 def test_a_payment_the_buyer_made_is_contradicted() -> None:
-    team, _ = _team("third_party_payment", {"transaction": [
+    team, _ = _team("clean", {"transaction": [
         [use("search_bank_transactions", text="INV")],
         [_lead("R01", "third_party_payment", invoice_number="INV-1001",
-               transaction_ids=[_row("third_party_payment", "ORCHID LANE RETAIL INV-1001")])]]})
+               transaction_ids=[_row("clean", "ORCHID LANE RETAIL INV-1001")])]]})
     assert _only(team).evidence_status == "contradicted" and not flagged(_only(team))
 
 
@@ -112,7 +112,7 @@ def test_the_innocent_split_instalments_are_contradicted() -> None:
 
 
 def test_l04_l08_invoice_after_shipment_is_no_flag_and_no_question() -> None:
-    team, fake = _team("third_party_payment", {"timeline": [
+    team, fake = _team("clean", {"timeline": [
         [use("get_timeline")],
         [_lead("R01", "sequence_anomaly", invoice_number="INV-1001"),
          _lead("R01", "sequence_anomaly", invoice_number="INV-1002"),
@@ -136,8 +136,8 @@ def test_the_retro_po_sequence_is_verified_but_only_confirms_its_rule_finding() 
 
 
 def test_l13_the_director_guarantor_is_contradicted_no_flag_no_question() -> None:
-    buyer = _party("third_party_payment", "Orchid Lane Retail Pte. Ltd.")
-    team, fake = _team("third_party_payment", {"kyc": [
+    buyer = _party("clean", "Orchid Lane Retail Pte. Ltd.")
+    team, fake = _team("clean", {"kyc": [
         [use("get_parties")],
         [_lead("R01", "related_party", counterparty=buyer),
          _question("R01", "Why is Daniel Brooks not a signatory?")]]}, memo=["L01"])
@@ -155,8 +155,8 @@ def test_the_planted_related_party_is_verified_and_names_the_shared_officer() ->
 
 
 def test_l02_l14_unchecked_patterns_are_observations_never_flags_memo_points_or_questions() -> None:
-    doc = _case("third_party_payment").pack.invoices[0].doc_id
-    team, fake = _team("third_party_payment", {
+    doc = _case("clean").pack.invoices[0].doc_id
+    team, fake = _team("clean", {
         "forensics": [[use("get_forensic_facts", doc_id=doc)],
                       [_lead("R01", "document_inconsistency"), _question("R01", "Why do the documents match?")]],
         "kyc": [[use("get_parties")], [_lead("R04", "business_mismatch")]],  # R02, R03: forensics' receipts

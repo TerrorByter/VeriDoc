@@ -74,9 +74,9 @@ export const STAGES: StageInfo[] = [
     input: "Score, readiness, hard flags", output: "Review path",
   },
   {
-    id: "projections", n: 11, group: "Explain", name: "Investigation",
-    what: "The investigation queue, transaction chains and timeline are built from the findings, never separately, so they cannot disagree with them.",
-    input: "Findings and extracted fields", output: "Tasks, chains and a timeline",
+    id: "projections", n: 11, group: "Explain", name: "Investigation summary",
+    what: "What kind of problem the case shows, then the queue, transaction chains and timeline. All are built by code from the findings and verified leads, never separately, so they cannot disagree with them.",
+    input: "Findings, verified leads and extracted fields", output: "Categories, tasks, chains and a timeline",
   },
   {
     id: "record", n: 12, group: "Record", name: "Audit record",

@@ -7,9 +7,10 @@ import { Section } from "./common";
 import { Chains } from "./investigation/Chains";
 import { Queue } from "./investigation/Queue";
 import { RequestDraftPanel } from "./investigation/RequestDraftPanel";
+import { Summary } from "./investigation/Summary";
 import { Timeline } from "./investigation/Timeline";
 
-type View = "queue" | "chains" | "timeline";
+type View = "summary" | "queue" | "chains" | "timeline";
 
 /** The AI team's kept leads, beside the rule tasks; each opens the Agents stage for its trace. */
 function LeadsToReview({ kase }: StageProps) {
@@ -48,10 +49,11 @@ function LeadsToReview({ kase }: StageProps) {
 
 export function InvestigationStage(props: StageProps) {
   const { kase } = props;
-  const [view, setView] = useState<View>("queue");
+  const [view, setView] = useState<View>("summary");
   const broken = kase.chains.filter((c) => c.broken).length;
   const anomalies = kase.timeline.filter((e) => e.evidence_ids.length > 0).length;
-  const tabs: { key: View; label: string; count: number; hot: boolean }[] = [
+  const tabs: { key: View; label: string; count?: number; hot?: boolean }[] = [
+    { key: "summary", label: "Summary" },
     { key: "queue", label: "Investigation queue", count: kase.investigation.length, hot: kase.investigation.length > 0 },
     { key: "chains", label: "Transaction chains", count: kase.chains.length, hot: broken > 0 },
     { key: "timeline", label: "Timeline", count: kase.timeline.length, hot: anomalies > 0 },
@@ -61,10 +63,11 @@ export function InvestigationStage(props: StageProps) {
       <div className="segmented" role="tablist" aria-label="Investigation view">
         {tabs.map((t) => (
           <button key={t.key} type="button" role="tab" aria-selected={view === t.key} onClick={() => setView(t.key)}>
-            {t.label} <span className={`count${t.hot ? " hot" : ""}`}>{t.count}</span>
+            {t.label}{t.count !== undefined && <> <span className={`count${t.hot ? " hot" : ""}`}>{t.count}</span></>}
           </button>
         ))}
       </div>
+      {view === "summary" && <Summary kase={kase} onView={props.onView} onJump={setView} />}
       {view === "queue" && (
         <>
           <Queue {...props} />

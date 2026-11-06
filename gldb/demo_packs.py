@@ -151,6 +151,8 @@ class Case:
     statement_until: date | None = None
     #: A sales credit raised by this much without its balances, saved as an edit
     tamper_credit: Decimal | None = None
+    #: Which sale on the statement that credit is (1 is the first)
+    tamper_credit_sale: int = 1
     #: Who signs the entity form, and the postal code it gives the office (None: the company's own)
     signatory: Person | None = None
     form_postal: str | None = None
@@ -174,6 +176,14 @@ class Case:
     expected_leads: tuple[dict[str, str], ...] = ()
     expected_triage: tuple[dict[str, str], ...] = ()
     tampers: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    #: A supplier's refund: (supplier name, amount, days after its payment). It has no
+    #: paperwork, like the round trip, and looks like a sale receipt to a rule that only
+    #: matches credits by amount.
+    refund: tuple[str, Decimal, int] | None = None
+    #: Interests and arrangements the application declares (gldb.schemas.Disclosure)
+    disclosures: tuple[dict[str, str], ...] = ()
+    #: The application ID a held-out pack uses, so its folder name is not in the pack
+    application_id: str | None = None
 
 
 def _home(block: str, street: str, floor: str, unit: str, postal: str) -> Address:
@@ -458,7 +468,8 @@ def _partner(case: Case, name: str) -> demo_trade.Partner:
 
 def _trade_rows(case: Case) -> tuple[Decimal, list[Transaction]]:
     """The statement's rows the trades are read from: the company's own, with
-    the round trip's receipt added (it is no trade, so it has no paperwork)."""
+    the round trip's receipt and any refund added. Neither is a trade, so
+    neither has paperwork."""
     opening, rows = _scaled_rows(case.company, case.statement_until)
     if case.round_trip is not None:
         supplier = _partner(case, case.round_trip)
@@ -467,6 +478,13 @@ def _trade_rows(case: Case) -> tuple[Decimal, list[Transaction]]:
         rows = [*rows, Transaction(date=paid.date + timedelta(days=ROUND_TRIP_AFTER_DAYS),
                                    description=f"{ROUND_TRIP_RECEIPT} - {supplier.name}",
                                    credit=money(paid.debit * ROUND_TRIP_SHARE), debit=None, balance=Decimal(0))]
+    if case.refund is not None:
+        name, amount, after_days = case.refund
+        supplier = _partner(case, name)
+        paid = next(t for t in rows if t.description == supplier.described and t.debit is not None)
+        rows = [*rows, Transaction(date=paid.date + timedelta(days=after_days),
+                                   description=f"REFUND - {supplier.name}", credit=money(amount),
+                                   debit=None, balance=Decimal(0))]
     return opening, _balanced(opening, rows)
 
 
@@ -531,15 +549,18 @@ def _statement(case: Case, out: Path) -> None:
         })
     _write_form(STATEMENT, out, values, {"/CreationDate": STATEMENT_MADE, "/ModDate": STATEMENT_MADE})
     if case.tamper_credit is not None:
-        _tamper_credit(out, rows, case.tamper_credit)
+        _tamper_credit(out, rows, case.tamper_credit, case.tamper_credit_sale)
 
 
-def _tamper_credit(path: Path, rows: list[Transaction], by: Decimal) -> None:
-    """Raise the first sales credit by *by*, leaving the balances, in an
+def _tamper_credit(path: Path, rows: list[Transaction], by: Decimal, sale: int = 1) -> None:
+    """Raise the *sale*th sales credit by *by*, leaving the balances, in an
     incremental save three weeks after the statement was made: what editing
     a statement in a PDF editor leaves behind."""
-    n, credit = next((i, c) for i, t in enumerate(rows, start=1)
-                     if (c := t.credit) is not None and "Sales" in t.description)
+    sales = [(i, c) for i, t in enumerate(rows, start=1)
+             if (c := t.credit) is not None and "Sales" in t.description]
+    if not 1 <= sale <= len(sales):
+        raise ValueError(f"the statement has {len(sales)} sales credits, not {sale}")
+    n, credit = sales[sale - 1]
     writer = PdfWriter(str(path), incremental=True)
     for page in writer.pages:
         writer.update_page_form_field_values(page, {f"F02{n:03d}c": _amount(credit + by)}, auto_regenerate=False)
@@ -613,14 +634,20 @@ def _workbook(case: Case, out: Path) -> None:
 def _manifest(case: Case) -> dict[str, Any]:
     company = case.company
     guarantors = _guarantors(case)
-    return {
-        "application_id": f"APP-2026-{case.name.upper()}", "application_date": APPLICATION_DATE.isoformat(),
+    manifest = {
+        "application_id": case.application_id or f"APP-2026-{case.name.upper()}",
+        "application_date": APPLICATION_DATE.isoformat(),
         "company_name": company.name, "uen": company.uen, "country_of_incorporation": "SINGAPORE",
         "date_of_incorporation": company.incorporated, "registered_address": company.office.manifest(),
         "authorised_signatories": [company.ceo.name, company.chairman.name],
         "guarantors": [{"name": g.name, "id_number": g.id_number, "nationality": "SINGAPORE",
                         "residential_address": g.home.manifest()} for g in guarantors],
     }
+    # Only a pack that declares an interest carries the field, so the demo
+    # packs' application files stay as they are
+    if case.disclosures:
+        manifest["disclosures"] = list(case.disclosures)
+    return manifest
 
 
 def acra_record(company: Company) -> dict[str, Any]:
@@ -668,8 +695,9 @@ def _truth(case: Case) -> dict[str, Any]:
     }
 
 
-def build_pack(case: Case, folder: Path) -> None:
-    """Write *case*'s documents, application and ground truth into *folder*."""
+def build_documents(case: Case, folder: Path) -> None:
+    """Write *case*'s documents and application into *folder*, and no ground
+    truth. A held-out pack is rendered this way: its label never enters it."""
     if folder.exists():
         shutil.rmtree(folder)
     folder.mkdir(parents=True)
@@ -681,7 +709,30 @@ def build_pack(case: Case, folder: Path) -> None:
     for trade in trades(case):
         demo_trade.write(folder, trade)
     (folder / "application.json").write_text(json.dumps(_manifest(case), indent=2) + "\n", encoding="utf-8")
+
+
+def build_pack(case: Case, folder: Path) -> None:
+    """Write *case*'s documents, application and ground truth into *folder*."""
+    build_documents(case, folder)
     (folder / "ground_truth.json").write_text(json.dumps(_truth(case), indent=2) + "\n", encoding="utf-8")
+
+
+#: The business profiles a held-out scenario sheet may choose from. Each is a
+#: demo company's trades, suppliers and customers; the renderer gives it the
+#: sheet's own name and UEN, so the profile is a business, not an identity.
+#: The keys are the vocabulary an independent author writes in the sheet.
+PROFILES: dict[str, Company] = {
+    "industrial_equipment": ACMA,
+    "precision_electronics": BRIGHTWAVE,
+    "marine_engineering": CORVID,
+    "commodity_trading": DUSKFIELD,
+    "investment_holding": EASTGATE,
+    "building_supplies": FERNLEAF,
+    "metal_fabrication": OAKRIDGE,
+    "factory_automation": KESTREL,
+    "water_treatment": LUMEN,
+    "cold_chain_logistics": NORTHSTAR,
+}
 
 
 def companies() -> list[Company]:
@@ -693,12 +744,17 @@ def suppliers() -> list[demo_trade.Partner]:
     return [partner for company in companies() for partner in company.partners if partner.supplier]
 
 
-def write_records(mock_dir: Path = MOCK_GOV_DIR) -> None:
-    """Put every demo company's, and every supplier's, ACRA records and every demo company's
-    IRAS records into the mock service's data."""
+def write_records(mock_dir: Path = MOCK_GOV_DIR, cases: tuple[Case, ...] | list[Case] = CASES) -> None:
+    """Put *cases*' companies' and suppliers' ACRA records, and the companies'
+    IRAS records, into the mock service's data. The demo packs pass their own
+    cases; a held-out set passes its own, into its own data directory."""
+    companies_ = list({c.company.uen: c.company for c in cases}.values())
+    # A supplier can serve several packs' companies; its record is written once
+    suppliers_ = list({p.uen: p for company in companies_ for p in company.partners if p.supplier}.values())
     _upsert(mock_dir / "acra.json", "companies", "uen",
-            [*(acra_record(c) for c in companies()), *(demo_trade.acra_record(s) for s in suppliers())])
-    _upsert(mock_dir / "iras.json", "notices", "id_number", [n for c in companies() for n in iras_records(c)])
+            [*(acra_record(c) for c in companies_), *(demo_trade.acra_record(s) for s in suppliers_)])
+    _upsert(mock_dir / "iras.json", "notices", "id_number",
+            [n for c in companies_ for n in iras_records(c)])
 
 
 def generate(packs_dir: str | Path = PACKS_DIR, mock_dir: Path = MOCK_GOV_DIR) -> None:

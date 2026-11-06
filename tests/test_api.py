@@ -415,6 +415,7 @@ def test_case_view_carries_stages_ocr_screen_and_cost(client: TestClient) -> Non
     assert case["company_name"] == "Lumen Harbour Trading Pte. Ltd."
     tampered = _case(client)
     assert tampered["signals"]["FORENSIC_HIDDEN_TEXT"]["name"] == "Hidden text in document"
+    assert "Tampered document" in [c["label"] for c in tampered["categories"]]
 
 
 def test_cases_are_listed_newest_first(client: TestClient) -> None:
@@ -425,6 +426,7 @@ def test_cases_are_listed_newest_first(client: TestClient) -> None:
     top = rows[0]
     assert (top["band"], top["path"], top["status"]) == ("High", "enhanced_review", "assessed")
     assert top["company_name"] and top["doc_count"] > 0 and top["created_at"]
+    assert "Tampered document" in [c["label"] for c in top["categories"]]
 
 
 def test_controls_show_versions_capabilities_and_signals(client: TestClient) -> None:

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { listCases } from "../../api";
 import { PATH_LABEL, STATUS_LABEL, when } from "../../catalogue";
 import { href, navigate, type Route } from "../../route";
-import type { CaseSummary, ReviewPath } from "../../types";
+import type { CaseCategory, CaseSummary, ReviewPath } from "../../types";
 import { BAND_TONE, Empty, ErrorNote, Icon, PathPill, tabKeys } from "../ui";
 
 /** Cases listed before "Show all" */
@@ -15,6 +15,32 @@ const target = (c: CaseSummary): Route =>
   c.status === "running" || c.status === "failed"
     ? { screen: "run", caseId: c.case_id }
     : { screen: "case", caseId: c.case_id, stage: "ocr" };
+
+/** Categories shown before "+N more" */
+const CATEGORIES_SHOWN = 2;
+
+/** What kind of problem the case shows, as code set it; AI-team categories are marked. */
+function Categories({ c }: { c: CaseSummary }) {
+  if (c.status === "running" || c.status === "failed") return <span className="muted">—</span>;
+  const all = c.categories ?? [];
+  if (all.length === 0) return <span className="muted">No issues found</span>;
+  const describe = (k: CaseCategory) =>
+    `${k.label}${k.source === "ai_team" ? " (AI team, verified by code)" : ""}: ${k.ids.join(", ")}`;
+  const rest = all.slice(CATEGORIES_SHOWN);
+  return (
+    <ul className="categories" aria-label="Categories">
+      {all.slice(0, CATEGORIES_SHOWN).map((k) => (
+        <li key={`${k.source}-${k.label}`} className="category" title={describe(k)}>
+          {k.label}
+          {k.source === "ai_team" && <span className="category-ai" aria-label="from the AI team">AI</span>}
+        </li>
+      ))}
+      {rest.length > 0 && (
+        <li className="category more muted" title={rest.map(describe).join("\n")}>+{rest.length} more</li>
+      )}
+    </ul>
+  );
+}
 
 const matches = (c: CaseSummary, query: string) =>
   !query || `${c.company_name ?? ""} ${c.case_id}`.toLowerCase().includes(query.toLowerCase());
@@ -96,6 +122,7 @@ export function CasesScreen() {
                       <th scope="col">Applicant</th>
                       <th scope="col">Route</th>
                       <th scope="col">Risk</th>
+                      <th scope="col">Category</th>
                       <th scope="col">Status</th>
                       <th scope="col">Opened</th>
                     </tr>
@@ -120,6 +147,7 @@ export function CasesScreen() {
                             <span className="muted">—</span>
                           )}
                         </td>
+                        <td><Categories c={c} /></td>
                         <td className={c.status === "failed" ? "status failed" : "status muted"}>{STATUS_LABEL[c.status]}</td>
                         <td className="muted nowrap">{when(c.created_at)}</td>
                       </tr>

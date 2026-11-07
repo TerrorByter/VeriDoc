@@ -7,6 +7,9 @@
 Rule checks that read every document, an AI team that looks where rules cannot,
 and a reviewer who sees exactly why, on the page it came from.
 
+**[Open the live prototype → veridoc.tail4bd12e.ts.net](https://veridoc.tail4bd12e.ts.net)**<br>
+<sub>Sign-in needed: ask the project admin for the username and password.</sub>
+
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-TypeScript-3178C6?logo=react&logoColor=white)
@@ -127,9 +130,15 @@ two officers' names across companies. Every set is synthetic and read in layouts
 written for, so none of this is a detection rate on real applications;
 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) has the full picture.
 
-## Quick start
+## Try it
 
-Runs fully offline: no AWS account needed for the demo packs.
+**Hosted:** the prototype runs at **https://veridoc.tail4bd12e.ts.net**. It asks for a username
+and password; ask the project admin for them. To save cost the server stops at 1am Singapore
+time and after two idle hours; if the page does not load, ask the admin to start it (anyone
+with write access to the repository can, from Actions > Start server > Run workflow).
+
+**Self-hosted:** everything below is only needed to run your own copy. The quick start runs
+fully offline: no AWS account needed for the demo packs.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -145,6 +154,10 @@ evaluation and the project layout in full.
 > Current status, what is built and what is next: [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)
 
 ## Setup
+
+These steps are for running your own copy. To use the prototype, open the hosted version at
+**https://veridoc.tail4bd12e.ts.net** (sign-in needed: ask the project admin for the username and
+password).
 
 ### 1. Prerequisites
 

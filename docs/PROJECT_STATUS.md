@@ -43,7 +43,7 @@ OCR -> Intake -> Prompt screen -> Extract -> Official records -> Rule checks
 |---|---|---|
 | **Document Integrity** | 6 | Invoice arithmetic, bank running balance and continuity, financial-statement balance, PDF modified after creation, producer mismatch within one issuer's documents |
 | **Forensics** | 5 | Hidden text (white, tiny or off-page), figures whose digits mix fonts, PDFs re-saved after creation, visible figures that differ from the stored text (OCR comparison), instructions aimed at AI models (the guardrail) |
-| **Cross-Document** | 12 | Identity (UEN, names) across documents; each invoice against its bank payment, purchase order and bill of lading or delivery order; the workbook against the bank statement and ACRA (cash, debt, revenue); money that only passes through the account; ACRA's entity, signatories and people against the forms |
+| **Cross-Document** | 13 | Identity (UEN, names) across documents; each invoice against its bank payment, purchase order and bill of lading or delivery order; who paid each sale against its buyer (an undisclosed third-party payer); the workbook against the bank statement and ACRA (cash, debt, revenue); money that only passes through the account; ACRA's entity, signatories and people against the forms |
 | **Registry & Screening** | 6 | ACRA and IRAS records fetched or missing, uploaded copies that differ from the originals, companies struck off or not registered, signatories who are not officers, sanctions (UN lists named by MAS plus the bank's own names), FATF high-risk countries |
 | **Timeline** | 2 | Trading before incorporation; orders, shipments and invoices out of sequence |
 | **Compliance & Completeness** | 16 | Missing documents, bank statement coverage, FATCA/CRS entity form validity and consistency with the application |
@@ -62,7 +62,22 @@ A Supervisor (Claude Sonnet 4.6) plans and briefs four specialists (Claude Haiku
 
 Nothing the team produces changes the score or the route. The shadow scorer (Claude Haiku 4.5) proposes a route from the case and the leads; it is compared with the rule route and a log-only gate records what it would have changed.
 
-Live runs (October 2026, on the test packs): the planted third-party payment in `third_party_payment` was found and verified by code, and on `innocent_split` no false flag was raised. A case costs roughly US$0.20-0.30 of Bedrock. The team has not yet been run live on the demo packs.
+Live runs (October 2026, on the test packs): the planted third-party payment in `third_party_payment` was found and verified by code in the run that went right, and on `innocent_split` no false flag was raised. A case costs roughly US$0.20-0.30 of Bedrock.
+
+The third-party payment was the team's least reliable catch: finding it means checking every sale's invoice against the credit that paid it, and specialists working to a step limit sampled a few invoices instead (run 6 searched INV-1001 and never INV-1002). Code reads the payer from the statement exactly, so it is now a rule, `XDOC_THIRD_PARTY_PAYER` (November 2026). A sale paid by someone other than its buyer is a high finding that sends the case for review; a payer the application discloses (a payment agent, a group company) is recorded as info. When the AI team raises the same payment, its lead names the rule's finding and confirms it: it is not a second flag, and the agent eval does not count it as noise. The general principle: a pattern code can establish exactly belongs in the rules, which score, route and are audited; the AI team works where the evidence is spread across documents and needs judgement.
+
+### Scenarios that test the AI team
+
+| Scenario | Packs | What the rules do | What the AI team should do |
+|---|---|---|---|
+| Undisclosed related party | `related_party` (demo: a supplier; test: a buyer), held-out `related_party_undisclosed` | Nothing: no rule compares the applicant's officers with a counterparty's | The KYC specialist looks the counterparty up in ACRA and finds the applicant's own officer; code confirms it from ACRA |
+| Round trip | `round_trip` (demo and test), held-out `round_trip` | Nothing: each row looks normal alone | The transaction specialist links a payment out with nearly the same amount coming back from the same party; code confirms the pair |
+| Invoice paid in parts | `split_payment` (demo), `innocent_split` (test), held-out quirk `split_payment` | `XDOC_INVOICE_BANK` flags the invoice (no single matching credit) | Find that both parts came from the buyer and raise no flag; code explains the finding, so the memo asks nothing about it |
+| Disclosed directorship | held-out quirk `disclosed_directorship` | Nothing | See the shared officer and the declaration, and raise no flag. The agents are shown the disclosure, but the related-party code check does not read it yet: a lead raised anyway would be verified, a false flag |
+| Third-party payment | `third_party_payment` (demo and test), held-out `third_party_payment` | `XDOC_THIRD_PARTY_PAYER` flags it and sends the case for review | Nothing more is needed; a lead on it confirms the rule's finding |
+| Payment agent, intra-group payer | held-out quirks `agent_payment`, `intra_group_payer` | The payer is disclosed: info, no score | No flag |
+
+No pack yet plants a `business_mismatch` (a trade at odds with the company's registered activity), the KYC specialist's other pattern.
 
 ## 5. AWS integration
 
@@ -86,14 +101,14 @@ Live runs (October 2026, on the test packs): the planted third-party payment in 
 | `sanctioned` | Eastgate | A shareholder on the sanctions list | Medium, enhanced review |
 | `struck_off` | Fernleaf | The company is struck off at ACRA | Medium, standard review |
 | `tampered_statement` | Corvid | A raised sales credit and a re-saved file | High, enhanced review |
-| `third_party_payment` | Kestrel | A sale paid by a company with no part in it (AI team only) | Low, fast track |
+| `third_party_payment` | Kestrel | A sale paid by a company with no part in it and none the application discloses | Medium, standard review |
 | `related_party` | Lumen | Its biggest supplier is run by its own CEO, per ACRA (AI team only) | Low, fast track |
 | `round_trip` | Northstar | A payment to a supplier comes back as a customer receipt (AI team only) | Low, fast track |
 | `split_payment` | Kestrel | An invoice paid in two parts by its buyer: a rule flags it, code explains it | Medium, standard review |
 
-The three packs marked AI team only are clean to the rules, which would fast-track them; each plants a pattern only the AI team looks for, and a code check confirms it from the documents and ACRA (`tests/test_demo_packs.py`).
+The two packs marked AI team only are clean to the rules, which would fast-track them; each plants a pattern only the AI team looks for, and a code check confirms it from the documents and ACRA (`tests/test_demo_packs.py`).
 
-`python -m gldb.evaluate` reports, per pack, band, readiness and route against the ground truth, each planted fault and whether it was found, precision, recall and false positives. With the deterministic parser it scores 1.00 on every measure and finds all 14 planted faults. `python -m gldb.agent_eval` scores the AI team the same way (it calls Bedrock), as many runs as asked. On the server, the GitHub workflow Run evaluation runs both and saves them for the Model & controls page, which shows counts with 95% intervals (14 of 14 is consistent with a true rate as low as 78%) and which planted frauds reach review with the rules alone and with the AI team. The packs are synthetic and were built knowing the checks: these figures show the pipeline catches what was planted, not a detection rate on real applications.
+`python -m gldb.evaluate` reports, per pack, band, readiness and route against the ground truth, each planted fault and whether it was found, precision, recall and false positives. With the deterministic parser it scores 1.00 on every measure and finds all 15 planted faults. `python -m gldb.agent_eval` scores the AI team the same way (it calls Bedrock), as many runs as asked. On the server, the GitHub workflow Run evaluation runs both and saves them for the Model & controls page, which shows counts with 95% intervals (15 of 15 is consistent with a true rate as low as 80%) and which planted frauds reach review with the rules alone and with the AI team. The packs are synthetic and were built knowing the checks: these figures show the pipeline catches what was planted, not a detection rate on real applications.
 
 `tests/fixtures/packs/` holds the older text-layout test packs (`data_factory.py`) used by the test suite and the live AI-team runs.
 

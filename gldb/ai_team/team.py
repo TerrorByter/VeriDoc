@@ -21,7 +21,7 @@ from typing import Any, Literal, get_args
 
 from botocore.exceptions import BotoCoreError, ClientError
 
-from gldb.ai_team.checks import candidate_leads, check_pattern, corroborate, resolved_findings
+from gldb.ai_team.checks import check_pattern, corroborate, resolved_findings
 from gldb.ai_team.loop import Activity, run_agent
 from gldb.ai_team.prompts import DEFAULT_BRIEF, PROMPT_VERSIONS, SPECIALIST, SUPERVISOR_MEMO, SUPERVISOR_PLAN
 from gldb.ai_team.tools import CaseData, Ledger, case_index
@@ -173,21 +173,6 @@ def run_team(case: CaseData, models: TeamModels, *, on_activity: Activity = lamb
 
     findings = {e.evidence_id: e for e in case.risky}
     leads = [_verified(lead, ledger, case, index) for lead in ledger.leads]
-    # Code-proposed leads fill the gaps the agents left: a pattern code can
-    # establish that no agent already flagged is added, so a fact the case
-    # already shows cannot be lost to a specialist's miss.
-    covered = {lead.pattern for lead in leads if flagged(lead)}
-    for candidate in candidate_leads(case.pack):
-        if candidate.pattern in covered:
-            continue
-        numbered = candidate.model_copy(update={"lead_id": f"L{len(leads) + 1:02d}"})
-        outcome = check_pattern(numbered, case.pack, case.evidence)
-        outcome = corroborate(numbered, outcome, case.pack, case.evidence)
-        leads.append(numbered.model_copy(update={
-            "outcome": "kept", "evidence_status": outcome.status,
-            "check_facts": {**outcome.facts, "code_proposed": "true"},
-            "check_reason": outcome.reason,
-        }))
     flags = [lead for lead in leads if flagged(lead)]
 
     # Rule findings code can explain are not raised: the Supervisor is told, and a point citing one is dropped

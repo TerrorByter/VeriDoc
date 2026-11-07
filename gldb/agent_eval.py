@@ -10,7 +10,8 @@ use, the challenger the one being tried.
 One AgentEvalRow per setup, each with an AgentPackResult per pack. Metrics:
 supported recall (planted patterns the team reported as supported) and
 verified recall (planted patterns code verified), triage accuracy, noise
-(kept supported pattern leads matching nothing planted) and flag noise (leads
+(kept supported pattern leads matching nothing planted, leaving out a lead
+that confirms a rule finding) and flag noise (leads
 code verified that match nothing planted: the false flags an analyst would
 get; the target is 0), withheld rate (leads the verifier refused when they
 were recorded or withheld at the end, out of all the team tried to record),
@@ -229,6 +230,9 @@ def _pack_result(folder: Path, truth: dict, models: TeamModels, stamp: str, run:
     # A refuted or unresolved lead records a check, not a pattern found
     found = [f"{lead.agent}:{lead.pattern}" for lead in kept if lead.kind == "pattern" and lead.investigation_status == "supported"]
     verified = [f"{lead.agent}:{lead.pattern}" for lead in kept if lead.kind == "pattern" and flagged(lead)]
+    # A lead confirming what a rule already reports (a payer the rule caught) is
+    # agreement with a real finding, not noise
+    confirms = {f"{lead.agent}:{lead.pattern}" for lead in kept if "rule_finding" in lead.check_facts}
     planted = bool(truth["expected_leads"]) or truth["expected_path"] != "fast_track"
     checks = {e.evidence_id: e.check_id for e in evidence}
     expected_triage = truth["expected_triage"]
@@ -247,7 +251,7 @@ def _pack_result(folder: Path, truth: dict, models: TeamModels, stamp: str, run:
             )
             for want in expected_triage
         ),
-        noise=sum(lead not in expected for lead in found),
+        noise=sum(lead not in expected and lead not in confirms for lead in found),
         withheld=len(leads) - len(kept) + refused,
         leads=len(leads) + refused,
         verified_leads=verified,

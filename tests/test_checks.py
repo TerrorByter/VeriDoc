@@ -1721,7 +1721,7 @@ class TestNormaliseName:
 class TestRuleGroups:
     def test_every_check_belongs_to_exactly_one_group(self):
         checks = [c for group in RULE_GROUPS for c in group.checks]
-        assert len(checks) == len(set(checks)) == 47
+        assert len(checks) == len(set(checks)) == 48
 
     def test_evidence_is_tagged_with_its_group_and_reports_match(self):
         pack = _make_pack(

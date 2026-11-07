@@ -1,17 +1,14 @@
 {
   "pack": "third_party_payment",
-  "expected_band": "Low",
-  "expected_path": "fast_track",
+  "expected_band": "Medium",
+  "expected_path": "standard_review",
   "expected_readiness": "Complete",
-  "expected_check_ids": [],
+  "expected_check_ids": [
+    "XDOC_THIRD_PARTY_PAYER"
+  ],
   "expected_check_ids_ocr": [],
   "expected_compliance_check_ids": [],
-  "expected_leads": [
-    {
-      "agent": "transaction",
-      "pattern": "third_party_payment"
-    }
-  ],
+  "expected_leads": [],
   "expected_triage": [],
   "tampers": [],
   "benign": [

@@ -369,14 +369,16 @@ CASES: tuple[Case, ...] = (
                    "detail": "Jurong Steel Stockists bills 25% more than the order and than the debit paid"},
                   {"doc": "invoice_TLE-260325", "type": "order_never_issued", "check_ids": ["XDOC_PO_INVOICE"],
                    "detail": "Tuas Lifting Equipment names PO-9204, which is not in the pack"})),
-    # Beyond the rules: each paperwork set agrees to the cent, so the rules pass the case; only the AI team,
-    # reading who paid, who runs the counterparties and where money goes, can find what is wrong
+    # Caught by a rule: the statement names who paid, and that is not the buyer on the invoice
     Case("third_party_payment", KESTREL,
          "Kestrel's sale to Kulim Hi-Tech Packaging was paid by Golden Reef Trading Limited, a company with no part "
-         "in it. Amount and date agree, so the rules pass it; only the AI team asks who paid.",
-         "Low", "fast_track", "Complete", receipts_name_payers=True,
+         "in it and none the application discloses. Amount and date agree; the payer does not.",
+         "Medium", "standard_review", "Complete", ("XDOC_THIRD_PARTY_PAYER",), receipts_name_payers=True,
          paid_by=(("Kulim Hi-Tech Packaging Sdn. Bhd.", "GOLDEN REEF TRADING LIMITED"),),
-         expected_leads=({"agent": "transaction", "pattern": "third_party_payment"},)),
+         tampers=({"doc": "bank_statement", "type": "third_party_payer", "check_ids": ["XDOC_THIRD_PARTY_PAYER"],
+                   "detail": "Kulim Hi-Tech Packaging's invoice is paid by Golden Reef Trading Limited"},)),
+    # Beyond the rules: each paperwork set agrees to the cent, so the rules pass the case; only the AI team,
+    # reading who runs the counterparties and where money goes, can find what is wrong
     Case("related_party", LUMEN,
          "Lumen's biggest supplier, Harbour Ridge Filtration, is run by Lumen's own chief executive: ACRA lists her "
          "as its director. No document says so and no rule compares the two; only the AI team looks it up.",

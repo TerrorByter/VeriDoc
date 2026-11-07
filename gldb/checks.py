@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
 from time import perf_counter
-from typing import Callable
+from typing import Callable, Literal
 
 from gldb.config import (
     ACRA_COMMON_FACTOR_MIN_FIGURES,
@@ -42,6 +42,7 @@ from gldb.config import (
     DEBT_INTEREST_WORDS,
     DEBT_NAME_WORDS,
     DEBT_REPAYMENT_WORDS,
+    GENERIC_PAYERS,
     GST_RATE,
     HIDDEN_QUOTE_MAX_CHARS,
     MATCH_WINDOW_DAYS,
@@ -50,6 +51,10 @@ from gldb.config import (
     PASS_THROUGH_DAYS,
     PASS_THROUGH_MIN_SHARE,
     PASS_THROUGH_MIN_VOLUME_SHARE,
+    PAYER_DIFFERENT_THRESHOLD,
+    PAYER_MIN_LETTERS,
+    PAYER_SAME_THRESHOLD,
+    PAYMENT_CHANNELS,
     REQUIRED_BANK_MONTHS,
     SCREENING_MATCH_THRESHOLD,
     START_UP_MAX_MONTHS,
@@ -587,6 +592,143 @@ def check_xdoc_invoice_bank(pack: ExtractedPack) -> list[Evidence]:
 
     return results
 
+
+# 6a. XDOC_THIRD_PARTY_PAYER ---------------------------------------------
+
+def bank_rows(pack: ExtractedPack) -> list[tuple[str, BankStatement, Transaction]]:
+    """Every bank row with its id: T01, T02... over the statements in pack
+    order and the rows in statement order, so an id is stable for a case."""
+    rows = [(statement, txn) for statement in pack.bank_statements for txn in statement.transactions]
+    return [(f"T{i:02d}", statement, txn) for i, (statement, txn) in enumerate(rows, 1)]
+
+
+def names(number: str) -> re.Pattern[str]:
+    """A pattern matching *number* as a whole token in a description."""
+    return re.compile(rf"(?<![\w-]){re.escape(number)}(?![\w-])")
+
+
+_WORDS = re.compile(r"[A-Z0-9]+")
+
+
+def _payer_reader(invoice_number: str) -> re.Pattern[str]:
+    """Reads the payer from "<CHANNEL> CR <PAYER> <INVOICE NUMBER>[ <suffix>]"."""
+    channels = "|".join(map(re.escape, PAYMENT_CHANNELS))
+    return re.compile(rf"^(?:{channels}) CR (?P<payer>.+?) {re.escape(invoice_number)}(?: .*)?$", re.IGNORECASE)
+
+
+_GENERIC_WORDS = frozenset(w for phrase in GENERIC_PAYERS for w in _WORDS.findall(phrase.upper()))
+
+
+def _payer(description: str, reader: re.Pattern[str]) -> tuple[str | None, str]:
+    """The payer a bank description names, or None with why it cannot be
+    relied on: not in the known format, a generic payer (any word of one), or
+    something with a digit in it (an amount, an account, another invoice)."""
+    read = reader.match(description.strip())
+    if read is None:
+        return None, "the payer cannot be read from its description"
+    payer = read["payer"].strip()
+    words = _WORDS.findall(payer.upper())
+    if any(w in _GENERIC_WORDS for w in words):
+        return None, f"generic payer {payer}"
+    if any(ch.isdigit() for ch in payer):
+        return None, f"payer {payer} holds a number, not only a name"
+    if len(re.findall(r"[A-Za-z]", payer)) < PAYER_MIN_LETTERS:
+        return None, f"payer {payer} is too short to be a name"
+    return payer, ""
+
+
+@dataclass(frozen=True)
+class Payment:
+    """A credit that names an invoice, with who paid it. *relation* says
+    whether the payer is the invoice's buyer, from the one similarity
+    threshold pair; "unreadable" when the payer cannot be relied on (*why*)."""
+
+    row_id: str
+    transaction: Transaction
+    payer: str | None
+    relation: Literal["buyer", "other", "unclear", "unreadable"]
+    why: str = ""
+
+
+def payments(invoice: Invoice, pack: ExtractedPack) -> list[Payment]:
+    """Every credit naming *invoice*, in bank order, with its payer read from
+    the description and compared with the invoice's buyer. None for a
+    purchase: the applicant is its buyer and pays it by a debit."""
+    if is_purchase(invoice.buyer_name, pack):
+        return []
+    named, reader = names(invoice.invoice_number), _payer_reader(invoice.invoice_number)
+    found = []
+    for row_id, _, txn in bank_rows(pack):
+        if txn.credit is None or txn.credit <= 0 or not named.search(txn.description):
+            continue
+        payer, why = _payer(txn.description, reader)
+        if payer is None:
+            found.append(Payment(row_id, txn, None, "unreadable", why))
+            continue
+        score = similarity(payer, invoice.buyer_name)
+        relation = ("buyer" if score >= PAYER_SAME_THRESHOLD
+                    else "unclear" if score > PAYER_DIFFERENT_THRESHOLD else "other")
+        found.append(Payment(row_id, txn, payer, relation))
+    return found
+
+
+def disclosed(payer: str, pack: ExtractedPack) -> bool:
+    """Whether *payer* is an arrangement the application declared (a payment
+    agent, a group company): a payment from it is explained, not a third-party
+    red flag. The payer may read "AGENT FOR BUYER", so the primary test is that
+    every word of the declared name is in the payer's name (a screening key
+    sorts its words, so the keys themselves cannot be compared as text), with
+    a similarity fallback."""
+    if pack.manifest is None or not pack.manifest.disclosures:
+        return False
+    words = set(screening_key(payer).split())
+    for disclosure in pack.manifest.disclosures:
+        declared = set(screening_key(disclosure.counterparty).split())
+        if declared and (declared <= words or words <= declared
+                         or similarity(payer, disclosure.counterparty) >= PAYER_SAME_THRESHOLD):
+            return True
+    return False
+    key = screening_key(payer)
+    for disclosure in pack.manifest.disclosures:
+        if not disclosure.counterparty:
+            continue
+        counterparty = screening_key(disclosure.counterparty)
+        if counterparty and (counterparty in key or key in counterparty
+                             or similarity(payer, disclosure.counterparty) >= PAYER_SAME_THRESHOLD):
+            return True
+    return False
+
+
+def check_xdoc_third_party_payer(pack: ExtractedPack) -> list[Evidence]:
+    """A sale paid by someone other than its buyer: a credit naming the
+    invoice whose payer, read from the bank description, is clearly not the
+    invoice's buyer. One finding per invoice, at its first such credit, on the
+    statement row. A payer the application discloses (a payment agent, a
+    group company) is an info finding: explained, not a red flag. A payer
+    code cannot read, or one that may or may not be the buyer, raises
+    nothing; that is left to the analyst and the AI team."""
+    statements = {row_id: statement for row_id, statement, _ in bank_rows(pack)}
+    results: list[Evidence] = []
+    for inv in pack.invoices:
+        if not inv.buyer_name.strip():
+            continue
+        other = next((p for p in payments(inv, pack) if p.relation == "other" and p.payer), None)
+        if other is None or other.payer is None:
+            continue
+        txn, statement = other.transaction, statements[other.row_id]
+        explained = disclosed(other.payer, pack)
+        results.append(_ev(
+            "XDOC_THIRD_PARTY_PAYER", "fraud_signal", "info" if explained else "high",
+            statement.doc_id, statement.page,
+            f"Invoice {inv.invoice_number} is billed to {inv.buyer_name}, but the credit for it on "
+            f"{txn.date} (SGD {txn.credit}) came from {other.payer}"
+            + (", a payer the application discloses." if explained
+               else ", who is not the buyer and is not disclosed in the application."),
+            quote=txn.description,
+            expected=f"payment from the buyer {inv.buyer_name}",
+            observed=f"payment from {other.payer}",
+        ))
+    return results
 
 # 6b. XDOC_PO_INVOICE ----------------------------------------------------
 
@@ -2394,6 +2536,7 @@ RULE_GROUPS: list[RuleGroup] = [
         [
             check_xdoc_identity,
             check_xdoc_invoice_bank,
+            check_xdoc_third_party_payer,
             check_xdoc_po_invoice,
             check_xdoc_bl_invoice,
             check_fs_acra,

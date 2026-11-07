@@ -28,7 +28,7 @@ from gldb.ai_team.tools import CaseData
 from gldb.intake import load_manifest
 from gldb.pipeline import assess
 from gldb.schemas import AgentTeam, Lead, ReviewPath, Routing, ShadowScore
-from tests.fakes import ScriptedBedrock, use
+from tests.fakes import ScriptedBedrock, use, without_payer_rule
 
 PACKS = Path(__file__).parent / "fixtures" / "packs"
 MODELS = TeamModels(supervisor="sup-model", specialist="spec-model", shadow="shadow-model")
@@ -51,7 +51,7 @@ def _lead(cite: str, pattern: str, hypothesis: str, **fields: Any) -> dict[str, 
 @cache
 def _team() -> tuple[CaseData, AgentTeam]:
     """A team on third_party_payment with L01 verified, L02 unverified and L03 contradicted, and a memo."""
-    case = _case("third_party_payment")
+    case = without_payer_rule(_case("third_party_payment"))
     row = {i: next(r for r, _, t in bank_rows(case.pack) if t.description.endswith(f"INV-{i}"))
            for i in (1001, 1002)}
     fake = ScriptedBedrock({

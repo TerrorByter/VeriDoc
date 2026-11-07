@@ -65,7 +65,7 @@ The app runs without AWS. With the `.env` copied from `.env.example`, every AWS 
 pytest
 ```
 
-Tests do not call AWS by default. To run the live AWS smoke tests (one Bedrock call, one forced-schema call, one Textract call, and one full AI team run on the `third_party_payment` pack, about US$0.10-0.30):
+Tests do not call AWS by default. To run the live AWS smoke tests (one Bedrock call, one forced-schema call, one Textract call, and one full AI team run on the `round_trip` pack, about US$0.10-0.30):
 
 ```bash
 RUN_LIVE=1 pytest tests/test_live_aws.py -v
@@ -135,11 +135,16 @@ order records the goods delivered, and the supplier is in the mock ACRA. Each
 company has its own customers, suppliers and goods (`gldb/demo_partners.py`). The
 `invoice_mismatch` pack makes four of them disagree (overbilled against the order
 and the payment, more goods billed than shipped, an order never issued) so the
-transaction chains break at different steps. Three packs plant what only the AI
-team looks for, so the rules alone would fast-track them: a sale paid by a third
-party (`third_party_payment`), a supplier run by the applicant's own CEO
-(`related_party`) and a payment that comes back as a customer receipt
-(`round_trip`).
+transaction chains break at different steps. In `third_party_payment` a sale is
+paid by a company with no part in it; the statement names the payer, and a rule
+(`XDOC_THIRD_PARTY_PAYER`) compares it with the buyer on the invoice.
+
+Three packs are there to test the AI team. Two plant what only the AI team looks
+for, so the rules alone would fast-track them: a supplier run by the applicant's
+own CEO (`related_party`) and a payment that comes back as a customer receipt
+(`round_trip`). The third is innocent: an invoice paid in two parts by its buyer
+(`split_payment`), which a rule flags and the team should explain rather than
+raise. `docs/PROJECT_STATUS.md` lists every scenario that tests the team.
 
 Names are screened against the individuals and entities designated on the UN
 lists that MAS names (DPRK, Iran, Libya, the Congo, Somalia, Sudan, South Sudan,

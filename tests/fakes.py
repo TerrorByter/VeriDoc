@@ -11,9 +11,18 @@ import copy
 import itertools
 from typing import Any
 
-from gldb.ai_team.tools import TOOLSETS
+from gldb.ai_team.tools import TOOLSETS, CaseData
 
 _tool_use_ids = itertools.count(1)
+
+
+def without_payer_rule(case: CaseData) -> CaseData:
+    """*case* without the rule XDOC_THIRD_PARTY_PAYER's findings. The AI-team
+    machinery tests (memo gating, questions, the shadow scorer) use
+    Harbourline's payment on third_party_payment as a lead code verifies and
+    no rule reports; the rule now reports it, so they drop its finding to keep
+    that example."""
+    return CaseData(case.case_id, case.pack, [e for e in case.evidence if e.check_id != "XDOC_THIRD_PARTY_PAYER"])
 
 
 def use(name: str, **args: Any) -> dict[str, Any]:

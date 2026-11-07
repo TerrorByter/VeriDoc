@@ -27,17 +27,19 @@ def test_stub_extractor_is_perfect_on_all_packs() -> None:
     assert report.precision == report.recall == 1.0
     assert report.band_accuracy == report.readiness_accuracy == report.routing_accuracy == 1.0
     assert report.clean_pack_false_positives == 0
-    assert report.true_positives == 18  # 13 fraud + 5 compliance/completeness
+    assert report.true_positives == 19  # 14 fraud + 5 compliance/completeness
 
 
-def test_beyond_rules_packs_match_their_rule_expectations() -> None:
-    """The packs for patterns no rule catches: silent, except the innocent split,
-    where only the invoice-to-bank rule fires."""
+def test_trade_pattern_packs_match_their_rule_expectations() -> None:
+    """The packs for patterns no rule catches (related party, round trip) are
+    silent; the innocent split fires only the invoice-to-bank rule, and the
+    third-party payment only the payer rule."""
     results = {r.pack: r for r in evaluate.evaluate(PACKS).packs}
     for name in ("third_party_payment", "related_party", "round_trip", "innocent_split"):
         assert results[name].ok, results[name]
     assert results["innocent_split"].risk_findings == 1
-    assert results["third_party_payment"].risk_findings == 0
+    assert results["third_party_payment"].risk_findings == 1
+    assert results["related_party"].risk_findings == results["round_trip"].risk_findings == 0
 
 
 def test_attack_table_on_real_packs() -> None:
@@ -169,4 +171,4 @@ def test_long_pack_names_do_not_run_into_the_next_column(
     header = next(line for line in lines if line.startswith("pack"))
     row = next(line for line in lines if line.startswith("third_party_payment"))
     assert row.startswith("third_party_payment ")
-    assert header.index("band") == row.index("Low/Low")
+    assert header.index("band") == row.index("Medium/Medium")

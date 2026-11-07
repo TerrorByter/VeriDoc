@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from gldb.schemas import Signal
 
-RULE_VERSION = "2026-10-26.2"
+RULE_VERSION = "2026-11-07.1"
 
 SIGNALS: tuple[Signal, ...] = (
     # DOC: document integrity and forensics -------------------------------
@@ -113,6 +113,13 @@ SIGNALS: tuple[Signal, ...] = (
            remedy="Ask what the business adds to these trades and for the contracts with both parties; "
                   "confirm the goods with the shipping documents.",
            strength="indicative", innocent="a trader that pays its supplier as soon as its buyer pays it"),
+    Signal(signal_id="TXN-005", check_id="XDOC_THIRD_PARTY_PAYER", family="TXN",
+           name="Sale paid by someone other than its buyer",
+           remedy="Ask who the payer is and why it paid for the buyer, with any agreement under which it did; "
+                  "confirm the payment with the buyer.",
+           strength="indicative",
+           innocent="a parent or group company, a payment agent or a factoring company paying for the buyer, "
+                    "which the application should disclose"),
     # REG: registry and identity -------------------------------------------
     Signal(signal_id="REG-001", check_id="XDOC_IDENTITY", family="REG",
            name="Company identity inconsistent across documents",

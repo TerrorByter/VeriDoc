@@ -24,7 +24,6 @@ from gldb import official
 from gldb.ai_team.checks import (
     Outcome,
     bank_rows,
-    candidate_leads,
     check_pattern,
     corroborate,
     counterparties,
@@ -36,7 +35,7 @@ from gldb.ai_team.checks import (
 from gldb.checks import check_temp_trade_sequence as check_trade_rules
 from gldb.intake import load_manifest
 from gldb.pipeline import assess
-from gldb.schemas import Disclosure, Evidence, ExtractedPack, Lead
+from gldb.schemas import Evidence, ExtractedPack, Lead
 from gldb.screening import screening_key
 
 PACKS = Path(__file__).parent / "fixtures" / "packs"
@@ -72,18 +71,6 @@ def _check(name: str, lead: Lead) -> Outcome:
     return check_pattern(lead, pack, list(evidence))
 
 
-def test_candidate_leads_propose_only_undisclosed_third_party_payers() -> None:
-    pack, _ = _case("third_party_payment")
-    (lead,) = candidate_leads(pack)
-    assert (lead.agent, lead.pattern, lead.invoice_number, lead.transaction_ids) == (
-        "transaction", "third_party_payment", "INV-1002", _rows(pack, "HARBOURLINE LOGISTICS INV-1002"))
-    # The same case with the payer disclosed by the application proposes nothing
-    manifest = pack.manifest.model_copy(update={"disclosures": [
-        Disclosure(kind="payment_agent", counterparty="HARBOURLINE LOGISTICS", detail="a disclosed payment agent")]})
-    disclosed = pack.model_copy(update={"manifest": manifest})
-    assert candidate_leads(disclosed) == []
-
-
 # ---------------------------------------------------------------------------
 # third_party_payment
 # ---------------------------------------------------------------------------
@@ -94,6 +81,19 @@ def test_tpp_l12_harbourline_is_verified() -> None:
     outcome = _check("third_party_payment", _tpp(pack, "INV-1002", _rows(pack, "HARBOURLINE LOGISTICS INV-1002")))
     assert outcome.status == "verified"
     assert (outcome.facts["payer"], outcome.facts["buyer"]) == ("HARBOURLINE LOGISTICS", "Bayview Marine Supplies Pte. Ltd.")
+
+
+def test_tpp_names_the_rule_finding_it_confirms() -> None:
+    """The rule XDOC_THIRD_PARTY_PAYER reports Harbourline's payment itself:
+    the lead confirms that finding, so it is not a flag of its own."""
+    pack, evidence = _case("third_party_payment")
+    (rule,) = [e for e in evidence if e.check_id == "XDOC_THIRD_PARTY_PAYER"]
+    outcome = _check("third_party_payment", _tpp(pack, "INV-1002", _rows(pack, "HARBOURLINE LOGISTICS INV-1002")))
+    assert outcome.facts["rule_finding"] == rule.evidence_id
+    # Without the rule's finding the same lead stands alone
+    alone = check_pattern(_tpp(pack, "INV-1002", _rows(pack, "HARBOURLINE LOGISTICS INV-1002")), pack,
+                          [e for e in evidence if e.check_id != "XDOC_THIRD_PARTY_PAYER"])
+    assert alone.status == "verified" and "rule_finding" not in alone.facts
 
 
 def test_tpp_inv1001_orchid_lane_is_contradicted() -> None:
@@ -357,10 +357,16 @@ def _finding(document: str, check_id: str, severity: str = "high") -> Evidence:
                     method="deterministic", explanation="x")
 
 
+def _without_payer_rule(evidence: tuple[Evidence, ...]) -> list[Evidence]:
+    """*evidence* without XDOC_THIRD_PARTY_PAYER: the third-party lead as it
+    stands when no rule reports the payment."""
+    return [e for e in evidence if e.check_id != "XDOC_THIRD_PARTY_PAYER"]
+
+
 def test_corroborated_only_from_verified() -> None:
     pack, evidence = _case("third_party_payment")
     lead = _tpp(pack, "INV-1002", _rows(pack, "HARBOURLINE LOGISTICS INV-1002"))
-    verified = check_pattern(lead, pack, list(evidence))
+    verified = check_pattern(lead, pack, _without_payer_rule(evidence))
     invoice = next(i.doc_id for i in pack.invoices if i.invoice_number == "INV-1002")
     other_family = [_finding(invoice, "META_MOD_AFTER_CREATE")]
     assert corroborate(lead, verified, pack, other_family).status == "corroborated"
@@ -375,9 +381,18 @@ def test_corroborated_only_from_verified() -> None:
 def test_two_agents_agreeing_is_not_corroboration() -> None:
     pack, evidence = _case("third_party_payment")
     lead = _tpp(pack, "INV-1002", _rows(pack, "HARBOURLINE LOGISTICS INV-1002"))
-    verified = check_pattern(lead, pack, list(evidence))
+    alone = _without_payer_rule(evidence)
+    verified = check_pattern(lead, pack, alone)
     # Corroboration reads rule findings only: there is no input through which another lead could count
-    assert corroborate(lead, verified, pack, list(evidence)).status == "verified"
+    assert corroborate(lead, verified, pack, alone).status == "verified"
+
+
+def test_a_rule_confirmed_third_party_is_not_corroborated() -> None:
+    pack, evidence = _case("third_party_payment")
+    lead = _tpp(pack, "INV-1002", _rows(pack, "HARBOURLINE LOGISTICS INV-1002"))
+    outcome = check_pattern(lead, pack, list(evidence))
+    invoice = next(i.doc_id for i in pack.invoices if i.invoice_number == "INV-1002")
+    assert corroborate(lead, outcome, pack, list(evidence) + [_finding(invoice, "META_X")]).status == "verified"
 
 
 def test_a_rule_confirmed_sequence_is_not_corroborated() -> None:

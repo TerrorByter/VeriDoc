@@ -72,8 +72,9 @@ least 20 of each label) or `pilot` for a practice set.
   officers and nothing declares it.
 - `round_trip` — a supplier payment comes back from that supplier as a receipt.
 
-The last three are typologies the rule checks cannot see; they measure the AI
-team and the honest gap in the rules.
+The last two are typologies the rule checks cannot see; they measure the AI
+team and the honest gap in the rules. `third_party_payment` is caught by a rule
+(the bank statement names the payer, and code compares it with the buyer).
 
 ## Innocent look-alikes available (legitimate packs)
 

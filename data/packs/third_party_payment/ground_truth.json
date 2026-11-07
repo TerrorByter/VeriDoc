@@ -1,19 +1,25 @@
 {
   "pack": "third_party_payment",
   "company": "KESTREL AUTOMATION PTE. LTD.",
-  "note": "Kestrel's sale to Kulim Hi-Tech Packaging was paid by Golden Reef Trading Limited, a company with no part in it. Amount and date agree, so the rules pass it; only the AI team asks who paid.",
-  "expected_band": "Low",
-  "expected_path": "fast_track",
+  "note": "Kestrel's sale to Kulim Hi-Tech Packaging was paid by Golden Reef Trading Limited, a company with no part in it and none the application discloses. Amount and date agree; the payer does not.",
+  "expected_band": "Medium",
+  "expected_path": "standard_review",
   "expected_readiness": "Complete",
-  "expected_check_ids": [],
+  "expected_check_ids": [
+    "XDOC_THIRD_PARTY_PAYER"
+  ],
   "expected_check_ids_ocr": [],
   "expected_compliance_check_ids": [],
-  "expected_leads": [
-    {
-      "agent": "transaction",
-      "pattern": "third_party_payment"
-    }
-  ],
+  "expected_leads": [],
   "expected_triage": [],
-  "tampers": []
+  "tampers": [
+    {
+      "doc": "bank_statement",
+      "type": "third_party_payer",
+      "check_ids": [
+        "XDOC_THIRD_PARTY_PAYER"
+      ],
+      "detail": "Kulim Hi-Tech Packaging's invoice is paid by Golden Reef Trading Limited"
+    }
+  ]
 }

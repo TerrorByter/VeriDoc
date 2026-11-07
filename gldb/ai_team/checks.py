@@ -10,21 +10,25 @@ text, and never call a model.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Literal
 
-from gldb.checks import incorporation, is_purchase, matching_po, party_words, shared_party
+from gldb.checks import (
+    Payment,
+    bank_rows,
+    disclosed,
+    incorporation,
+    is_purchase,
+    matching_po,
+    names,
+    party_words,
+    payments,
+    shared_party,
+)
 from gldb.config import (
-    GENERIC_PAYERS,
     MATCH_WINDOW_DAYS,
-    PAYER_DIFFERENT_THRESHOLD,
-    PAYER_MIN_LETTERS,
-    PAYER_SAME_THRESHOLD,
-    PAYMENT_CHANNELS,
     ROUND_TRIP_AMOUNT_TOLERANCE,
     ROUND_TRIP_WINDOW_DAYS,
     SCREENING_MATCH_THRESHOLD,
@@ -33,15 +37,8 @@ from gldb.config import (
 from gldb.ai_team.verify import PATTERN_SUBJECTS
 from gldb.ordering import TradeDates, undetermined, violations
 from gldb import official
-from gldb.schemas import BankStatement, EvidenceStatus, Evidence, ExtractedPack, Invoice, Lead, Pattern, Transaction
+from gldb.schemas import EvidenceStatus, Evidence, ExtractedPack, Invoice, Lead, Pattern
 from gldb.screening import screening_key, similarity
-
-
-def bank_rows(pack: ExtractedPack) -> list[tuple[str, BankStatement, Transaction]]:
-    """Every bank row with its id: T01, T02... over the statements in pack
-    order and the rows in statement order, so an id is stable for a case."""
-    rows = [(statement, txn) for statement in pack.bank_statements for txn in statement.transactions]
-    return [(f"T{i:02d}", statement, txn) for i, (statement, txn) in enumerate(rows, 1)]
 
 
 def _party_documents(pack: ExtractedPack) -> list[tuple[str, str]]:
@@ -88,11 +85,6 @@ def counterparty_name(pack: ExtractedPack, party_id: str) -> str | None:
     return next((n for _, n in _party_documents(pack) if counterparty_id(pack, n) == party_id), None)
 
 
-def names(number: str) -> re.Pattern[str]:
-    """A pattern matching *number* as a whole token in a description."""
-    return re.compile(rf"(?<![\w-]){re.escape(number)}(?![\w-])")
-
-
 def trade_dates(invoice: Invoice, pack: ExtractedPack, incorporated: date | None) -> TradeDates:
     """*invoice*'s trade: its matching purchase order, its earliest shipment
     (the rules check every bill of lading or delivery order that references
@@ -127,71 +119,6 @@ def _unverified(reason: str, **facts: str) -> Outcome:
 
 def _invoice(lead: Lead, pack: ExtractedPack) -> Invoice | None:
     return next((i for i in pack.invoices if i.invoice_number == lead.invoice_number), None)
-
-
-_WORDS = re.compile(r"[A-Z0-9]+")
-
-
-def _payer_reader(invoice_number: str) -> re.Pattern[str]:
-    """Reads the payer from "<CHANNEL> CR <PAYER> <INVOICE NUMBER>[ <suffix>]"."""
-    channels = "|".join(map(re.escape, PAYMENT_CHANNELS))
-    return re.compile(rf"^(?:{channels}) CR (?P<payer>.+?) {re.escape(invoice_number)}(?: .*)?$", re.IGNORECASE)
-
-
-_GENERIC_WORDS = frozenset(w for phrase in GENERIC_PAYERS for w in _WORDS.findall(phrase.upper()))
-
-
-def _payer(description: str, reader: re.Pattern[str]) -> tuple[str | None, str]:
-    """The payer a bank description names, or None with why it cannot be
-    relied on: not in the known format, a generic payer (any word of one), or
-    something with a digit in it (an amount, an account, another invoice)."""
-    read = reader.match(description.strip())
-    if read is None:
-        return None, "the payer cannot be read from its description"
-    payer = read["payer"].strip()
-    words = _WORDS.findall(payer.upper())
-    if any(w in _GENERIC_WORDS for w in words):
-        return None, f"generic payer {payer}"
-    if any(ch.isdigit() for ch in payer):
-        return None, f"payer {payer} holds a number, not only a name"
-    if len(re.findall(r"[A-Za-z]", payer)) < PAYER_MIN_LETTERS:
-        return None, f"payer {payer} is too short to be a name"
-    return payer, ""
-
-
-@dataclass(frozen=True)
-class Payment:
-    """A credit that names an invoice, with who paid it. *relation* says
-    whether the payer is the invoice's buyer, from the one similarity
-    threshold pair; "unreadable" when the payer cannot be relied on (*why*)."""
-
-    row_id: str
-    transaction: Transaction
-    payer: str | None
-    relation: Literal["buyer", "other", "unclear", "unreadable"]
-    why: str = ""
-
-
-def payments(invoice: Invoice, pack: ExtractedPack) -> list[Payment]:
-    """Every credit naming *invoice*, in bank order, with its payer read from
-    the description and compared with the invoice's buyer. None for a
-    purchase: the applicant is its buyer and pays it by a debit."""
-    if is_purchase(invoice.buyer_name, pack):
-        return []
-    named, reader = names(invoice.invoice_number), _payer_reader(invoice.invoice_number)
-    found = []
-    for row_id, _, txn in bank_rows(pack):
-        if txn.credit is None or txn.credit <= 0 or not named.search(txn.description):
-            continue
-        payer, why = _payer(txn.description, reader)
-        if payer is None:
-            found.append(Payment(row_id, txn, None, "unreadable", why))
-            continue
-        score = similarity(payer, invoice.buyer_name)
-        relation = ("buyer" if score >= PAYER_SAME_THRESHOLD
-                    else "unclear" if score > PAYER_DIFFERENT_THRESHOLD else "other")
-        found.append(Payment(row_id, txn, payer, relation))
-    return found
 
 
 _RELATION_TEXT = {"buyer": "the buyer", "other": "not the buyer", "unclear": "may or may not be the buyer"}
@@ -244,30 +171,14 @@ def resolved_findings(pack: ExtractedPack, evidence: list[Evidence]) -> dict[str
     return resolved
 
 
-def _disclosed(payer: str, pack: ExtractedPack) -> bool:
-    """Whether *payer* is an arrangement the application declared (a payment
-    agent, a group company): a payment from it is explained, not a third-party
-    red flag. The payer may read "AGENT FOR BUYER", so containment on the name
-    key is the primary test, with a similarity fallback."""
-    if pack.manifest is None or not pack.manifest.disclosures:
-        return False
-    key = screening_key(payer)
-    for disclosure in pack.manifest.disclosures:
-        if not disclosure.counterparty:
-            continue
-        counterparty = screening_key(disclosure.counterparty)
-        if counterparty and (counterparty in key or key in counterparty
-                             or similarity(payer, disclosure.counterparty) >= PAYER_SAME_THRESHOLD):
-            return True
-    return False
-
-
 def _third_party_payment(lead: Lead, pack: ExtractedPack, evidence: list[Evidence]) -> Outcome:
     """A sale paid by someone other than its buyer. Every row of the lead
     is a credit naming the invoice, and every credit naming it has its payer
     read reliably: the case data decides, not the agent's choice of rows.
     Verified if any such credit is paid by someone else; contradicted only if
-    every one is paid by the buyer; unverified otherwise."""
+    every one is paid by the buyer; unverified otherwise. A verified payment
+    the rule XDOC_THIRD_PARTY_PAYER already reports names that finding, so the
+    lead confirms the rule rather than standing as a flag of its own."""
     invoice = _invoice(lead, pack)
     if invoice is None:
         return _unverified(f"invoice {lead.invoice_number} is not in the pack")
@@ -298,41 +209,21 @@ def _third_party_payment(lead: Lead, pack: ExtractedPack, evidence: list[Evidenc
         if not found:
             return _unverified("no credit names the invoice", **facts)
         return Outcome("contradicted", f"paid by the buyer {invoice.buyer_name}", _paid(facts, found[0]))
-    if _disclosed(other.payer, pack):
+    if disclosed(other.payer, pack):
         return Outcome("contradicted", f"{other.row_id}: payer {other.payer} is an arrangement the application "
                        "disclosed, so the payment is explained", _paid(facts, other))
+    # The rule XDOC_THIRD_PARTY_PAYER reports this payment itself: the lead
+    # confirms its finding (and names it), and is not a flag of its own
+    rule = next((e.evidence_id for e in evidence if e.check_id == "XDOC_THIRD_PARTY_PAYER"
+                 and e.severity != "info" and e.quote == other.transaction.description), None)
     return Outcome("verified", f"{other.row_id}: payer {other.payer} is not the buyer {invoice.buyer_name}",
-                   _paid(facts, other))
+                   {**_paid(facts, other), **({"rule_finding": rule} if rule else {})})
 
 
 def _paid(facts: dict[str, str], payment: Payment) -> dict[str, str]:
     """*facts* with the payment a check rests on: its payer, row, amount and date."""
     return {**facts, "payer": str(payment.payer), "transaction": payment.row_id,
             "amount": str(payment.transaction.credit), "date": str(payment.transaction.date)}
-
-
-def candidate_leads(pack: ExtractedPack) -> list[Lead]:
-    """Leads code can propose from the case data alone: a sale paid by a party
-    who is not its buyer and whom the application does not disclose. The agent
-    need not rediscover a fact the checks already establish; disclosure is
-    checked here, so a disclosed agent or group payer is never proposed."""
-    leads: list[Lead] = []
-    for invoice in pack.invoices:
-        if is_purchase(invoice.buyer_name, pack) or not invoice.buyer_name.strip():
-            continue
-        for payment in payments(invoice, pack):
-            if payment.relation != "other" or payment.payer is None:
-                continue
-            if _disclosed(payment.payer, pack):
-                continue
-            leads.append(Lead(
-                agent="transaction", kind="pattern", pattern="third_party_payment",
-                invoice_number=invoice.invoice_number, transaction_ids=[payment.row_id],
-                hypothesis=f"{invoice.invoice_number} was paid by someone other than its buyer",
-                tests=[], investigation_status="supported",
-            ))
-            break  # one lead per invoice: its check reads every credit naming it
-    return leads
 
 
 def _round_trip(lead: Lead, pack: ExtractedPack, evidence: list[Evidence]) -> Outcome:

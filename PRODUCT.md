@@ -32,7 +32,7 @@ VeriDoc reviews trade-finance application packs (invoices, purchase orders, bill
 
 - Frontend: React, TypeScript and Vite in `frontend/`; backend: FastAPI in `gldb/`. Screens are addressed by URL hash (`#/cases/<id>/<stage>`).
 - Must hold in the UI (confirmed): AI leads, the shadow score and the gate are always shown as proposals, never as decisions; every flag and memo point sits beside its evidence (document page and code-built facts); banking terms and check ids stay verbatim; the UI meets WCAG AA.
-- Known gaps to design for: a rule finding that code has explained (for example an invoice paid in two parts) still shows as an open fraud signal; a `record_lead` call the verifier refused, which the agent then corrected, shows in the same red "Error" style as a real failure.
+- Hosted for the panel and the team at a private address behind one shared sign-in; anyone can also run their own copy offline.
 
 ## Brand Commitments
 
@@ -42,7 +42,7 @@ Binding visual constraint volunteered by the user: the interface is used in ligh
 
 ## Evidence on Hand
 
-- Eight synthetic demo packs in `data/packs/` (each with the invoices, purchase orders and bills of lading behind its trade), the test packs in `tests/fixtures/packs/`, and several live runs of the AI team (cases `LIVE-RUN-7` and `LIVE-RUN-9`, among others, with their documents under `data/uploads/`).
+- Twelve synthetic demo packs in `data/packs/` (each with the invoices, purchase orders and bills of lading behind its trade), the test packs in `tests/fixtures/packs/`, live runs of the AI team, and a blind held-out test of 60 packs written by a model outside the build (`data/heldout/`, shown on Model and controls).
 - No real bank data, customers, testimonials or benchmarks exist. Future work must not invent any. The header already says "Prototype · synthetic data".
 
 ## Product Principles

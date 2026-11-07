@@ -161,7 +161,7 @@ password).
 
 ### 1. Prerequisites
 
-- Python 3.11
+- Python 3.13
 - Node 20+ (frontend)
 - AWS account with Bedrock access (Claude model enabled in your region); Textract if you want to OCR scans
 
@@ -318,12 +318,12 @@ puts the case on enhanced review; one under increased monitoring is a high
 finding. The file carries the plenary it is taken from (June 2026 now): update
 it after each plenary (February, June, October).
 
-The UI has four screens: **Cases** (every case, newest first), **New case**
+The UI has five screens: **Cases** (every case, newest first), **New case**
 (demo packs or an upload), a **live run** that shows each pipeline stage as it
-runs, and the **case workspace**, where each of the 12 stages has its own page
+runs, the **case workspace**, where each of the 12 stages has its own page
 (the arrow keys step through them) beside the document viewer, whose
 **Forensic overlay** boxes every finding on a page at once, coloured by
-severity. **Model & controls** shows the saved evaluation, capabilities, signal library and spend.
+severity; and **Model & controls**, which shows the saved evaluation, the blind test, capabilities, signal library and spend.
 A case on the enhanced review path cannot be approved until the MLRO has
 reviewed it: the analyst escalates it, a different person records the MLRO
 decision, and then approval opens. Declining is never held back.
@@ -340,6 +340,7 @@ gldb/               Core package
   demo_trade.py     The paperwork behind each pack's trade: an invoice, order and bill of lading (sale) or delivery order (purchase) per trade, and the suppliers' ACRA records
   demo_partners.py  Each demo company's customers in Malaysia and suppliers in Singapore
   invoice_pdf.py    Prints a tax invoice (letterhead, logo, item table, totals); the figures always add up
+  trade_pdf.py      Prints the purchase order, bill of lading and delivery order in the invoice's style
   data_factory.py   Generates the text-only test packs (tests/fixtures/packs), whose trade documents are plain text
   official.py       Fetches a case's ACRA and IRAS records (the mock service in the prototype)
   sanctions_sync.py Updates the UN designations from MAS's page: its lists, each UN page, each XML list
@@ -354,6 +355,7 @@ gldb/               Core package
   extract_llm.py    LLM-based field extraction
   extract.py        Dispatcher: routes to stub or LLM extractor
   checks.py         Deterministic checks grouped into rule groups; run_rule_checks() merges Evidence
+  categories.py     The problem categories a case shows (set by code from its findings and verified leads)
   forensics.py      PDF forensics primitives (hidden text, mixed fonts, incremental saves)
   ordering.py       The ordering policy of a trade: order, shipment, invoice, payment
   signal_library.py Every check as a named, versioned signal
@@ -362,6 +364,7 @@ gldb/               Core package
   reconciliation.py Transaction chains: each invoice through its order, shipment and payment
   timeline.py       Every dated fact in the pack, in order
   investigation.py  The analyst's queue, and what resolving each task would change
+  rfi.py            A request for information drafted from a case, for the analyst to edit and send
   coverage.py       Share of risk findings traceable to their source
   lifecycle.py      Case lifecycle as an event-sourced state machine (the MLRO gate)
   feedback.py       How often analysts override each check, and why
@@ -380,18 +383,21 @@ gldb/               Core package
   evaluate.py       Scores the pipeline against each demo pack's ground truth
   agent_eval.py     Champion vs challenger evaluation of the AI team on the packs
   heldout.py        The blind held-out test: render sheets, seal the key, run blind, score per pack
+  stats.py          95% intervals for rates measured on few cases
   api.py            FastAPI app used by the frontend
   jobs.py           Progress of background pipeline runs, for the live run screen
   ocr.py            Textract OCR of every PDF page except the FATCA/CRS forms
   viewer.py         Evidence viewer: a page (or workbook sheet) as an image, and where a quote sits on it
 mock_gov/           Mock ACRA and IRAS records service (stands in for the ACRA and Myinfo APIs)
-infra/              The prompt screen's guardrail (CloudFormation)
+infra/              CloudFormation: the prompt screen's guardrail, GitHub's deploy role and commands, the server's stop schedule
+.github/workflows/  CI (tests, then deploy main to the server), Start server, Run evaluation
 frontend/           React + TypeScript (Vite) UI
 data/
   packs/            Demo packs in the format of the team's sample (one folder per case)
   mock_gov/         The mock service's ACRA and IRAS records
   reference/        designations.json (UN designations, from the sync; history/ keeps replaced ones), sanctions.json (the bank's own names), high_risk_countries.json (FATF)
   templates/sample/ The team's sample documents the demo packs are edited from
+  heldout/          The blind test heldout-v1: sheet, key, seal, results and the scored report
   uploads/          Runtime uploads (gitignored)
   cases/            Processed case outputs (gitignored)
 logs/

@@ -142,10 +142,6 @@ components:
     backgroundColor: "{colors.sunken}"
     textColor: "{colors.ink-muted}"
     rounded: "{rounded.md}"
-  finding-explained:
-    textColor: "{colors.ink}"
-    rounded: "{rounded.md}"
-    padding: "14px 16px"
   segmented:
     backgroundColor: "{colors.sunken}"
     textColor: "{colors.ink-muted}"
@@ -176,7 +172,7 @@ components:
 
 VeriDoc is a case file on soft paper. An analyst or MLRO reads for long stretches, often projected for a panel, so the ground is a warm grey-cream (never white, nothing above 97% lightness), text is ink-blue near-black, and one muted ink blue carries action, selection and AI proposals. Status is desaturated sage, ochre, rust and wine and always arrives with a word or an icon. The world is flat: hairline borders, 4px corners, no gradients, no glass, almost no shadow.
 
-Its signature is structural honesty. A lead is set as two columns: the agent's proposal in prose on the left, and beside it, divided by one strong vertical rule, a ruled ledger of what code established with a state mark. Anything explained goes quiet: a dashed, transparent receipt rather than a card. Open sections get a strong underline rule and 18px headings; everything else folds.
+Its signature is structural honesty. A lead is set as two columns: the agent's proposal in prose on the left, and beside it, divided by one strong vertical rule, a ruled ledger of what code established with a state mark. Anything settled goes quiet: a dashed, transparent receipt rather than a card. Open sections get a strong underline rule and 18px headings; everything else folds.
 
 Light is the default. Dark is an opt-in (`data-theme="dark"`), retuned to the same hues (ink blue lifted to 78% lightness, paper at 11%) and never the default.
 
@@ -244,11 +240,11 @@ Flat. Depth is conveyed by tone (surface over paper over sunken) and hairline bo
 
 ### Named Rules
 **The Flat At Rest Rule.** Cards, leads and findings carry no shadow. Only overlays and the document sheet may.
-**The Quiet Receipt Rule.** What is resolved goes dashed, transparent and muted (explained findings, withheld leads, off notes); what needs attention stays solid on surface.
+**The Quiet Receipt Rule.** What is resolved goes dashed, transparent and muted (refuted and withheld leads, off notes); what needs attention stays solid on surface.
 
 ## Shapes
 
-One corner: 4px on buttons, inputs, pills, cards, lead cards, code chips and tabs. Pills are rectangular with a 6px dot, not capsules. Borders are 1px hairline; the ledger divider and control borders use the strong rule. Dashed borders mean absent, withheld, off or explained. The one capsule is the filter chip (999px).
+One corner: 4px on buttons, inputs, pills, cards, lead cards, code chips and tabs. Pills are rectangular with a 6px dot, not capsules. Borders are 1px hairline; the ledger divider and control borders use the strong rule. Dashed borders mean absent, withheld or off. The one capsule is the filter chip (999px).
 
 ## Components
 

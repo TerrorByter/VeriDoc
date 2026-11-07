@@ -138,7 +138,7 @@ def test_l04_l08_invoice_after_shipment_is_no_flag_and_no_question() -> None:
          _question("R01", "Why was the invoice raised after shipment?")]]}, memo=["L01", "L02"])
     assert [lead.evidence_status for lead in team.leads] == ["contradicted", "contradicted"]
     assert not any(flagged(lead) for lead in team.leads)
-    assert _sent(fake) == {"leads": [], "questions": [], "resolved": {}}
+    assert _sent(fake) == {"leads": [], "questions": []}
     assert team.memo is not None and not team.memo.observations and not team.memo.questions
 
 
@@ -161,7 +161,7 @@ def test_l13_the_director_guarantor_is_contradicted_no_flag_no_question() -> Non
         [_lead("R01", "related_party", counterparty=buyer),
          _question("R01", "Why is Daniel Brooks not a signatory?")]]}, memo=["L01"])
     assert _only(team).evidence_status == "contradicted"
-    assert _sent(fake) == {"leads": [], "questions": [], "resolved": {}}
+    assert _sent(fake) == {"leads": [], "questions": []}
     assert team.memo is not None and team.memo.withheld == 2
 
 
@@ -183,7 +183,7 @@ def test_l02_l14_unchecked_patterns_are_observations_never_flags_memo_points_or_
     assert [(lead.evidence_status, lead.investigation_status) for lead in team.leads] == [
         ("unverified", "supported"), ("unverified", "supported")]
     assert not any(flagged(lead) for lead in team.leads)
-    assert _sent(fake) == {"leads": [], "questions": [], "resolved": {}}
+    assert _sent(fake) == {"leads": [], "questions": []}
     assert team.memo is not None and not team.memo.observations and not team.memo.questions
     assert team.memo.withheld == 4  # both points cited an unverified lead, in both lists
     # Each is kept on the record with what it cited and why it was withheld
@@ -212,4 +212,4 @@ def test_the_clean_pack_gets_no_flags_and_no_questions_whatever_is_recorded() ->
         "timeline": [[use("get_timeline")], [_lead("R03", "sequence_anomaly", invoice_number="INV-1001")]],
     }, memo=["L01", "L02"])  # R01 the search, R02 its lead's receipt, R03 the timeline
     assert len(team.leads) == 2 and not any(flagged(lead) for lead in team.leads)
-    assert _sent(fake) == {"leads": [], "questions": [], "resolved": {}}
+    assert _sent(fake) == {"leads": [], "questions": []}

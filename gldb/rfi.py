@@ -133,14 +133,13 @@ def _detail(template: str | None, expected: str | None, observed: str | None) ->
 def _items(result: CaseResult) -> tuple[list[RequestItem], int]:
     """One item per request on each document, in finding order, quoting its
     first finding (repeats of a check, or form errors on one form, ask once,
-    as they score once), and how many open findings have no request. Findings
-    code explained, and information-only ones, are not asked about."""
-    explained = result.ai_team.resolved if result.ai_team else {}
+    as they score once), and how many open findings have no request.
+    Information-only findings are not asked about."""
     names = {d.doc_id: d.filename for d in result.pack.docs}
     items: dict[tuple[str, str], RequestItem] = {}
     withheld = 0
     for ev in result.evidence:
-        if ev.severity == "info" or ev.evidence_id in explained:
+        if ev.severity == "info":
             continue
         if (entry := REQUESTS.get(ev.check_id)) is None:
             withheld += 1

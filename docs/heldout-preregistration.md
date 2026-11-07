@@ -1,6 +1,6 @@
 # Held-out test: pre-registration
 
-**Status: proposed, to be committed and then frozen before any official set is authored.**
+**Status: frozen. The system measured is the commit tagged `eval-v1`; nothing here changes once the set is authored.**
 
 This document records what will be measured, and how, before a single held-out
 scenario exists. Its commit timestamp is the proof that the rules came first:
@@ -23,7 +23,10 @@ until after the run.
 - **Recommended: 60 packs** — 30 fraudulent, 30 legitimate.
 - **Minimum: 40 packs** — 20 fraudulent, 20 legitimate.
 - Fraudulent packs: roughly six typologies, five packs each, chosen by the
-  author, including some the checks have never seen.
+  author from those the renderer draws (the author guide lists them),
+  including the two no rule looks for (`related_party_undisclosed`,
+  `round_trip`). The renderer cannot draw a typology it does not know, so no
+  fraud in the set is new to the system as a whole.
 - Legitimate packs: half plainly clean, half innocent look-alikes (refunds,
   payment agents, intra-group payers, disclosed directorships, split
   payments).
@@ -85,3 +88,9 @@ A full score on this set is a detection rate on unseen, synthetic packs built
 from real typologies. It is not a rate on real applicants, whose documents
 arrive as scans, screenshots and photos, and whose fraud differs in
 distribution from what any synthetic set can represent.
+
+Nor is it a rate on fraud nobody has foreseen. Nine of the eleven typologies
+the renderer draws have a rule written for them, so the rules' recall shows
+they catch what they were built for. What the set does measure fairly is the
+false-alarm rate on honest look-alikes the system was not tuned on, and
+whether the AI team finds the two typologies no rule looks for.

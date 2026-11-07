@@ -309,8 +309,6 @@ export interface AgentTeam {
   models: Partial<Record<"supervisor" | "specialist", string>>;
   prompt_versions: Record<string, string>;
   notes: string[];
-  /** Rule findings code explained (finding id -> why): not raised in the memo, still on the record */
-  resolved: Record<string, string>;
   error: string | null;
 }
 

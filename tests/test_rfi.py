@@ -103,13 +103,6 @@ def test_ai_questions_join_only_when_applicant_safe() -> None:
     assert "Harbourline" in draft.text and "sanctions" not in draft.text and "E28" not in draft.text
 
 
-def test_a_finding_code_explained_is_not_asked_about() -> None:
-    result = _case(DEMO / "tampered_statement")
-    bank = next(e.evidence_id for e in result.evidence if e.check_id == "XDOC_INVOICE_BANK" and e.severity != "info")
-    explained = result.model_copy(update={"ai_team": AgentTeam(status="ran", resolved={bank: "paid in parts"})})
-    assert not any("credit advice" in t for t in _items(explained))
-
-
 def test_a_case_with_no_open_findings_has_nothing_to_ask() -> None:
     draft = rfi.draft_request(_case(FIXTURES / "clean"))
     assert (draft.items, draft.questions, draft.text) == ([], [], "")

@@ -389,13 +389,12 @@ CASES: tuple[Case, ...] = (
          "back from Kranji as a customer receipt. Each row looks normal alone; only the AI team connects them.",
          "Low", "fast_track", "Complete", round_trip="Kranji Refrigeration Pte. Ltd.",
          expected_leads=({"agent": "transaction", "pattern": "round_trip"},)),
+    # Innocent: the rules record it as information, and the AI team must not turn it into a flag
     Case("split_payment", KESTREL,
-         "Kestrel's buyer Pelabuhan Logistik paid its invoice in two parts. The rules look for one matching credit "
-         "and flag it; the AI team should find both parts came from the buyer, and code should explain the flag.",
-         "Medium", "standard_review", "Complete", ("XDOC_INVOICE_BANK",), receipts_name_payers=True,
-         paid_in_parts=("Pelabuhan Logistik Sdn. Bhd.",),
-         expected_leads=({"agent": "transaction", "pattern": "split_payment"},),
-         expected_triage=({"check_id": "XDOC_INVOICE_BANK", "status": "refuted"},)),
+         "Kestrel's buyer Pelabuhan Logistik paid its invoice in two parts. The rules add the parts up, find both "
+         "came from the buyer and make the total, and record it as information; nothing is wrong.",
+         "Low", "fast_track", "Complete", receipts_name_payers=True,
+         paid_in_parts=("Pelabuhan Logistik Sdn. Bhd.",)),
 )
 
 

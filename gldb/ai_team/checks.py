@@ -13,7 +13,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
-from decimal import Decimal
 
 from gldb.checks import (
     Payment,
@@ -28,11 +27,9 @@ from gldb.checks import (
     shared_party,
 )
 from gldb.config import (
-    MATCH_WINDOW_DAYS,
     ROUND_TRIP_AMOUNT_TOLERANCE,
     ROUND_TRIP_WINDOW_DAYS,
     SCREENING_MATCH_THRESHOLD,
-    TOLERANCE_SGD,
 )
 from gldb.ai_team.verify import PATTERN_SUBJECTS
 from gldb.ordering import TradeDates, undetermined, violations
@@ -141,34 +138,6 @@ def payment_context(pack: ExtractedPack) -> str:
                    for p in payments(invoice, pack)]
         lines.append(head + ("; ".join(credits) or "no credit names it"))
     return "\n".join(lines) or "none"
-
-
-def resolved_findings(pack: ExtractedPack, evidence: list[Evidence]) -> dict[str, str]:
-    """Rule findings code can explain, by finding id and the reason: an
-    invoice no single credit matched (XDOC_INVOICE_BANK) whose credits, all
-    naming it, are all read as paid by its buyer within the rule's window and
-    together make its total, within the rule's tolerance. Anything else (a
-    payer who is not the buyer or cannot be read, a part outside the window,
-    a sum short or over, a single credit) resolves nothing. The finding and
-    the score stand; only what is asked about it changes. An agent's view
-    never resolves one."""
-    resolved = {}
-    for finding in evidence:
-        if finding.check_id != "XDOC_INVOICE_BANK" or finding.severity == "info":
-            continue
-        invoice = next((i for i in pack.invoices if i.doc_id == finding.document), None)
-        if invoice is None:
-            continue
-        found = payments(invoice, pack)
-        window_end = invoice.invoice_date + timedelta(days=MATCH_WINDOW_DAYS)
-        paid = sum((p.transaction.credit or Decimal(0) for p in found), Decimal(0))
-        if (len(found) >= 2 and all(p.relation == "buyer" for p in found)
-                and all(invoice.invoice_date <= p.transaction.date <= window_end for p in found)
-                and abs(paid - invoice.total) <= TOLERANCE_SGD):
-            resolved[finding.evidence_id] = (
-                f"{invoice.invoice_number} was paid in parts by its buyer {invoice.buyer_name}: "
-                f"{', '.join(p.row_id for p in found)}, together {paid} of {invoice.total}")
-    return resolved
 
 
 def _third_party_payment(lead: Lead, pack: ExtractedPack, evidence: list[Evidence]) -> Outcome:
@@ -301,9 +270,10 @@ def _applicant_people(pack: ExtractedPack) -> dict[str, str]:
 
 
 def _related_party(lead: Lead, pack: ExtractedPack, evidence: list[Evidence]) -> Outcome:
-    """A counterparty sharing an officer with the applicant: the counterparty
-    resolved to exactly one ACRA record, its officers compared with the
-    applicant's people."""
+    """A counterparty sharing an officer with the applicant, undeclared: the
+    counterparty resolved to exactly one ACRA record, its officers compared
+    with the applicant's people. A shared officer at a counterparty the
+    application declares is contradicted: the relationship is disclosed."""
     name = counterparty_name(pack, lead.counterparty or "")
     if name is None:
         return _unverified(f"counterparty {lead.counterparty} is not in the pack")
@@ -329,6 +299,9 @@ def _related_party(lead: Lead, pack: ExtractedPack, evidence: list[Evidence]) ->
             return _unverified("the register does not list the officers of both sides", **facts)
         return Outcome("contradicted", f"no officer of {entity.company_name} is among the applicant's people", facts)
     officer, role = shared
+    if disclosed(name, pack):
+        return Outcome("contradicted", f"{officer} is an officer of {entity.company_name} and the applicant's {role}, "
+                       f"and the application declares {name}", {**facts, "shared_officer": officer, "applicant_role": role})
     return Outcome("verified", f"{officer} is an officer of {entity.company_name} and the applicant's {role}",
                    {**facts, "shared_officer": officer, "applicant_role": role})
 

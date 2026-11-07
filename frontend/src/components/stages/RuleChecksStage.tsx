@@ -2,7 +2,6 @@ import { useState } from "react";
 import { duration } from "../../catalogue";
 import type { Category } from "../../types";
 import type { StageProps } from "../workspace/StageDetail";
-import { explainedFindings } from "../workspace/stageStatus";
 import { tabKeys } from "../ui";
 import { Fold, Section } from "./common";
 import { Findings } from "./Findings";
@@ -18,11 +17,9 @@ export function RuleChecksStage(props: StageProps) {
   const { kase } = props;
   const [group, setGroup] = useState<string | null>(null);
   const [tab, setTab] = useState<Category>("fraud_signal");
-  const explained = explainedFindings(kase);
   const risky = kase.evidence.filter((e) => e.severity !== "info");
   const inScope = risky.filter((e) => group === null || e.rule_group === group);
-  // A finding code explained is not an open one: the tab counts show what still needs the analyst
-  const count = (c: Category) => inScope.filter((e) => e.category === c && !(e.evidence_id in explained)).length;
+  const count = (c: Category) => inScope.filter((e) => e.category === c).length;
 
   return (
     <>
@@ -47,7 +44,7 @@ export function RuleChecksStage(props: StageProps) {
           ))}
         </div>
         <div id="finding-panel" role="tabpanel" aria-labelledby={`finding-tab-${tab}`}>
-          <Findings {...props} evidence={inScope.filter((e) => e.category === tab)} explained={explained}
+          <Findings {...props} evidence={inScope.filter((e) => e.category === tab)}
             empty="No findings in this category" />
         </div>
       </Section>

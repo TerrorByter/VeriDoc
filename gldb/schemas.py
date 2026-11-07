@@ -335,10 +335,12 @@ class Guarantor(BaseModel):
 class Disclosure(BaseModel):
     """An interest or arrangement the applicant declares with its application.
 
-    It is context for the analyst and the AI team. One rule reads it: a sale
-    paid by a payer the application declares is explained, so
-    XDOC_THIRD_PARTY_PAYER records it as info rather than a red flag. A pack
-    without one has an empty list.
+    It is context for the analyst and the AI team, and code reads it twice: a
+    sale paid by a payer the application declares is explained, so
+    XDOC_THIRD_PARTY_PAYER records it as info rather than a red flag; and an
+    officer shared with a declared counterparty is no undisclosed related party,
+    so the AI team's related-party check contradicts that lead. A pack without
+    one has an empty list.
     """
 
     kind: str
@@ -1008,8 +1010,6 @@ class AgentTeam(BaseModel):
     prompt_versions: dict[str, str] = {}
     #: E.g. "transaction: step limit reached", "kyc: budget reached"
     notes: list[str] = []
-    #: Rule findings code explained (finding id -> why): not raised in the memo, still on the record
-    resolved: dict[str, str] = {}
     #: Why the team failed, when status is "failed"
     error: str | None = None
     #: call_id -> full tool result text; server-only (agent_trace.json), never serialised

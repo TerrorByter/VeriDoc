@@ -389,9 +389,7 @@ EXPECTED_AI_TRUTH = {
         [{"agent": "kyc", "pattern": "related_party"}], []),
     "round_trip": (
         [{"agent": "transaction", "pattern": "round_trip"}], []),
-    "innocent_split": (
-        [{"agent": "transaction", "pattern": "split_payment"}],
-        [{"check_id": "XDOC_INVOICE_BANK", "status": "refuted"}]),
+    "innocent_split": ([], []),
 }
 
 
@@ -410,8 +408,8 @@ def test_beyond_rules_pack_files_and_ground_truth(packs, name):
 
 
 @needs_templates
-def test_only_related_party_and_round_trip_expect_the_rules_to_stay_silent(packs):
-    rule = {"innocent_split": ["XDOC_INVOICE_BANK"], "third_party_payment": ["XDOC_THIRD_PARTY_PAYER"]}
+def test_only_the_third_party_payment_pack_expects_a_rule_finding(packs):
+    rule = {"third_party_payment": ["XDOC_THIRD_PARTY_PAYER"]}
     for name in BEYOND_RULES_PACKS:
         gt = json.loads((packs / name / "ground_truth.json").read_text())
         assert gt["expected_check_ids"] == rule.get(name, [])

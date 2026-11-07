@@ -193,7 +193,6 @@ export function Headline({ route, gate, issues, reviewed, suspected, refused }: 
   const parts = [
     reviewed.agrees && `agreed with ${plural(reviewed.agrees, "finding")}`,
     reviewed.innocent && `suggested an ordinary explanation for ${reviewed.innocent}`,
-    reviewed.explained && `found ${reviewed.explained} explained by the documents (code confirmed it)`,
     reviewed.unsure && `could not settle ${reviewed.unsure}`,
   ].filter(Boolean);
   const review = total ? ` Of the ${plural(total, "rule finding")} it reviewed, it ${parts.join("; ")}.` : "";
@@ -232,17 +231,16 @@ export function LeadList({ leads, ...props }: LeadProps & { leads: Lead[] }) {
   );
 }
 
-/** What the AI made of a rule finding: code explained it, it suggests an ordinary explanation, it could not
- * tell, or it agrees the finding stands */
-export type Verdict = "explained" | "innocent" | "unsure" | "agrees";
+/** What the AI made of a rule finding: it suggests an ordinary explanation, it could not tell, or it agrees the
+ * finding stands */
+export type Verdict = "innocent" | "unsure" | "agrees";
 
 const VERDICT: Record<Verdict, { label: string; tone: Tone; title: string }> = {
-  explained: { label: "Explained by code", tone: "low", title: "Code read an ordinary explanation from the documents" },
   innocent: { label: "Ordinary explanation to check", tone: "med", title: "The AI's view: check it before relying on it" },
   unsure: { label: "Could not tell", tone: "neutral", title: "The AI could not settle it from the documents" },
   agrees: { label: "Agrees it stands", tone: "neutral", title: "The AI found nothing that explains the finding" },
 };
-const VERDICT_ORDER: Verdict[] = ["explained", "innocent", "unsure", "agrees"];
+const VERDICT_ORDER: Verdict[] = ["innocent", "unsure", "agrees"];
 
 export interface Reviewed {
   findingId: string;
@@ -251,12 +249,11 @@ export interface Reviewed {
   reason: string;
 }
 
-/** One row per rule finding the AI reviewed, its verdict and why: code's explanation first, then the AI's. */
-export function reviewedFindings(triage: Lead[], confirmed: Lead[], explained: Record<string, string>): Reviewed[] {
-  const ids = [...new Set([...Object.keys(explained), ...triage.flatMap((l) => l.finding_ids),
+/** One row per rule finding the AI reviewed, its verdict and why. */
+export function reviewedFindings(triage: Lead[], confirmed: Lead[]): Reviewed[] {
+  const ids = [...new Set([...triage.flatMap((l) => l.finding_ids),
     ...confirmed.map((l) => l.check_facts.rule_finding)])];
   const rows = ids.map((id): Reviewed => {
-    if (id in explained) return { findingId: id, verdict: "explained", reason: explained[id] };
     const on = triage.filter((l) => l.finding_ids.includes(id));
     const innocent = on.find((l) => l.investigation_status === "refuted");
     if (innocent) return { findingId: id, verdict: "innocent", reason: innocent.tests.map((t) => t.observed).join("; ") };

@@ -13,8 +13,9 @@ Usage:
 (Re)creates tests/fixtures/packs/clean/, tampered/, incomplete/, scanned/ (the clean
 pack as image-only scans) and sanctioned/ (a sanctioned buyer), overwriting
 existing files. The related_party/ and round_trip/ packs hold patterns the
-rules cannot judge, for the AI team; innocent_split/ holds a rule finding the
-AI team should explain; third_party_payment/ holds a payer the rules catch.
+rules cannot judge, for the AI team; innocent_split/ holds a sale paid in
+parts by its buyer, which the rules record as information and the AI team must
+not flag; third_party_payment/ holds a payer the rules catch.
 All entities are fictional.
 
 Rendering contract (stub parser depends on these exactly):
@@ -1066,8 +1067,8 @@ def _generate_retro_po(out_dir: Path) -> None:
 #: Trade-pattern packs: each is the clean pack with one change. In
 #: related_party and round_trip no rule judges it, so the rules stay silent
 #: and only the AI team can raise it. third_party_payment is caught by a rule
-#: (XDOC_THIRD_PARTY_PAYER). innocent_split is the reverse: one rule fires and
-#: the team should find the cause innocent.
+#: (XDOC_THIRD_PARTY_PAYER). innocent_split is honest: a sale paid in parts by
+#: its buyer, which the rules record as information and the team must not flag.
 HARBOURLINE = "HARBOURLINE LOGISTICS"
 #: third_party_payment: a company with no part in the sale pays INV-1002
 THIRD_PARTY_PAYER_RENAME = ("BAYVIEW MARINE SUPPLIES", HARBOURLINE)
@@ -1080,8 +1081,8 @@ ROUND_TRIP_PAYMENT = "SUPPLIER PAYMENT"
 ROUND_TRIP_RECEIPT = (
     3, f"GIRO CR CUSTOMER RECEIPTS {HARBOURLINE}", None, Decimal("15200.00"),
 )
-#: innocent_split: INV-1002 is paid in two instalments, which the one-credit
-#: match in XDOC_INVOICE_BANK cannot join up
+#: innocent_split: INV-1002 is paid in two instalments by its buyer, which
+#: XDOC_INVOICE_BANK adds up and records as information
 INNOCENT_SPLIT_JULY = [
     (12, "GIRO CR BAYVIEW MARINE SUPPLIES INV-1002 PART 1", None, Decimal("10000.00")),
     (20, "GIRO CR BAYVIEW MARINE SUPPLIES INV-1002 PART 2", None, Decimal("8530.00")),
@@ -1169,9 +1170,7 @@ def _generate_round_trip(out_dir: Path) -> None:
 def _generate_innocent_split(out_dir: Path) -> None:
     _generate_beyond_rules(
         out_dir, "innocent_split",
-        leads=[{"agent": "transaction", "pattern": "split_payment"}],
-        triage=[{"check_id": "XDOC_INVOICE_BANK", "status": "refuted"}],
-        check_ids=["XDOC_INVOICE_BANK"], band="Medium", path="standard_review",
+        leads=[],
         benign=[{"doc": "invoice_INV-1002", "type": "split_payment",
                  "detail": "paid in two credits, 10,000.00 on 2026-07-12 and 8,530.00 on 2026-07-20"}],
         months=_edit_month(BS_MONTHS, (2026, 7), INNOCENT_SPLIT_JULY),

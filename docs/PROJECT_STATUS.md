@@ -62,9 +62,11 @@ A Supervisor (Claude Sonnet 4.6) plans and briefs four specialists (Claude Haiku
 
 Nothing the team produces changes the score or the route. The shadow scorer (Claude Haiku 4.5) proposes a route from the case and the leads; it is compared with the rule route and a log-only gate records what it would have changed.
 
-Live runs (October 2026, on the test packs): the planted third-party payment in `third_party_payment` was found and verified by code in the run that went right, and on `innocent_split` no false flag was raised. A case costs roughly US$0.20-0.30 of Bedrock.
+Live runs (October 2026, on the test packs): the planted third-party payment in `third_party_payment` was found and verified by code in the run that went right, and on `innocent_split` no false flag was raised. Both packs predate the rule changes below; `related_party` and `round_trip`, now the team's showcase, have not yet run live. A case costs roughly US$0.20-0.30 of Bedrock.
 
-The third-party payment was the team's least reliable catch: finding it means checking every sale's invoice against the credit that paid it, and specialists working to a step limit sampled a few invoices instead (run 6 searched INV-1001 and never INV-1002). Code reads the payer from the statement exactly, so it is now a rule, `XDOC_THIRD_PARTY_PAYER` (November 2026). A sale paid by someone other than its buyer is a high finding that sends the case for review; a payer the application discloses (a payment agent, a group company) is recorded as info. When the AI team raises the same payment, its lead names the rule's finding and confirms it: it is not a second flag, and the agent eval does not count it as noise. The general principle: a pattern code can establish exactly belongs in the rules, which score, route and are audited; the AI team works where the evidence is spread across documents and needs judgement.
+The third-party payment was the team's least reliable catch: finding it means checking every sale's invoice against the credit that paid it, and specialists working to a step limit sampled a few invoices instead (run 6 searched INV-1001 and never INV-1002). Code reads the payer from the statement exactly, so it is now a rule, `XDOC_THIRD_PARTY_PAYER` (November 2026). A sale paid by someone other than its buyer is a high finding that sends the case for review; a payer the application discloses (a payment agent, a group company) is recorded as info. When the AI team raises the same payment, its lead names the rule's finding and confirms it: it is not a second flag, and the agent eval does not count it as noise. The same reasoning moved the split payment into the rules: `XDOC_INVOICE_BANK` used to flag an invoice its buyer paid in instalments (no single credit matched it), and code in the AI step explained the flag without changing the route. The rule now adds the parts up itself: two or more credits naming the invoice, each from its buyer, within the match window and together making the total, are recorded as info, and the case is fast-tracked. Anything less (a third party, a payer it cannot read, a sum short or over, a part out of time) is still a high finding.
+
+The general principle: a pattern code can establish exactly belongs in the rules, which score, route and are audited; the AI team works where the evidence is spread across documents and needs judgement. Related party and round trip could in principle become rules too; they are kept rule-less on purpose, as the patterns nobody has yet written a rule for, which the AI team must find and code then verifies.
 
 ### Scenarios that test the AI team
 
@@ -72,8 +74,8 @@ The third-party payment was the team's least reliable catch: finding it means ch
 |---|---|---|---|
 | Undisclosed related party | `related_party` (demo: a supplier; test: a buyer), held-out `related_party_undisclosed` | Nothing: no rule compares the applicant's officers with a counterparty's | The KYC specialist looks the counterparty up in ACRA and finds the applicant's own officer; code confirms it from ACRA |
 | Round trip | `round_trip` (demo and test), held-out `round_trip` | Nothing: each row looks normal alone | The transaction specialist links a payment out with nearly the same amount coming back from the same party; code confirms the pair |
-| Invoice paid in parts | `split_payment` (demo), `innocent_split` (test), held-out quirk `split_payment` | `XDOC_INVOICE_BANK` flags the invoice (no single matching credit) | Find that both parts came from the buyer and raise no flag; code explains the finding, so the memo asks nothing about it |
-| Disclosed directorship | held-out quirk `disclosed_directorship` | Nothing | See the shared officer and the declaration, and raise no flag. The agents are shown the disclosure, but the related-party code check does not read it yet: a lead raised anyway would be verified, a false flag |
+| Invoice paid in parts | `split_payment` (demo), `innocent_split` (test), held-out quirk `split_payment` | `XDOC_INVOICE_BANK` adds the parts up and records it as info: fast track | Raise no flag |
+| Disclosed directorship | held-out quirk `disclosed_directorship` | Nothing | Raise no flag. A related-party lead raised anyway is contradicted by code, which reads the application's disclosures |
 | Third-party payment | `third_party_payment` (demo and test), held-out `third_party_payment` | `XDOC_THIRD_PARTY_PAYER` flags it and sends the case for review | Nothing more is needed; a lead on it confirms the rule's finding |
 | Payment agent, intra-group payer | held-out quirks `agent_payment`, `intra_group_payer` | The payer is disclosed: info, no score | No flag |
 
@@ -93,8 +95,8 @@ No pack yet plants a `business_mismatch` (a trade at odds with the company's reg
 
 | Pack | Company | What is planted | Expected |
 |---|---|---|---|
-| `clean` | ACMA | Nothing; its new CEO, who signs, is not yet on ACRA | Medium, standard review, complete |
-| `incomplete` | ACMA | Three months of statements; a guarantor IRAS has no notice for | Medium, standard review, incomplete |
+| `clean` | ACMA | Nothing | Low, fast track, complete |
+| `incomplete` | ACMA | Three months of statements; a guarantor IRAS has no notice for | Low, standard review, incomplete |
 | `identity_mismatch` | Duskfield | A signatory who is no officer, another office, a guarantor's changed name | High, enhanced review, incomplete |
 | `inflated_financials` | Brightwave | Submitted financials double what was filed with ACRA | High, enhanced review |
 | `invoice_mismatch` | Oakridge | Two overbilled invoices, goods billed but not shipped, an order never issued | High, enhanced review |
@@ -104,7 +106,7 @@ No pack yet plants a `business_mismatch` (a trade at odds with the company's reg
 | `third_party_payment` | Kestrel | A sale paid by a company with no part in it and none the application discloses | Medium, standard review |
 | `related_party` | Lumen | Its biggest supplier is run by its own CEO, per ACRA (AI team only) | Low, fast track |
 | `round_trip` | Northstar | A payment to a supplier comes back as a customer receipt (AI team only) | Low, fast track |
-| `split_payment` | Kestrel | An invoice paid in two parts by its buyer: a rule flags it, code explains it | Medium, standard review |
+| `split_payment` | Kestrel | Nothing wrong: an invoice paid in two parts by its buyer, which the rule records as info | Low, fast track |
 
 The two packs marked AI team only are clean to the rules, which would fast-track them; each plants a pattern only the AI team looks for, and a code check confirms it from the documents and ACRA (`tests/test_demo_packs.py`).
 
@@ -129,14 +131,14 @@ The analyst confirms or dismisses each flag (a dismissal needs a reason code), c
 
 ## 8. Testing
 
-`pytest` runs the offline suite (about 1,300 tests, no AWS calls). Live AWS tests are opt-in: `RUN_LIVE=1 pytest tests/test_live_aws.py -v` (about US$0.10-0.30).
+`pytest` runs the offline suite (about 1,600 tests, no AWS calls). Live AWS tests are opt-in: `RUN_LIVE=1 pytest tests/test_live_aws.py -v` (about US$0.10-0.30).
 
 ## 9. Known limitations
 
 - Thresholds (amount tolerance, statement recency, score bands, name-match similarity) are our assumptions: the sponsor says none are fixed in practice. They live in `gldb/config.py` and are labelled as such.
 - Detection is validated only on synthetic packs; mixed-font detection in particular may false-alarm on real bank PDFs, and name screening flags about 1.25% of common two-word names.
 - The Claude calls may be processed outside Singapore (section 5).
-- The AI team is live-tested on two test packs only.
+- The AI team is live-tested on two test packs only (`third_party_payment` and `innocent_split`), neither of which is now an AI-only case.
 - Purchase orders and bills of lading are still the plain text layout; a styled invoice is read from its text layer, not yet from a scan of it.
 - Images, photos and screenshots of documents (which the sponsor says arrive in practice) are not handled; there is no image forensics.
 - No authentication: people are identified by the name they enter. Storage is local files (uploads, cases, audit log), so it is not multi-user or tamper-proof. `data/cases/<id>/result.json` keeps the full extracted pack, unmasked, on local disk (not exposed by the API).

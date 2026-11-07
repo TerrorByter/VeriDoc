@@ -685,7 +685,6 @@ table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
 .disclosure > summary { display: inline-flex; align-items: center; min-height: 24px; width: fit-content; color: var(--brand); font-weight: 500; cursor: pointer; }
 .disclosure[open] > summary { margin-bottom: 10px; }
 .memo-head { margin-top: 4px; }
-.explained-head { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--muted); font-weight: 500; }
 .calm { display: flex; align-items: flex-start; gap: 10px; margin: 0; padding: 12px 14px; border: 1px solid color-mix(in hsl, var(--low) 30%, var(--border)); border-radius: var(--radius-lg); background: color-mix(in hsl, var(--low-soft) 55%, var(--surface)); }
 .calm .icon { margin-top: 2px; color: var(--low); }
 .calm.check { border-color: color-mix(in hsl, var(--med) 35%, var(--border)); background: color-mix(in hsl, var(--med-soft) 55%, var(--surface)); }
@@ -760,10 +759,6 @@ table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
 @media (prefers-reduced-motion: reduce) {
   .issue, .suspicions summary, .suspicions summary .icon { transition: none; }
 }
-.finding.explained { border-style: dashed; border-color: var(--border-strong); background: transparent; }
-.explained-why { display: flex; align-items: flex-start; gap: 8px; font-weight: 500; }
-.explained-why .icon { margin-top: 2px; color: var(--low); }
-.review-anyway { padding-top: 8px; border-top: 1px solid var(--border); }
 .check-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 10px; }
 
 /* ---- Browser surfaces: selection, caret, scrollbars, checkboxes ------------ */

@@ -45,14 +45,8 @@ export const clearChecks = (kase: CaseView) =>
   patternLeads(kase).filter((l) => l.evidence_status === "contradicted"
     || (l.evidence_status === "unverified" && l.investigation_status === "refuted"));
 
-/** Rule findings (not info) code explained: no action for the analyst, still on the record */
-export const explainedFindings = (kase: CaseView): Record<string, string> => kase.ai_team?.resolved ?? {};
-
-/** Rule findings still open: not info, and not explained by code */
-export const openFindings = (kase: CaseView) => {
-  const explained = explainedFindings(kase);
-  return kase.evidence.filter((e) => risky(e) && !(e.evidence_id in explained));
-};
+/** Rule findings still open: not info */
+export const openFindings = (kase: CaseView) => kase.evidence.filter(risky);
 
 /** The rail's view of one stage, from the stage record and the case's own outputs. */
 export function stageStatus(kase: CaseView, audit: AuditEvent[], id: RailStageId): StageStatus {

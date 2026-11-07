@@ -121,6 +121,58 @@ the demo packs cannot make; the pre-registration and author guide are in
 `docs/`. A pilot sheet (`tests/fixtures/heldout/pilot.json`) exercises the
 renderer and scoring; its numbers are development data.
 
+### Blind held-out test `heldout-v1` (November 2026)
+
+**The set.** GPT-6, a model outside the build, wrote 60 applications from the
+author brief without seeing the code: 30 fraudulent (5 each of invoice
+overbilled, goods not shipped, order never issued, financials inflated,
+third-party payment and round trip) and 30 legitimate (15 clean, and 3 each of
+split payment, supplier refund, payment agent, intra-group payer and disclosed
+directorship). The system was frozen at tag `eval-v1` (the merge of PR #6), the
+key's hash was committed before the run (`2e89bb8`), each pack ran once, and
+every result is reported. Everything is in `data/heldout/`: the sheet, the key,
+the seal, both runs and the scored report the Model & controls page shows.
+
+**Rules alone, all 60 packs (the route the system applies).** 20 of 30 frauds
+sent for review (95% interval 49-81%); 0 of 30 legitimate packs sent for review
+(0-11%), the 15 look-alikes included.
+
+| Fraud type | Sent for review | Why |
+|---|---|---|
+| Invoice overbilled, goods not shipped, financials inflated, third-party payment | 20 of 20 | Each has a rule |
+| Order never issued | 0 of 5 | `XDOC_PO_INVOICE` found all five, but as one medium finding (15 points) under the review threshold (20), so each stayed on fast track. The demo packs never tested this fault alone: in `invoice_mismatch` it sat beside three others |
+| Round trip | 0 of 5 | No rule looks for it, by design: it is the AI team's case |
+
+**With the AI team (log-only, not applied), on 25 packs:** the 10 frauds the
+rules sent through and the 15 look-alikes, the packs where the AI team could
+change the outcome (US$6.92 of Bedrock).
+
+- 9 of the 10 frauds would reach review. The agents found 4 of the 5 round
+  trips and code confirmed each; one (H-041) was missed. The shadow scorer
+  proposed review for all 5 missing orders: it judged the rule's medium finding
+  worth a person, which says more about the threshold than about AI detection.
+- 2 of the 15 look-alikes were flagged (a payment agent and a split payment),
+  each on a code-verified undisclosed related party. The cause is the renderer:
+  it gave many generated companies the same two officers, so those applicants'
+  registry records really do show an officer shared with a company they trade
+  with. By the pre-registered rule they count as false alarms.
+- With the AI team's route, 29 of 30 frauds would reach review.
+
+**What it does and does not show.** Every planted fault was detected or was a
+case left to the AI team by design, and no legitimate pack was flagged by the
+rules. It is not a rate on real applications: the packs are synthetic, drawn
+only from typologies the renderer knows (nine of eleven have a rule), in the
+document layouts the deterministic parser was written for (extraction `stub`;
+OCR and Bedrock extraction were off), with a perfectly consistent mock
+registry. Real documents would cost recall and, above all, the zero false-alarm
+rate. Thirty frauds is a small sample.
+
+**Follow-ups, none applied to this set:** a single missing-order finding should
+reach review (raise its severity or lower the threshold, then measure on a new
+set); the renderer must draw unique officer names and company names, and fit
+long names to the letterhead; rerun a sample with OCR and Bedrock extraction on;
+see why the AI team missed H-041.
+
 ## 7. API and frontend
 
 `uvicorn mock_gov.app:app --port 8001`, `uvicorn gldb.api:app --reload`, and `cd frontend && npm install && npm run dev` (UI on http://localhost:5173).

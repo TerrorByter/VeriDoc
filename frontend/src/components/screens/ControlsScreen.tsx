@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { getControls } from "../../api";
 import { duration, PATH_LABEL, usd, when } from "../../catalogue";
 import type { AgentEvalRow, Capability, Controls, EvaluationReport, HeldoutReport, ReviewPath, ScoringPolicy, Severity, SignalFamily } from "../../types";
-import { interval } from "../../stats";
+import { interval, wilson } from "../../stats";
 import { Metric, Section } from "../stages/common";
 import { Empty, ErrorNote, Pill } from "../ui";
 
@@ -40,14 +40,17 @@ function Counted({ label, of, total, note }: { label: string; of: number; total:
   );
 }
 
-/** What a score on these packs can and cannot show, said before any number */
-function Caveat() {
+/** What a score on these packs can and cannot show, said before any number; the example is the attack count shown */
+function Caveat({ of, total }: { of: number; total: number }) {
+  const example = total > 0
+    ? ` ${of} of ${total} is consistent with a true rate as low as ${Math.round(wilson(of, total)[0] * 100)}%.`
+    : "";
   return (
     <p className="eval-caveat small">
       <strong>What these numbers show.</strong> The demo packs are synthetic, and the team built them knowing what the
       checks look for, so a full score shows the pipeline catches what was planted. It is not a detection rate on real
-      applications. Each count is small, so each comes with the range the true rate could lie in (a 95% interval):
-      14 of 14 is consistent with a true rate as low as 78%.
+      applications. Each count is small, so each comes with the range the true rate could lie in (a 95% interval).
+      {example}
     </p>
   );
 }
@@ -61,7 +64,7 @@ function Evaluation({ report, children }: { report: EvaluationReport; children: 
   const routed = report.packs.filter((p) => p.path === p.expected_path).length;
   return (
     <>
-      <Caveat />
+      <Caveat of={caught} total={run.length} />
       <div className="metrics wide">
         <Counted label="Attacks caught" of={caught} total={run.length}
           note={run.length < report.attacks.length ? `${report.attacks.length - run.length} not run` : "planted tampering"} />
@@ -156,6 +159,11 @@ const OUTCOME_TONE: Record<HeldoutReport["packs"][number]["outcome"], "low" | "c
  * run, and revealed only to score it. This is the detection-rate claim the demo packs cannot make. */
 function Heldout({ report }: { report: HeldoutReport }) {
   const pilot = report.kind === "pilot";
+  // The AI team's log-only route, split so a catch and a false alarm are never one number
+  const aiRan = report.packs.filter((p) => p.gate_runs > 0);
+  const rulesMissed = aiRan.filter((p) => p.label === "fraud" && p.outcome === "missed");
+  const honest = aiRan.filter((p) => p.label === "legitimate");
+  const raised = (packs: typeof aiRan) => packs.filter((p) => p.gate_review_runs > 0).length;
   return (
     <>
       {pilot && (
@@ -176,12 +184,24 @@ function Heldout({ report }: { report: HeldoutReport }) {
         fraudulent and {report.legitimate_packs} legitimate packs · run {when(report.evaluated_at)} · seal{" "}
         <span className="mono">{report.seal.slice(0, 12)}…</span>
       </p>
-      {report.gate_runs > 0 && (
-        <p className="muted small">
-          With the AI team, the log-only gate would send {report.gate_review_runs} of {report.gate_runs} pack runs for
-          review; {report.verified_lead_runs} runs carried a code-verified lead. The gate is not applied; the rules'
-          route stands.
-        </p>
+      {aiRan.length > 0 && (
+        <Section title="With the AI team" aside="Log-only: the route the AI team would take, not applied">
+          <div className="metrics">
+            {rulesMissed.length > 0 && (
+              <Counted label="Frauds the rules missed, sent for review" of={raised(rulesMissed)}
+                total={rulesMissed.length} note="AI route, log-only" />
+            )}
+            {honest.length > 0 && (
+              <Counted label="Legitimate packs sent for review" of={raised(honest)} total={honest.length}
+                note="false alarms, AI route" />
+            )}
+          </div>
+          <p className="muted small">
+            The AI team ran on {aiRan.length} of {report.packs.length} packs; the table shows "not run" for the rest.
+            Its route is the log-only gate&apos;s: a code-verified lead, or the shadow scorer proposing review, raises
+            fast track to standard review. It is not applied; the rules&apos; route stands.
+          </p>
+        </Section>
       )}
       <Section title="Every pack, misses included" aside="The label is revealed here; the run never saw it">
         <div className="table-wrap">
@@ -193,6 +213,7 @@ function Heldout({ report }: { report: HeldoutReport }) {
                 <th scope="col">What it carries</th>
                 <th scope="col">Route</th>
                 <th scope="col">Result</th>
+                <th scope="col">With the AI team</th>
               </tr>
             </thead>
             <tbody>
@@ -203,6 +224,12 @@ function Heldout({ report }: { report: HeldoutReport }) {
                   <td className="mono">{p.typology ?? p.quirk ?? "—"}</td>
                   <td>{pathLabel(p.path)}</td>
                   <td><Pill tone={OUTCOME_TONE[p.outcome]}>{OUTCOME_LABEL[p.outcome]}</Pill></td>
+                  <td>
+                    {p.gate_runs > 0 && p.gate_route ? pathLabel(p.gate_route) : <span className="muted">not run</span>}
+                    {p.verified_leads.length > 0 && (
+                      <span className="muted small block">verified: {p.verified_leads.join(", ")}</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

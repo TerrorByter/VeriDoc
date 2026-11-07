@@ -1,12 +1,148 @@
-﻿# gldb-prototype
+<div align="center">
 
-**PROTOTYPE** — Green Link Digital Bank (GLDB) multi-agent fraud detection system for corporate loan documents. Uses synthetic data only. Not for production use.
+# VeriDoc
+
+### Catch document fraud in trade-finance loan applications before it reaches credit
+
+Rule checks that read every document, an AI team that looks where rules cannot,
+and a reviewer who sees exactly why, on the page it came from.
+
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-TypeScript-3178C6?logo=react&logoColor=white)
+![Amazon Bedrock](https://img.shields.io/badge/Amazon%20Bedrock-Claude-FF9900?logo=amazonwebservices&logoColor=white)
+![Synthetic data](https://img.shields.io/badge/data-synthetic%20only-8A8A8A)
+
+<img src="docs/readme/walkthrough.gif" alt="Starting a case from a demo pack, watching the pipeline run, stepping through its stages, opening a finding on the bank statement, and reading what the AI team found" width="100%">
+
+<sub>A prototype built for Green Link Digital Bank (GLDB). Synthetic data only; not for production use.</sub>
+
+</div>
+
+---
+
+## Why VeriDoc
+
+A trade-finance application arrives as a pile of documents: bank statements, invoices,
+purchase orders, bills of lading, tax forms and financial statements. Fraud hides in the gaps
+between them. An invoice bills more than was ordered. A sale is paid by a company with no part in
+it. A bank balance was edited and the PDF saved again. Money paid to a supplier comes back as a
+"customer receipt". Each document looks fine on its own; the fraud is in how they disagree.
+
+VeriDoc reads the whole pack the way a careful analyst would, then shows its work.
+
+| | |
+|---|---|
+| **48 rule checks** | Every invoice traced through its order, shipment and payment; balances re-added; registry, tax and sanctions records fetched and compared; forensics on every PDF |
+| **An AI team on Amazon Bedrock** | A Supervisor and four specialists (transaction, KYC, forensics, timeline) investigate what no rule covers |
+| **Code checks the AI** | Every AI lead is verified against the documents by code before anyone sees it; the AI never sets the score or the route |
+| **Every finding on its page** | Click any finding and the document opens with the exact line boxed |
+| **Built for review, not autopilot** | The system routes and explains; an analyst decides, and enhanced reviews need an MLRO sign-off |
+
+## See it in action
+
+### A queue that triages itself
+
+Each application is scored, banded and routed (fast track, standard review or enhanced due
+diligence), with the kind of problem it shows at a glance.
+
+<img src="docs/readme/cases.png" alt="Past cases: eight applications with their route, risk score and problem category" width="100%">
+
+### Every finding, on the page it came from
+
+Rule findings come with what was expected, what was observed and the quote behind it. The
+forensic overlay boxes every finding on a page at once, coloured by severity.
+
+<img src="docs/readme/forensic-overlay.png" alt="Rule checks on a tampered bank statement, with the edited row boxed in the document viewer" width="100%">
+
+### An AI team that looks where the rules cannot
+
+Here the rules fast-track the case: every row on the statement looks normal on its own. The
+AI team links SGD 114,000 paid to a supplier with SGD 111,150 coming back from it 13 days later,
+and code confirms the pair from the statement before it is shown.
+
+<img src="docs/readme/ai-team.png" alt="The AI team's round-trip finding, confirmed by code, beside the bank statement" width="100%">
+
+### The whole case in one place
+
+The investigation summary groups what the case shows, the analyst's queue, each invoice's chain
+from order to payment, and a timeline of every dated fact.
+
+<img src="docs/readme/investigation.png" alt="Investigation summary for an application with mismatched trade documents" width="100%">
+
+### Start from a demo pack or your own documents
+
+Twelve synthetic applicants, each showing one kind of risk, run end to end with no AWS account.
+
+<img src="docs/readme/new-case.png" alt="New case: twelve demo packs, each with its expected route" width="100%">
+
+### Measured, with the uncertainty shown
+
+The Model & controls page scores the pipeline against every demo pack, with a 95% interval on
+each count, and shows the rule versions, capabilities and AWS spend behind it.
+
+<img src="docs/readme/controls.png" alt="Model and controls: attacks caught, findings found, packs routed as expected" width="100%">
+
+## How it works
+
+```mermaid
+flowchart LR
+    A[Documents] --> R[Read<br/>intake, OCR, prompt screen,<br/>extraction, ACRA and IRAS records]
+    R --> C[Check<br/>48 rule checks]
+    C --> S[Decide<br/>score, readiness, route]
+    C --> T[AI team<br/>Supervisor and four specialists]
+    T --> V{Code verifies<br/>each lead}
+    V --> E[Explain<br/>investigation summary]
+    S --> E
+    E --> H[Analyst decides<br/>MLRO sign-off for enhanced review]
+    H --> L[(Append-only<br/>audit log)]
+```
+
+1. **Read.** Files are fingerprinted and typed, scanned pages are read by Amazon Textract, and
+   text aimed at an AI model is flagged. The bank fetches the company's ACRA profile and the
+   guarantors' IRAS notices instead of trusting uploaded copies.
+2. **Check.** 48 deterministic rule checks in parallel groups: document integrity, cross-document
+   consistency, registry and tax records, sanctions and FATF countries, forms and completeness.
+3. **Decide.** A rule-based score sets the risk band, readiness and route. No language model
+   touches the score.
+4. **Investigate.** The AI team works from read-only tools and records leads. Code checks each one
+   against the case data; only verified leads reach the analyst, and nothing the team says changes
+   the route.
+5. **Record.** Every stage and every analyst action goes to an append-only audit log.
+
+## Results
+
+| Test | What it shows | Result |
+|---|---|---|
+| **Demo packs** (12 applicants built by the team) | The pipeline catches what was planted | 15 of 15 attacks caught, 12 of 12 packs routed as expected |
+| **Blind test, rules** (60 applicants written by a separate model, GPT-6, from public fraud typologies; system frozen at tag `eval-v1` first) | How it does on cases it was not built around | 20 of 30 frauds sent for review, **0 of 30 honest applications flagged**, including 15 innocent look-alikes |
+| **Blind test, with the AI team** (log-only route, run on the 10 frauds the rules sent through and the 15 look-alikes) | What the AI team adds where the rules stop | 9 of the 10 would reach review (4 of 5 round trips found and confirmed by code); 2 of 15 look-alikes flagged |
+
+<img src="docs/readme/heldout.png" alt="The blind test on the Model and controls page: rules and AI-team results and every pack" width="100%">
+
+The misses are reported, not hidden. The rules sent through five round trips, which no rule
+looks for, and five orders that were never issued, which a rule found but scored below the
+review threshold. The AI team's two false alarms trace to the test's generator, which reused
+two officers' names across companies. Every set is synthetic and read in layouts the parser was
+written for, so none of this is a detection rate on real applications;
+[docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) has the full picture.
+
+## Quick start
+
+Runs fully offline: no AWS account needed for the demo packs.
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt && cp .env.example .env
+uvicorn mock_gov.app:app --port 8001 &      # mock ACRA and IRAS records
+uvicorn gldb.api:app --port 8000 &          # backend
+cd frontend && npm install && npm run dev   # open http://localhost:5173
+```
+
+Pick a demo pack on **New case** and follow it through. The sections below cover AWS, tests,
+evaluation and the project layout in full.
 
 > Current status, what is built and what is next: [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)
-
-## What it does
-
-A loan officer uploads a set of corporate loan documents (invoices, bank statements, financial statements summary). The system extracts fields, runs deterministic fraud checks, and returns an explainable risk assessment. The officer reviews each flag and makes the final decision. The system never approves or rejects a loan.
 
 ## Setup
 

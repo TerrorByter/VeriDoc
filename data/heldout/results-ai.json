@@ -1,0 +1,349 @@
+{
+  "evaluated_at": "2026-11-07T16:47:57+00:00",
+  "extraction_mode": "stub",
+  "capabilities": {
+    "ocr": false,
+    "prompt_screen": false
+  },
+  "runs": 1,
+  "packs": [
+    {
+      "pack": "P00992AB5A3",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 0,
+      "verified_leads": [],
+      "gate_route": "fast_track",
+      "shadow_route": "fast_track",
+      "error": null
+    },
+    {
+      "pack": "P17D6B68BA9",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 0,
+      "verified_leads": [],
+      "gate_route": "fast_track",
+      "shadow_route": "fast_track",
+      "error": null
+    },
+    {
+      "pack": "P447CC6C223",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 1,
+      "verified_leads": [],
+      "gate_route": "standard_review",
+      "shadow_route": "standard_review",
+      "error": null
+    },
+    {
+      "pack": "P480EE775F4",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 0,
+      "verified_leads": [],
+      "gate_route": "fast_track",
+      "shadow_route": "fast_track",
+      "error": null
+    },
+    {
+      "pack": "P58DB488016",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 0,
+      "verified_leads": [
+        "transaction:round_trip"
+      ],
+      "gate_route": "standard_review",
+      "shadow_route": "standard_review",
+      "error": null
+    },
+    {
+      "pack": "P663B91D1F4",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 1,
+      "verified_leads": [],
+      "gate_route": "standard_review",
+      "shadow_route": "standard_review",
+      "error": null
+    },
+    {
+      "pack": "P66E904B043",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 0,
+      "verified_leads": [
+        "kyc:related_party"
+      ],
+      "gate_route": "standard_review",
+      "shadow_route": "standard_review",
+      "error": null
+    },
+    {
+      "pack": "P6BB74AEE77",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 0,
+      "verified_leads": [
+        "transaction:round_trip"
+      ],
+      "gate_route": "standard_review",
+      "shadow_route": "enhanced_review",
+      "error": null
+    },
+    {
+      "pack": "P79604B677A",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 0,
+      "verified_leads": [],
+      "gate_route": "fast_track",
+      "shadow_route": "fast_track",
+      "error": null
+    },
+    {
+      "pack": "P82CBFC8899",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 0,
+      "verified_leads": [
+        "kyc:related_party",
+        "transaction:round_trip"
+      ],
+      "gate_route": "standard_review",
+      "shadow_route": "standard_review",
+      "error": null
+    },
+    {
+      "pack": "P942942EE5C",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 0,
+      "verified_leads": [],
+      "gate_route": "fast_track",
+      "shadow_route": "fast_track",
+      "error": null
+    },
+    {
+      "pack": "P945D8A69BF",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 0,
+      "verified_leads": [],
+      "gate_route": "fast_track",
+      "shadow_route": "fast_track",
+      "error": null
+    },
+    {
+      "pack": "PAFF1AF7FFA",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 1,
+      "verified_leads": [],
+      "gate_route": "standard_review",
+      "shadow_route": "standard_review",
+      "error": null
+    },
+    {
+      "pack": "PB89E7E9D80",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 0,
+      "verified_leads": [],
+      "gate_route": "fast_track",
+      "shadow_route": "fast_track",
+      "error": null
+    },
+    {
+      "pack": "PC5DF718A8C",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 0,
+      "verified_leads": [],
+      "gate_route": "fast_track",
+      "shadow_route": "fast_track",
+      "error": null
+    },
+    {
+      "pack": "PC828A714BE",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 0,
+      "verified_leads": [
+        "kyc:related_party"
+      ],
+      "gate_route": "standard_review",
+      "shadow_route": "standard_review",
+      "error": null
+    },
+    {
+      "pack": "PC914B64A51",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 1,
+      "verified_leads": [],
+      "gate_route": "standard_review",
+      "shadow_route": "standard_review",
+      "error": null
+    },
+    {
+      "pack": "PD69313F22A",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 0,
+      "verified_leads": [],
+      "gate_route": "fast_track",
+      "shadow_route": "fast_track",
+      "error": null
+    },
+    {
+      "pack": "PD6AD9F2630",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 1,
+      "verified_leads": [],
+      "gate_route": "standard_review",
+      "shadow_route": "standard_review",
+      "error": null
+    },
+    {
+      "pack": "PEB8FF68BE6",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 0,
+      "verified_leads": [],
+      "gate_route": "fast_track",
+      "shadow_route": "fast_track",
+      "error": null
+    },
+    {
+      "pack": "PEE8540CFDA",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 0,
+      "verified_leads": [],
+      "gate_route": "fast_track",
+      "shadow_route": "fast_track",
+      "error": null
+    },
+    {
+      "pack": "PF35ECE0A66",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 0,
+      "verified_leads": [],
+      "gate_route": "fast_track",
+      "shadow_route": "fast_track",
+      "error": null
+    },
+    {
+      "pack": "PF4A16450D4",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 0,
+      "verified_leads": [
+        "transaction:round_trip"
+      ],
+      "gate_route": "standard_review",
+      "shadow_route": "standard_review",
+      "error": null
+    },
+    {
+      "pack": "PFB4D34A262",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": true,
+      "risk_findings": 0,
+      "verified_leads": [],
+      "gate_route": "fast_track",
+      "shadow_route": null,
+      "error": null
+    },
+    {
+      "pack": "PFCDC29C00F",
+      "run": 1,
+      "band": "Low",
+      "readiness": "Complete",
+      "path": "fast_track",
+      "qa_sampled": false,
+      "risk_findings": 0,
+      "verified_leads": [],
+      "gate_route": "fast_track",
+      "shadow_route": "fast_track",
+      "error": null
+    }
+  ]
+}

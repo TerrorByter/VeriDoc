@@ -94,3 +94,24 @@ the renderer draws have a rule written for them, so the rules' recall shows
 they catch what they were built for. What the set does measure fairly is the
 false-alarm rate on honest look-alikes the system was not tuned on, and
 whether the AI team finds the two typologies no rule looks for.
+
+## 10. How `heldout-v1` departed from this plan
+
+Recorded after the run, so a reader can weigh each one.
+
+- **Custody.** GPT-6 wrote the set, but the build team held the sheet and the
+  key, rendered the packs and ran them. The order still held: the system was
+  tagged `eval-v1` and the seal committed (`2e89bb8`) before the run, and no
+  detection code changed between seeing the sheet and scoring.
+- **Rendering.** Two seeds failed (one generated company name repeated, one too
+  long for a letterhead) and a third was used. A seed changes names and
+  numbers, never a label.
+- **AI team.** The secondary number comes from 25 packs, not 60: the ten frauds
+  the rules sent through and the fifteen innocent look-alikes, chosen by type
+  after the rules run, where the AI team could change an outcome. The fifteen
+  clean packs were not run with it.
+- **A flaw in the set.** The renderer reused two officers' names across many
+  companies, which put an undisclosed shared officer into two packs labelled
+  legitimate. Their AI-route false alarms are counted as such.
+- **Reading.** Packs were read by the deterministic parser, which was written
+  for these layouts; OCR and Bedrock extraction were off.

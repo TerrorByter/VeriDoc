@@ -1,0 +1,7 @@
+{
+  "test_set": "heldout-v1",
+  "kind": "official",
+  "author": "GPT-6, reviewed by human reviewer (pending)",
+  "packs": 60,
+  "sha256": "af5978e13d4672ad4dfaceb688cb99112e2118bb2057f12208ef44077b35eedc"
+}

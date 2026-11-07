@@ -799,6 +799,10 @@ class HeldoutReport(BaseModel):
     gate_runs: int
     verified_lead_runs: int
     packs: list[HeldoutPackResult]
+    #: The team's analysis written after the labels were revealed, by pack id: why
+    #: a pack came out as it did when the figures alone cannot say. Never read by
+    #: scoring; `score` does not write it, so rescoring drops it.
+    remarks: dict[str, str] = {}
 
 
 def _ratio(numerator: int, denominator: int) -> float:

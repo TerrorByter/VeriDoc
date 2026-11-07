@@ -150,3 +150,12 @@ def test_the_pilot_can_be_run_and_scored_end_to_end(tmp_path: Path) -> None:
     assert report.caught + report.missed == 6
     assert report.clear + report.false_alarms == 6
     assert report.packs and all(p.outcome in {"caught", "missed", "clear", "false_alarm"} for p in report.packs)
+    assert report.remarks == {}  # the team's analysis is added after the labels are revealed, never by scoring
+
+
+def test_the_published_report_remarks_only_on_its_own_packs(monkeypatch: pytest.MonkeyPatch) -> None:
+    published = Path(__file__).parent.parent / "data" / "heldout" / "report.json"
+    monkeypatch.setenv("HELDOUT_REPORT_PATH", str(published))
+    report = heldout.load_saved()
+    assert report is not None and report.remarks
+    assert set(report.remarks) <= {p.pack for p in report.packs}

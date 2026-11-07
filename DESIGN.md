@@ -268,9 +268,6 @@ A surface card with a header line (lead id in mono, tags: "AI lead", kind, "Agen
 ### State mark
 Icon plus words, weight 600: sage for Verified / Corroborated / Code agrees, muted for Unverified, wine for Contradicted. Where the agent itself refuted a pattern and code agrees, it reads as agreement in sage, not an alarm.
 
-### Explained-by-code receipt
-A finding card turned dashed with a strong-rule border and transparent ground: header with check id, title and an "Explained by code" pill, then a sage tick and one sentence ("INV-1002 was paid in parts ... T16, T17, together ..."), then a hairline-topped "review it anyway" link. Explained findings group under a muted "Explained by code" heading with a count.
-
 ### Rule-check finding card
 Surface card, 14px 16px, severity shown by border tint (ochre, rust, wine at 45 to 60% mix; high and critical add a faint soft-tint fill) together with a severity pill. Compare rows are a dt/dd grid; quotes are mono on sunken; actions sit under a hairline.
 

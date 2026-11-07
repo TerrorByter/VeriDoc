@@ -143,8 +143,8 @@ Three packs are there to test the AI team. Two plant what only the AI team looks
 for, so the rules alone would fast-track them: a supplier run by the applicant's
 own CEO (`related_party`) and a payment that comes back as a customer receipt
 (`round_trip`). The third is innocent: an invoice paid in two parts by its buyer
-(`split_payment`), which a rule flags and the team should explain rather than
-raise. `docs/PROJECT_STATUS.md` lists every scenario that tests the team.
+(`split_payment`), which the rule records as information and the team must not
+flag. `docs/PROJECT_STATUS.md` lists every scenario that tests the team.
 
 Names are screened against the individuals and entities designated on the UN
 lists that MAS names (DPRK, Iran, Libya, the Congo, Somalia, Sudan, South Sudan,

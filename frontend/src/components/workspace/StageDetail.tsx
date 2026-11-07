@@ -28,7 +28,6 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** What the stage produced for this case, in one line. */
 function result(kase: CaseView, id: RailStageId): string {
-  const risky = kase.evidence.filter((e) => e.severity !== "info");
   switch (id) {
     case "ocr": {
       const pages = Object.values(kase.ocr_confidence).reduce((n, p) => n + p.length, 0);
@@ -50,9 +49,7 @@ function result(kase: CaseView, id: RailStageId): string {
       return `${plural(found, "ACRA record")}, ${plural(records.notices.length, "IRAS notice")}`;
     }
     case "rule_checks": {
-      const explained = risky.length - openFindings(kase).length;
-      return `${plural(risky.length - explained, "open finding")} from ${kase.rule_group_reports.reduce((n, g) => n + g.checks_run, 0)} checks`
-        + (explained ? `, ${explained} explained by code` : "");
+      return `${plural(openFindings(kase).length, "open finding")} from ${kase.rule_group_reports.reduce((n, g) => n + g.checks_run, 0)} checks`;
     }
     case "ai_team":
       return !kase.ai_team ? "AI team off"

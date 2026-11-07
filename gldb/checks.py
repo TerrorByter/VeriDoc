@@ -524,9 +524,26 @@ def check_xdoc_identity(pack: ExtractedPack) -> list[Evidence]:
 
 # 6. XDOC_INVOICE_BANK ---------------------------------------------------
 
+def _paid_in_parts(inv: Invoice, pack: ExtractedPack, unused: list[Transaction]) -> list[Payment]:
+    """The credits that settle a sale in parts, or []: two or more, each still
+    unused, naming the invoice, read as paid by its buyer and dated within
+    MATCH_WINDOW_DAYS, together making its total within TOLERANCE_SGD. A payer
+    who is not the buyer or cannot be read, a part outside the window, or a sum
+    short or over settles nothing."""
+    found = payments(inv, pack)
+    window_end = inv.invoice_date + timedelta(days=MATCH_WINDOW_DAYS)
+    paid = sum((p.transaction.credit or Decimal(0) for p in found), Decimal(0))
+    settles = (len(found) >= 2
+               and all(p.relation == "buyer" and any(p.transaction is t for t in unused)
+                       and inv.invoice_date <= p.transaction.date <= window_end for p in found)
+               and abs(paid - inv.total) <= TOLERANCE_SGD)
+    return found if settles else []
+
+
 def check_xdoc_invoice_bank(pack: ExtractedPack) -> list[Evidence]:
     """For each invoice, find the bank payment that settled it within
-    MATCH_WINDOW_DAYS: a credit for a sale, a debit for a purchase."""
+    MATCH_WINDOW_DAYS: a credit for a sale, a debit for a purchase. A sale its
+    buyer paid in parts is information, not a flag."""
     results: list[Evidence] = []
 
     # Every credit and debit across all statements, each usable at most once.
@@ -571,6 +588,18 @@ def check_xdoc_invoice_bank(pack: ExtractedPack) -> list[Evidence]:
                     expected=f"SGD {inv.total}",
                     observed=f"SGD {getattr(txn, kind)} on {txn.date}",
                 ))
+        elif parts := _paid_in_parts(inv, pack, [txn for idx, (_, txn) in enumerate(payments) if idx not in taken]):
+            taken.update(idx for idx, (_, txn) in enumerate(payments) if any(p.transaction is txn for p in parts))
+            paid = sum((p.transaction.credit or Decimal(0) for p in parts), Decimal(0))
+            rows = ", ".join(f"{p.row_id} SGD {p.transaction.credit} on {p.transaction.date}" for p in parts)
+            results.append(_ev(
+                "XDOC_INVOICE_BANK", "fraud_signal", "info",
+                inv.doc_id, inv.page,
+                f"Invoice {inv.invoice_number} (SGD {inv.total}) was paid in {len(parts)} parts by its "
+                f"buyer {inv.buyer_name}: {rows}; together SGD {paid}.",
+                expected=f"credit of SGD {inv.total}",
+                observed=f"{len(parts)} credits from the buyer, together SGD {paid}",
+            ))
         else:
             # Find closest payment by amount (across all statements, not just window)
             unused = [txn for idx, (_, txn) in enumerate(payments) if idx not in taken]

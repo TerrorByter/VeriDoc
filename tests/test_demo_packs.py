@@ -17,7 +17,7 @@ import pdfplumber
 import pytest
 
 from gldb import demo_packs, demo_trade, forensics, official
-from gldb.ai_team.checks import bank_rows, check_pattern, counterparty_id, resolved_findings
+from gldb.ai_team.checks import bank_rows, check_pattern, counterparty_id
 from gldb.config import GST_RATE, PACKS_DIR
 from gldb.evaluate import evaluate_pack
 from gldb.extract_stub import _parse_acra_profile, parse_bank_statement_form
@@ -313,11 +313,12 @@ def test_the_round_trip_is_confirmed_by_code_from_the_money_coming_back() -> Non
     assert check_pattern(_lead("round_trip", transaction_ids=[other]), result.pack, result.evidence).status == "contradicted"
 
 
-def test_the_sale_paid_in_parts_is_flagged_by_the_rules_and_explained_by_code() -> None:
+def test_the_rules_fast_track_the_sale_its_buyer_paid_in_parts() -> None:
     result = _assessed("split_payment")
-    (flag,) = [e for e in result.evidence if e.check_id == "XDOC_INVOICE_BANK" and e.severity != "info"]
-    explained = resolved_findings(result.pack, result.evidence)
-    assert list(explained) == [flag.evidence_id] and "paid in parts by its buyer" in explained[flag.evidence_id]
+    assert result.routing is not None and result.routing.path == "fast_track"
+    assert not [e for e in result.evidence if e.severity != "info"]
+    assert any(e.check_id == "XDOC_INVOICE_BANK" and "paid in 2 parts by its buyer" in e.explanation
+               for e in result.evidence)
 
 
 def test_the_rules_send_the_third_party_payment_for_review() -> None:

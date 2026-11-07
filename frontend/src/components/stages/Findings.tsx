@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { APPLICATION_DOC, REASON_CODES } from "../../types";
-import type { AuditEvent, DocRef, Evidence, EvidenceRow, ReasonCode, Severity, Signal, ViewTarget } from "../../types";
+import type { AuditEvent, Evidence, EvidenceRow, ReasonCode, Severity, Signal, ViewTarget } from "../../types";
 import type { StageProps } from "../workspace/StageDetail";
-import { Icon, LinkedText, Pill, SEVERITY_TONE } from "../ui";
+import { Pill, SEVERITY_TONE } from "../ui";
 
 const SEVERITY_RANK: Record<Severity, number> = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
 
@@ -72,14 +72,11 @@ function FindingRows({ rows, target, onView }: {
   );
 }
 
-function FindingCard({ ev, signal, decision, editable, explained, subjects, onView, onDecideFlag }: {
+function FindingCard({ ev, signal, decision, editable, onView, onDecideFlag }: {
   ev: Evidence;
   signal: Signal | undefined;
   decision: string | null;
   editable: boolean;
-  /** Why code explained this finding, when it did: the card is then a quiet receipt, not an open signal */
-  explained?: string;
-  subjects: Record<string, DocRef>;
 } & Pick<StageProps, "onView" | "onDecideFlag">) {
   const [code, setCode] = useState<ReasonCode | "">("");
   const [note, setNote] = useState("");
@@ -135,7 +132,7 @@ function FindingCard({ ev, signal, decision, editable, explained, subjects, onVi
     : rows.length ? `${ev.document}, ${pages(rows.map((r) => r.page))}` : `${ev.document}, page ${ev.page}`;
   const detail = (
     <>
-      <p className={explained ? "muted" : undefined}>{ev.explanation}</p>
+      <p>{ev.explanation}</p>
       {rows.length > 0 ? (
         <FindingRows rows={rows} target={target} onView={onView} />
       ) : (
@@ -169,33 +166,6 @@ function FindingCard({ ev, signal, decision, editable, explained, subjects, onVi
     </button>
   );
 
-  if (explained) {
-    return (
-      <li className="finding explained">
-        <div className="finding-top">
-          <span className="mono muted">{ev.evidence_id}</span>
-          <strong>{signal?.name ?? ev.check_id}</strong>
-          {signal && <span className="mono muted small">{signal.signal_id}</span>}
-          <Pill tone="low">Explained by code</Pill>
-          {decision && <Pill tone={decision === "confirmed" ? "crit" : "neutral"}>{decision}</Pill>}
-        </div>
-        <p className="explained-why">
-          <Icon name="done" size={16} />
-          <span>
-            <LinkedText text={explained} subjects={subjects} onView={onView} />.{" "}
-            <span className="muted">The rule score and route still count this finding; the explanation changes neither.</span>
-          </span>
-        </p>
-        <details className="disclosure review-anyway">
-          <summary>Review the rule finding anyway</summary>
-          {showButton}
-          {detail}
-          {actions}
-        </details>
-      </li>
-    );
-  }
-
   return (
     <li className={`finding sev-${ev.severity}`}>
       <div className="finding-top">
@@ -213,13 +183,10 @@ function FindingCard({ ev, signal, decision, editable, explained, subjects, onVi
   );
 }
 
-/** Findings as cards, most severe first, with the ones code explained after them as quiet receipts. Fraud flags can
- * be confirmed or dismissed while the case is open. */
-export function Findings({ evidence, empty, explained = {}, kase, audit, onView, onDecideFlag }: {
+/** Findings as cards, most severe first. Fraud flags can be confirmed or dismissed while the case is open. */
+export function Findings({ evidence, empty, kase, audit, onView, onDecideFlag }: {
   evidence: Evidence[];
   empty: string;
-  /** Finding id -> why code explained it */
-  explained?: Record<string, string>;
 } & StageProps) {
   const editable = kase.allowed_actions.length > 0;
   const card = (ev: Evidence) => (
@@ -229,23 +196,10 @@ export function Findings({ evidence, empty, explained = {}, kase, audit, onView,
       signal={kase.signals[ev.check_id]}
       decision={latestDecision(audit, ev.evidence_id)}
       editable={editable}
-      explained={explained[ev.evidence_id]}
-      subjects={kase.subjects}
       onView={onView}
       onDecideFlag={onDecideFlag}
     />
   );
-  const open = evidence.filter((e) => !(e.evidence_id in explained)).sort(bySeverity);
-  const done = evidence.filter((e) => e.evidence_id in explained).sort(bySeverity);
-  return (
-    <>
-      {open.length > 0 ? <ul className="findings">{open.map(card)}</ul> : done.length === 0 && <p className="muted">{empty}</p>}
-      {done.length > 0 && (
-        <>
-          <h4 className="explained-head">Explained by code <span className="count">{done.length}</span></h4>
-          <ul className="findings">{done.map(card)}</ul>
-        </>
-      )}
-    </>
-  );
+  const sorted = [...evidence].sort(bySeverity);
+  return sorted.length > 0 ? <ul className="findings">{sorted.map(card)}</ul> : <p className="muted">{empty}</p>;
 }

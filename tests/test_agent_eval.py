@@ -49,6 +49,12 @@ def _packs(tmp_path: Path, *names: str) -> Path:
     return folder
 
 
+def _expecting(packs: Path, name: str, **truth: Any) -> None:
+    """The copied pack *name*'s ground truth, with *truth* set: an expectation no fixture pack carries."""
+    path = packs / name / "ground_truth.json"
+    path.write_text(json.dumps({**json.loads(path.read_text()), **truth}))
+
+
 def _script(monkeypatch: pytest.MonkeyPatch, transaction: list[list[dict[str, Any]]]) -> None:
     """Every call to the team goes to a fake whose transaction specialist
     plays *transaction*: its responses run pack after pack, in order."""
@@ -329,16 +335,18 @@ def test_a_clear_check_is_neither_a_found_pattern_nor_noise(monkeypatch: pytest.
     assert (clean.found_leads, clean.noise, clean.withheld, clean.leads) == ([], 0, 0, 1)
 
 
-@pytest.mark.parametrize(("status", "correct"), [("refuted", 1), ("supported", 0)])
+@pytest.mark.parametrize(("status", "correct"), [("supported", 1), ("refuted", 0)])
 def test_triage_is_correct_only_for_the_expected_status_on_the_expected_check(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, status: str, correct: int
 ) -> None:
-    packs = _packs(tmp_path, "innocent_split")
-    folder = packs / "innocent_split"
+    packs = _packs(tmp_path, "third_party_payment")
+    _expecting(packs, "third_party_payment",
+               expected_triage=[{"check_id": "XDOC_THIRD_PARTY_PAYER", "status": "supported"}])
+    folder = packs / "third_party_payment"
     finding = next(
         e.evidence_id
-        for e in assess("innocent_split", sorted(folder.glob("*.pdf")), load_manifest(folder), team=None).evidence
-        if e.check_id == "XDOC_INVOICE_BANK" and e.severity != "info"
+        for e in assess("third_party_payment", sorted(folder.glob("*.pdf")), load_manifest(folder), team=None).evidence
+        if e.check_id == "XDOC_THIRD_PARTY_PAYER" and e.severity != "info"
     )
     _script(monkeypatch, [_search(), _triage(["R01"], finding, status), DONE])
 
@@ -347,7 +355,6 @@ def test_triage_is_correct_only_for_the_expected_status_on_the_expected_check(
     (result,) = row.packs
     assert (result.triage_expected, result.triage_correct) == (1, correct)
     assert row.triage_accuracy == correct
-    assert row.supported_recall == 0.0  # the planted split_payment lead was not raised
 
 
 def test_pack_that_raises_is_recorded_as_an_error_without_aborting(
@@ -530,6 +537,7 @@ def test_main_prints_a_row_per_pack_with_status(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     packs = _packs(tmp_path, "clean", "innocent_split")
+    _expecting(packs, "innocent_split", expected_leads=[{"agent": "transaction", "pattern": "split_payment"}])
     monkeypatch.setattr(agent_eval, "PACKS_DIR", str(packs))
     _script(monkeypatch, [_search(), _lead(["R01"]), DONE, _search(), _lead(["R01"]), DONE])
 

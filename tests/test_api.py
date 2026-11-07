@@ -482,12 +482,9 @@ def test_case_view_has_ai_team_and_no_trace(client: TestClient) -> None:
     assert "PAGE TEXT" not in response.text and "trace" not in response.json()["ai_team"]
 
 
-def test_case_view_says_where_each_subject_is_and_which_findings_code_explained(client: TestClient) -> None:
+def test_case_view_says_where_each_subject_is(client: TestClient) -> None:
     cid = _case(client)["case_id"]
-    team = AgentTeam(status="ran", resolved={"E02": "INV-1002 was paid in parts by its buyer"})
-    pipeline._persist(api._load(cid).model_copy(update={"ai_team": team}))
     view = client.get(f"/api/cases/{cid}").json()
-    assert view["ai_team"]["resolved"] == {"E02": "INV-1002 was paid in parts by its buyer"}
     docs = {d["doc_id"] for d in view["docs"]}
     assert view["subjects"] and all(ref["doc_id"] in docs for ref in view["subjects"].values())
     assert "INV-1001" in view["subjects"]

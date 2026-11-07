@@ -25,6 +25,7 @@ from gldb.ai_team.checks import bank_rows, counterparties
 from gldb.ai_team.shadow import decide, shadow_input
 from gldb.ai_team.team import TeamModels, flagged, run_team
 from gldb.ai_team.tools import CaseData
+from gldb.checks import run_rule_checks
 from gldb.intake import load_manifest
 from gldb.pipeline import assess
 from gldb.schemas import AgentTeam, CaseResult
@@ -182,44 +183,15 @@ def _unmatched(case: CaseData) -> str:
     return next(e.evidence_id for e in case.evidence if e.check_id == "XDOC_INVOICE_BANK" and e.severity != "info")
 
 
-def _split_case(second_payer: str | None = None) -> CaseData:
-    """innocent_split; with *second_payer*, its INV-1002 second part paid by that name instead of the buyer."""
+def _split_case(second_payer: str) -> CaseData:
+    """innocent_split with its INV-1002 second part paid by *second_payer* instead of the buyer: a rule finding."""
     case = _data("innocent_split")
-    if second_payer is None:
-        return case
     part = next(r for r, _, t in bank_rows(case.pack) if t.description.endswith("INV-1002 PART 2"))
     statements = [s.model_copy(update={"transactions": [
         t.model_copy(update={"description": f"GIRO CR {second_payer} INV-1002 PART 2"}) if rid == part else t
         for rid, st, t in bank_rows(case.pack) if st is s]}) for s in case.pack.bank_statements]
-    return CaseData(case.case_id, case.pack.model_copy(update={"bank_statements": statements}), case.evidence)
-
-
-def test_a_finding_code_resolved_is_not_asked_about_and_the_supervisor_is_told() -> None:
-    case = _split_case()
-    finding = _unmatched(case)
-    fake = ScriptedBedrock({"plan": [[use("submit_plan", briefs=BRIEFS)]], "memo": _memo([finding])})
-
-    team = run_team(case, MODELS, client=fake)
-
-    assert team.memo is not None
-    assert team.memo.observations == [] and team.memo.questions == [] and team.memo.withheld == 2
-    assert list(team.resolved) == [finding] and "paid in parts by its buyer" in team.resolved[finding]
-    assert _sent(fake)["resolved"] == {finding: next(iter(_sent(fake)["resolved"].values()))}
-    assert "paid in parts by its buyer" in _sent(fake)["resolved"][finding]
-    assert f"{finding} resolved by code: INV-1002 was paid in parts by its buyer" in " ".join(team.notes)
-
-
-def test_a_finding_code_cannot_resolve_is_still_asked_about() -> None:
-    case = _split_case("HARBOURLINE LOGISTICS")
-    finding = _unmatched(case)
-    fake = ScriptedBedrock({"plan": [[use("submit_plan", briefs=BRIEFS)]], "memo": _memo([finding])})
-
-    team = run_team(case, MODELS, client=fake)
-
-    assert team.memo is not None
-    assert [p.evidence_ids for p in team.memo.questions] == [[finding]]
-    assert _sent(fake)["resolved"] == {}
-    assert team.resolved == {}
+    pack = case.pack.model_copy(update={"bank_statements": statements})
+    return CaseData(case.case_id, pack, run_rule_checks(pack)[0])
 
 
 def test_an_agents_refutation_alone_never_suppresses_a_rule_finding() -> None:

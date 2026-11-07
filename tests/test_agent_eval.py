@@ -152,45 +152,47 @@ def test_only_runs_just_the_named_packs(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert row.packs[0].found_leads == ["transaction:third_party_payment"]
 
 
-def test_code_proposes_the_third_party_when_the_agent_is_silent(
+def test_a_lead_confirming_a_rule_finding_is_neither_a_flag_nor_noise(
         monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """A fact the checks establish is not lost to a specialist's miss: code
-    proposes the third-party lead and verifies it, whatever the agent did."""
+    """The rule reports the third-party payment itself: the agent's lead on it
+    confirms that finding, so it is no flag of its own and no noise, and the
+    rules already send the case for review."""
     packs = _packs(tmp_path, "third_party_payment")
-    _script(monkeypatch, [_search(), DONE])  # the agent searches and records nothing
+    _script(monkeypatch, [_search(), _lead(["R01"], pattern="third_party_payment", **_tpp()), DONE])
     (third,) = agent_eval.evaluate_team(MODELS, packs).packs
-    assert third.found_leads == ["transaction:third_party_payment"]
-    assert third.verified_leads == ["transaction:third_party_payment"]
+    assert (third.expected_leads, third.found_leads, third.verified_leads) == (
+        [], ["transaction:third_party_payment"], [])
     assert third.noise == 0 and third.flag_noise == 0
+    assert (third.planted, third.would_route, third.miss) == (True, "standard_review", False)
 
 
 def test_metrics_count_recall_noise_and_withheld(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    packs = _packs(tmp_path, "clean", "third_party_payment")
+    packs = _packs(tmp_path, "clean", "round_trip")
     _script(monkeypatch, [
         # clean: a pattern lead that matches nothing planted
         _search(), _lead(["R01"]), DONE,
-        # third_party_payment: the planted lead, and one that names a verdict, so is refused when recorded
-        _search(), _lead(["R01"], pattern="third_party_payment", **_tpp()),
-        _lead(["R01"], pattern="round_trip", hypothesis="Possible fraud on the invoice"), DONE,
+        # round_trip: the planted lead, and one that names a verdict, so is refused when recorded
+        _search_rt(), _lead(["R01"], pattern="round_trip", **_rt()),
+        _lead(["R01"], pattern="round_trip", hypothesis="Possible fraud on the payment"), DONE,
     ])
 
     row = agent_eval.evaluate_team(MODELS, packs)
 
-    clean, third = row.packs
+    clean, trip = row.packs
     assert (clean.pack, clean.status, clean.expected_leads, clean.found_leads) == (
         "clean", "ran", [], ["transaction:split_payment"])
     assert (clean.noise, clean.withheld, clean.leads) == (1, 0, 1)
-    assert (third.pack, third.status, third.expected_leads, third.found_leads) == (
-        "third_party_payment", "ran", ["transaction:third_party_payment"], ["transaction:third_party_payment"])
-    assert (third.noise, third.withheld, third.leads) == (0, 1, 2)
+    assert (trip.pack, trip.status, trip.expected_leads, trip.found_leads) == (
+        "round_trip", "ran", ["transaction:round_trip"], ["transaction:round_trip"])
+    assert (trip.noise, trip.withheld, trip.leads) == (0, 1, 2)
     assert (row.supervisor, row.specialist) == (MODELS.supervisor, MODELS.specialist)
     assert row.supported_recall == 1.0
     assert row.noise == 1
     assert row.withheld_rate == pytest.approx(1 / 3)
     assert row.triage_accuracy == 0.0  # nothing expected: a zero denominator reads 0.0
-    assert clean.usd is not None and third.usd is not None and clean.usd > 0 and third.usd > 0
-    assert row.usd_per_case == (clean.usd + third.usd) / 2
-    assert row.seconds_per_case == pytest.approx((clean.seconds + third.seconds) / 2)
+    assert clean.usd is not None and trip.usd is not None and clean.usd > 0 and trip.usd > 0
+    assert row.usd_per_case == (clean.usd + trip.usd) / 2
+    assert row.seconds_per_case == pytest.approx((clean.seconds + trip.seconds) / 2)
     assert row.evaluated_at
 
 
@@ -224,41 +226,42 @@ def _disposition(route: str, code: str, *ids: str) -> list[dict[str, Any]]:
 
 
 def _both_statuses(*, planted_found: bool) -> list[list[dict[str, Any]]]:
-    """On INV-1002 (paid by Harbourline) and INV-1001 (paid by its buyer), the agent says both are paid by a
-    third party: code verifies the first and contradicts the second."""
-    first = _lead(["R01"], pattern="third_party_payment", **_tpp())
-    second = _lead(["R01"], pattern="third_party_payment", invoice_number="INV-1001",
-                   transaction_ids=[_row_of("INV-1001")])
-    return [_search(), first + second, DONE] if planted_found else [_search(), DONE]
+    """In June the applicant paid Harbourline (which paid it back days later)
+    and its landlord (who did not): the agent says both are round trips, and
+    code verifies the first and contradicts the second."""
+    june = [use("search_bank_transactions", date_from="2026-06-01", date_to="2026-06-30")]
+    first = _lead(["R01"], pattern="round_trip", **_rt())
+    second = _lead(["R01"], pattern="round_trip", transaction_ids=[_rt_row("OFFICE RENT JUN")])
+    return [june, first + second, DONE] if planted_found else [june, DONE]
 
 
 @cache
-def _row_of(invoice: str) -> str:
-    folder = PACKS / "third_party_payment"
-    pack = assess("tpp-row", sorted(folder.glob("*.pdf")), load_manifest(folder), team=None).pack
-    return next(row_id for row_id, _, txn in bank_rows(pack) if txn.description.endswith(invoice))
+def _rt_row(description: str) -> str:
+    folder = PACKS / "round_trip"
+    pack = assess("rt-row", sorted(folder.glob("*.pdf")), load_manifest(folder), team=None).pack
+    return next(row_id for row_id, _, txn in bank_rows(pack) if txn.description == description)
 
 
 def test_verified_recall_flag_noise_observations_and_shadow_are_scored(monkeypatch: pytest.MonkeyPatch,
                                                                        tmp_path: Path) -> None:
-    packs = _packs(tmp_path, "clean", "third_party_payment")
+    packs = _packs(tmp_path, "clean", "round_trip")
     _script_all(
         monkeypatch,
         [_search(), _lead(["R01"]), DONE,  # clean: an unverified split_payment lead
          *_both_statuses(planted_found=True)],
         [[_disposition("fast_track", "no_issue")[0]],  # clean: nothing to review
-         [_disposition("standard_review", "third_party_payment", "L01")[0]]],
+         [_disposition("standard_review", "round_trip", "L01")[0]]],
     )
 
     row = agent_eval.evaluate_team(replace(MODELS, shadow="shadow-model"), packs)
 
-    clean, third = row.packs
+    clean, trip = row.packs
     assert (clean.verified_leads, clean.flag_noise, clean.observations, clean.contradicted, clean.ai_questions) == (
         [], 0, 1, 0, 0)
     assert (clean.planted, clean.shadow_route, clean.would_route, clean.miss) == (False, "fast_track", "fast_track", False)
-    assert third.verified_leads == ["transaction:third_party_payment"]
-    assert (third.flag_noise, third.observations, third.contradicted) == (0, 0, 1)
-    assert (third.planted, third.shadow_route, third.would_route, third.miss) == (
+    assert trip.verified_leads == ["transaction:round_trip"]
+    assert (trip.flag_noise, trip.observations, trip.contradicted) == (0, 0, 1)
+    assert (trip.planted, trip.shadow_route, trip.would_route, trip.miss) == (
         True, "standard_review", "standard_review", False)
     assert row.shadow == "shadow-model"
     assert (row.verified_recall, row.flag_noise, row.miss_rate, row.auto_clear_rate) == (1.0, 0, 0.0, 0.5)
@@ -267,8 +270,8 @@ def test_verified_recall_flag_noise_observations_and_shadow_are_scored(monkeypat
 
 def test_a_planted_fraud_the_gate_sends_to_fast_track_is_a_miss(monkeypatch: pytest.MonkeyPatch,
                                                                 tmp_path: Path) -> None:
-    """A planted fraud the agent does not raise and code cannot propose (the
-    round trip) is missed: the gate keeps it on fast track."""
+    """A planted fraud the agent does not raise (the round trip, which no
+    rule sees) is missed: the gate keeps it on fast track."""
     packs = _packs(tmp_path, "round_trip")
     _script_all(monkeypatch, [_search_rt(), DONE], [[_disposition("fast_track", "no_issue")[0]]])
 
@@ -281,16 +284,16 @@ def test_a_planted_fraud_the_gate_sends_to_fast_track_is_a_miss(monkeypatch: pyt
 
 def test_the_scorer_alone_sending_a_planted_fraud_to_fast_track_is_a_miss_too(monkeypatch: pytest.MonkeyPatch,
                                                                               tmp_path: Path) -> None:
-    # Code verifies the planted payment, so the gate raises the case; the scorer, which saw the flag, still said fast_track
-    packs = _packs(tmp_path, "third_party_payment")
+    # Code verifies the planted round trip, so the gate raises the case; the scorer, which saw the flag, still said fast_track
+    packs = _packs(tmp_path, "round_trip")
     _script_all(monkeypatch, _both_statuses(planted_found=True), [[_disposition("fast_track", "no_issue")[0]]])
 
     row = agent_eval.evaluate_team(replace(MODELS, shadow="shadow-model"), packs)
 
-    (third,) = row.packs
-    assert (third.would_route, third.shadow_route) == ("standard_review", "fast_track")
-    assert (third.miss, third.shadow_miss) == (True, True)
-    assert (third.shadow_agrees_champion, third.shadow_matches_truth) == (True, True)  # fast_track is the rule route
+    (trip,) = row.packs
+    assert (trip.would_route, trip.shadow_route) == ("standard_review", "fast_track")
+    assert (trip.miss, trip.shadow_miss) == (True, True)
+    assert (trip.shadow_agrees_champion, trip.shadow_matches_truth) == (True, True)  # fast_track is the rule route
     assert (row.miss_rate, row.shadow_miss_rate) == (1.0, 1.0)
     assert (row.shadow_champion_agreement, row.shadow_truth_agreement) == (1.0, 1.0)
 
@@ -350,12 +353,12 @@ def test_triage_is_correct_only_for_the_expected_status_on_the_expected_check(
 def test_pack_that_raises_is_recorded_as_an_error_without_aborting(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    packs = _packs(tmp_path, "clean", "third_party_payment")
+    packs = _packs(tmp_path, "clean", "round_trip")
     _script(monkeypatch, [])
     real_assess = agent_eval.assess
 
     def flaky(case_id: str, *args: Any, **kwargs: Any) -> Any:
-        if case_id.startswith("AGENTEVAL-third_party_payment-"):
+        if case_id.startswith("AGENTEVAL-round_trip-"):
             raise RuntimeError("model returned junk")
         return real_assess(case_id, *args, **kwargs)
 
@@ -363,12 +366,12 @@ def test_pack_that_raises_is_recorded_as_an_error_without_aborting(
 
     row = agent_eval.evaluate_team(MODELS, packs)
 
-    clean, third = row.packs
+    clean, trip = row.packs
     assert clean.status == "ran"
-    assert third.status == "error: RuntimeError: model returned junk"
+    assert trip.status == "error: RuntimeError: model returned junk"
     # Its expected lead still counts, as missed
-    assert third.expected_leads == ["transaction:third_party_payment"] and third.found_leads == []
-    assert (third.leads, third.noise, third.withheld, third.usd) == (0, 0, 0, None)
+    assert trip.expected_leads == ["transaction:round_trip"] and trip.found_leads == []
+    assert (trip.leads, trip.noise, trip.withheld, trip.usd) == (0, 0, 0, None)
     assert row.supported_recall == 0.0
     assert row.usd_per_case == clean.usd  # the mean of the costs that are known
 
@@ -526,14 +529,14 @@ def test_main_fails_and_saves_nothing_when_no_pack_ran(
 def test_main_prints_a_row_per_pack_with_status(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    packs = _packs(tmp_path, "clean", "third_party_payment")
+    packs = _packs(tmp_path, "clean", "innocent_split")
     monkeypatch.setattr(agent_eval, "PACKS_DIR", str(packs))
-    _script(monkeypatch, [_search(), _lead(["R01"]), DONE, _search(), _lead(["R01"], pattern="third_party_payment", **_tpp()), DONE])
+    _script(monkeypatch, [_search(), _lead(["R01"]), DONE, _search(), _lead(["R01"]), DONE])
 
     assert agent_eval.main([]) == 0
 
     lines = capsys.readouterr().out.splitlines()
     header = next(line for line in lines if line.startswith("pack"))
-    third = next(line for line in lines if line.startswith("third_party_payment"))
-    assert header.index("patterns") == third.index("1/1")  # long names do not run into the next column
+    split = next(line for line in lines if line.startswith("innocent_split"))
+    assert header.index("patterns") == split.index("1/1")  # long names do not run into the next column
     assert "supported recall 1.00" in "\n".join(lines)

@@ -335,9 +335,10 @@ class Guarantor(BaseModel):
 class Disclosure(BaseModel):
     """An interest or arrangement the applicant declares with its application.
 
-    Rules do not read it: a disclosure is context for the analyst and the AI
-    team, not evidence that changes a score or a route. A pack without one has
-    an empty list.
+    It is context for the analyst and the AI team. One rule reads it: a sale
+    paid by a payer the application declares is explained, so
+    XDOC_THIRD_PARTY_PAYER records it as info rather than a red flag. A pack
+    without one has an empty list.
     """
 
     kind: str

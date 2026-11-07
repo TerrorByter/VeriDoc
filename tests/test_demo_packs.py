@@ -284,6 +284,7 @@ def test_the_third_party_payment_is_confirmed_by_code_from_who_the_statement_say
     outcome = check_pattern(_lead("third_party_payment", invoice_number=invoice.invoice_number,
                                   transaction_ids=[_row(result, invoice.invoice_number)]), result.pack, result.evidence)
     assert outcome.status == "verified" and outcome.facts["payer"] == "GOLDEN REEF TRADING LIMITED"
+    assert "rule_finding" in outcome.facts  # the payer rule reports it: the lead confirms it
     # Every other sale was paid by its own buyer
     for other in (i for i in result.pack.invoices if i is not invoice and i.seller_uen == demo_packs.KESTREL.uen):
         lead = _lead("third_party_payment", invoice_number=other.invoice_number,
@@ -319,7 +320,13 @@ def test_the_sale_paid_in_parts_is_flagged_by_the_rules_and_explained_by_code() 
     assert list(explained) == [flag.evidence_id] and "paid in parts by its buyer" in explained[flag.evidence_id]
 
 
-@pytest.mark.parametrize("name", ["third_party_payment", "related_party", "round_trip"])
+def test_the_rules_send_the_third_party_payment_for_review() -> None:
+    result = _assessed("third_party_payment")
+    assert result.routing is not None and result.routing.path == "standard_review"
+    assert [e.check_id for e in result.evidence if e.severity != "info"] == ["XDOC_THIRD_PARTY_PAYER"]
+
+
+@pytest.mark.parametrize("name", ["related_party", "round_trip"])
 def test_the_rules_alone_would_fast_track_what_only_the_ai_team_can_find(name: str) -> None:
     result = _assessed(name)
     assert result.routing is not None and result.routing.path == "fast_track"

@@ -3,8 +3,9 @@ tests/test_acceptance_run5.py
 -----------------------------
 The acceptance table of the evidence verification spec, with live run 5's
 leads (CASE-20261004T163428Z-92b7) as the fixtures, end to end through the
-team on the real packs: the planted third-party payment becomes a flag and a
-question; invoice-after-shipment, the director-guarantor, the unchecked
+team on the real packs: the planted third-party payment, now a rule's own
+finding, is confirmed rather than flagged twice (and with no rule reporting
+it, becomes a flag and a question); invoice-after-shipment, the director-guarantor, the unchecked
 patterns and a refuted-then-verified miss behave as the spec says. Offline;
 scripted Bedrock, specialists one at a time so call ids are fixed.
 """
@@ -27,7 +28,7 @@ from gldb.intake import load_manifest
 from gldb.pipeline import assess
 from gldb.schemas import AgentTeam, Lead
 from gldb.screening import screening_key
-from tests.fakes import ScriptedBedrock, use
+from tests.fakes import ScriptedBedrock, use, without_payer_rule
 
 PACKS = Path(__file__).parent / "fixtures" / "packs"
 MODELS = TeamModels(supervisor="sup-model", specialist="spec-model")
@@ -82,15 +83,33 @@ def _only(team: AgentTeam) -> Lead:
     return lead
 
 
-def test_l12_the_planted_payment_is_verified_a_flag_and_asks_the_harbourline_question() -> None:
+def test_l12_the_planted_payment_is_verified_and_confirms_the_rule_that_reports_it() -> None:
+    """Run 5's planted payment is now the rule XDOC_THIRD_PARTY_PAYER's own
+    finding: the agent's lead on it is verified and names that finding, so it
+    is no second flag, and its question is left to the rule's request line."""
     team, fake = _team("third_party_payment", {"transaction": [
         [use("search_bank_transactions", text="INV")],
         [_lead("R01", "third_party_payment", invoice_number="INV-1002",
                transaction_ids=[_row("third_party_payment", "HARBOURLINE LOGISTICS INV-1002")]),
          _question("R01", "Who is Harbourline Logistics to the buyer?")]]}, memo=["L01"])
     lead = _only(team)
+    rule = next(e for e in _case("third_party_payment").evidence if e.check_id == "XDOC_THIRD_PARTY_PAYER")
+    assert lead.evidence_status == "verified" and not flagged(lead)
+    assert (lead.check_facts["payer"], lead.check_facts["rule_finding"]) == ("HARBOURLINE LOGISTICS", rule.evidence_id)
+    assert _sent(fake)["questions"] == [] and _sent(fake)["leads"] == []
+
+
+def test_l12_with_no_rule_reporting_it_the_payment_is_a_flag_and_asks_the_harbourline_question() -> None:
+    fake = ScriptedBedrock({"plan": [[use("submit_plan", briefs=BRIEFS)]], "transaction": [
+        [use("search_bank_transactions", text="INV")],
+        [_lead("R01", "third_party_payment", invoice_number="INV-1002",
+               transaction_ids=[_row("third_party_payment", "HARBOURLINE LOGISTICS INV-1002")]),
+         _question("R01", "Who is Harbourline Logistics to the buyer?")]],
+        "memo": [[use("submit_memo", observations=[{"text": "See it.", "cites": ["L01"]}],
+                      questions=[{"text": "See it.", "cites": ["L01"]}])]]})
+    team = run_team(without_payer_rule(_case("third_party_payment")), MODELS, client=fake)
+    lead = _only(team)
     assert lead.evidence_status == "verified" and flagged(lead)
-    assert lead.check_facts["payer"] == "HARBOURLINE LOGISTICS"
     assert [q["text"] for q in _sent(fake)["questions"]] == ["Who is Harbourline Logistics to the buyer?"]
     assert team.memo is not None and team.memo.observations and team.memo.questions
 
@@ -177,10 +196,11 @@ def test_l02_l14_unchecked_patterns_are_observations_never_flags_memo_points_or_
 
 
 def test_a_lead_the_agent_called_refuted_that_code_verifies_is_a_caught_miss() -> None:
-    team, fake = _team("third_party_payment", {"transaction": [
+    fake = ScriptedBedrock({"plan": [[use("submit_plan", briefs=BRIEFS)]], "transaction": [
         [use("search_bank_transactions", text="INV")],
         [_lead("R01", "third_party_payment", status="refuted", invoice_number="INV-1002",
                transaction_ids=[_row("third_party_payment", "HARBOURLINE LOGISTICS INV-1002")])]]})
+    team = run_team(without_payer_rule(_case("third_party_payment")), MODELS, client=fake)
     lead = _only(team)
     assert (lead.investigation_status, lead.evidence_status, flagged(lead)) == ("refuted", "verified", True)
     assert [x["lead_id"] for x in _sent(fake)["leads"]] == ["L01"]

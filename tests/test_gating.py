@@ -28,7 +28,7 @@ from gldb.ai_team.tools import CaseData
 from gldb.intake import load_manifest
 from gldb.pipeline import assess
 from gldb.schemas import AgentTeam, CaseResult
-from tests.fakes import ScriptedBedrock, use
+from tests.fakes import ScriptedBedrock, use, without_payer_rule
 
 PACKS = Path(__file__).parent / "fixtures" / "packs"
 MODELS = TeamModels(supervisor="sup-model", specialist="spec-model")
@@ -73,7 +73,7 @@ def _harbourline(case: CaseData) -> str:
 
 
 def test_memo_task_and_points_hold_only_verified_and_corroborated_leads() -> None:
-    case = _data("third_party_payment")
+    case = without_payer_rule(_data("third_party_payment"))
     fake = ScriptedBedrock({
         "plan": [[use("submit_plan", briefs=BRIEFS)]],
         # R01 the search; L01 verified (Harbourline), L02 an unchecked pattern: unverified
@@ -96,7 +96,7 @@ def test_memo_task_and_points_hold_only_verified_and_corroborated_leads() -> Non
 
 
 def test_question_resting_only_on_unverified_evidence_is_withheld() -> None:
-    case = _data("third_party_payment")
+    case = without_payer_rule(_data("third_party_payment"))
     fake = ScriptedBedrock({
         "plan": [[use("submit_plan", briefs=BRIEFS)]],
         "transaction": [[use("search_bank_transactions", text="INV-1002")],
@@ -111,7 +111,7 @@ def test_question_resting_only_on_unverified_evidence_is_withheld() -> None:
 
 
 def test_question_resting_on_a_verified_lead_reaches_the_supervisor() -> None:
-    case = _data("third_party_payment")
+    case = without_payer_rule(_data("third_party_payment"))
     fake = ScriptedBedrock({
         "plan": [[use("submit_plan", briefs=BRIEFS)]],
         "transaction": [[use("search_bank_transactions", text="INV-1002")],
@@ -129,7 +129,7 @@ def test_question_resting_on_a_verified_lead_reaches_the_supervisor() -> None:
 def test_content_about_a_contradicted_leads_subject_does_not_ride_in_on_a_shared_result() -> None:
     # Run 5's review: one search result holds both invoices' rows; L01 (INV-1002) is verified, L02 (INV-1001)
     # is not. Nothing about INV-1001 may reach a question or a memo point because L01 cites the same result.
-    case = _data("third_party_payment")
+    case = without_payer_rule(_data("third_party_payment"))
     orchid = next(r for r, _, t in bank_rows(case.pack) if t.description.endswith("INV-1001"))
     fake = ScriptedBedrock({
         "plan": [[use("submit_plan", briefs=BRIEFS)]],

@@ -31,7 +31,7 @@ from gldb.audit import read_events
 from gldb.intake import load_manifest
 from gldb.pipeline import assess
 from gldb.schemas import AgentTeam, Memo
-from tests.fakes import ScriptedBedrock, use
+from tests.fakes import ScriptedBedrock, use, without_payer_rule
 
 PACKS = Path(__file__).parent / "fixtures" / "packs"
 MODELS = TeamModels(supervisor="sup-model", specialist="spec-model")
@@ -58,7 +58,7 @@ def tampered() -> CaseData:
 
 @pytest.fixture(scope="module")
 def tpp() -> CaseData:
-    return _case("third_party_payment")
+    return without_payer_rule(_case("third_party_payment"))
 
 
 def _harbourline(case: CaseData) -> str:

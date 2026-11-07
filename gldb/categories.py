@@ -63,6 +63,8 @@ CHECK_CATEGORY: dict[str, CategoryId] = {
     "XDOC_INVOICE_BANK": "trade_mismatch",
     "XDOC_PO_INVOICE": "trade_mismatch",
     "XDOC_BL_INVOICE": "trade_mismatch",
+    # Who paid for a sale
+    "XDOC_THIRD_PARTY_PAYER": "third_party_payment",
     # Financial statements that do not hold up
     "FS_BALANCE": "financial_misstatement",
     "FS_ACRA_MISMATCH": "financial_misstatement",

@@ -65,6 +65,7 @@ def test_a_clean_case_has_no_category() -> None:
     ("sanctioned", "Sanctions / AML"),
     ("struck_off", "Identity / registry"),
     ("incomplete", "Incomplete application"),
+    ("third_party_payment", "Third-party payment"),
 ])
 def test_each_pack_shows_what_was_planted(pack: str, expected: str) -> None:
     found = categorise(_assessed(pack))
@@ -79,9 +80,11 @@ def test_a_category_names_the_findings_behind_it() -> None:
     assert all(CHECK_CATEGORY[by_id[i].check_id] == "tampered_document" for i in tampered.ids)
 
 
-def test_an_ai_only_fraud_has_no_category_from_the_rules() -> None:
-    """The rules cannot see a third-party payment: without the AI team the case shows none."""
-    assert categorise(_assessed("third_party_payment")) == []
+@pytest.mark.parametrize("pack", ["related_party", "round_trip"])
+def test_an_ai_only_fraud_has_no_category_from_the_rules(pack: str) -> None:
+    """The rules cannot see an undisclosed related party or a round trip:
+    without the AI team the case shows none."""
+    assert categorise(_assessed(pack)) == []
 
 
 def test_info_findings_say_nothing_is_wrong() -> None:

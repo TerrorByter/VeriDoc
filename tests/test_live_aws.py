@@ -69,7 +69,8 @@ def test_live_agent_team_runs_on_bedrock(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("USAGE_LOG_PATH", str(tmp_path / "usage.jsonl"))
-    folder = PACKS / "third_party_payment"
+    # The round trip: a fraud no rule sees, so the run exercises the team's own hunt
+    folder = PACKS / "round_trip"
     result = assess(
         folder.name, sorted(folder.glob("*.pdf")), load_manifest(folder), team=None
     )

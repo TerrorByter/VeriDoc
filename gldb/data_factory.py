@@ -12,8 +12,9 @@ Usage:
 
 (Re)creates tests/fixtures/packs/clean/, tampered/, incomplete/, scanned/ (the clean
 pack as image-only scans) and sanctioned/ (a sanctioned buyer), overwriting
-existing files. The third_party_payment/, related_party/, round_trip/ and
-innocent_split/ packs hold patterns the rules cannot judge, for the AI team.
+existing files. The related_party/ and round_trip/ packs hold patterns the
+rules cannot judge, for the AI team; innocent_split/ holds a rule finding the
+AI team should explain; third_party_payment/ holds a payer the rules catch.
 All entities are fictional.
 
 Rendering contract (stub parser depends on these exactly):
@@ -1062,10 +1063,11 @@ def _generate_retro_po(out_dir: Path) -> None:
     (out_dir / "ground_truth.json").write_text(json.dumps(truth, indent=2))
 
 
-#: Beyond-rules packs: each is the clean pack with one change that no rule
-#: judges, so the rules stay silent and only the AI team can raise it.
-#: innocent_split is the reverse: one rule fires and the team should find the
-#: cause innocent.
+#: Trade-pattern packs: each is the clean pack with one change. In
+#: related_party and round_trip no rule judges it, so the rules stay silent
+#: and only the AI team can raise it. third_party_payment is caught by a rule
+#: (XDOC_THIRD_PARTY_PAYER). innocent_split is the reverse: one rule fires and
+#: the team should find the cause innocent.
 HARBOURLINE = "HARBOURLINE LOGISTICS"
 #: third_party_payment: a company with no part in the sale pays INV-1002
 THIRD_PARTY_PAYER_RENAME = ("BAYVIEW MARINE SUPPLIES", HARBOURLINE)
@@ -1132,9 +1134,12 @@ def _generate_beyond_rules(
 
 
 def _generate_third_party_payment(out_dir: Path) -> None:
+    """The clean pack with INV-1002 paid by a company with no part in the
+    sale. The rule XDOC_THIRD_PARTY_PAYER reads the payer from the statement
+    and reports it; the AI team's third-party lead only confirms that."""
     _generate_beyond_rules(
-        out_dir, "third_party_payment",
-        leads=[{"agent": "transaction", "pattern": "third_party_payment"}],
+        out_dir, "third_party_payment", leads=[],
+        check_ids=["XDOC_THIRD_PARTY_PAYER"], band="Medium", path="standard_review",
         payer_rename=THIRD_PARTY_PAYER_RENAME,
     )
 

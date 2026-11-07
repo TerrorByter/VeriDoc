@@ -384,8 +384,7 @@ def test_retro_po_pack_dates_po_2002_after_its_invoice(packs):
 
 BEYOND_RULES_PACKS = ["third_party_payment", "related_party", "round_trip", "innocent_split"]
 EXPECTED_AI_TRUTH = {
-    "third_party_payment": (
-        [{"agent": "transaction", "pattern": "third_party_payment"}], []),
+    "third_party_payment": ([], []),
     "related_party": (
         [{"agent": "kyc", "pattern": "related_party"}], []),
     "round_trip": (
@@ -411,13 +410,13 @@ def test_beyond_rules_pack_files_and_ground_truth(packs, name):
 
 
 @needs_templates
-def test_only_the_innocent_split_pack_expects_a_rule_finding(packs):
+def test_only_related_party_and_round_trip_expect_the_rules_to_stay_silent(packs):
+    rule = {"innocent_split": ["XDOC_INVOICE_BANK"], "third_party_payment": ["XDOC_THIRD_PARTY_PAYER"]}
     for name in BEYOND_RULES_PACKS:
         gt = json.loads((packs / name / "ground_truth.json").read_text())
-        silent = name != "innocent_split"
-        assert (gt["expected_check_ids"] == []) is silent
+        assert gt["expected_check_ids"] == rule.get(name, [])
         assert (gt["expected_band"], gt["expected_path"]) == (
-            ("Low", "fast_track") if silent else ("Medium", "standard_review")
+            ("Medium", "standard_review") if name in rule else ("Low", "fast_track")
         )
         assert gt["tampers"] == []
 

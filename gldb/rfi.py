@@ -53,6 +53,9 @@ REQUESTS: dict[str, tuple[str, str | None]] = {
                           "statements, with a breakdown of receipts by customer.", None),
     "XDOC_INVOICE_BANK": ("Please provide the bank's credit advice or the customer's remittance advice for its "
                           "payment.", "We could not match it to a bank credit (we looked for a {expected})."),
+    "XDOC_THIRD_PARTY_PAYER": ("Please tell us who made the payment for this invoice and why it paid on the "
+                               "buyer's behalf, with any agreement under which it did.",
+                               "We see {observed}, where we expected {expected}."),
     "XDOC_PO_INVOICE": ("Please provide the purchase order for this invoice.", None),
     "XDOC_BL_INVOICE": ("Please provide the shipping documents for the full quantity invoiced, or a corrected "
                         "invoice.", None),

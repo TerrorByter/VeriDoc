@@ -1,0 +1,794 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VeriDoc Explained</title>
+<meta name="description" content="What VeriDoc is, how it reads a trade-finance application, how its rules and AI team work, and how well it does, in plain language.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper: hsl(40 13% 92%);
+  --surface: hsl(42 20% 95.5%);
+  --sunken: hsl(40 12% 88.5%);
+  --hairline: hsl(38 9% 80%);
+  --rule-strong: hsl(38 8% 50%);
+  --ink: hsl(222 28% 13%);
+  --ink-muted: hsl(222 9% 33%);
+  --ink-faint: hsl(222 7% 41%);
+  --ink-blue: hsl(224 44% 30%);
+  --ink-blue-soft: hsl(224 26% 88%);
+  --on-ink-blue: hsl(42 30% 96%);
+  --amber: hsl(28 70% 26%);
+  --amber-soft: hsl(34 50% 86%);
+  --sage: hsl(150 38% 24%);
+  --sage-soft: hsl(145 20% 86%);
+  --ochre: hsl(34 72% 24%);
+  --ochre-soft: hsl(40 52% 84%);
+  --rust: hsl(16 62% 31%);
+  --rust-soft: hsl(18 46% 87%);
+  --wine: hsl(350 52% 31%);
+  --wine-soft: hsl(350 32% 89%);
+  --highlighter: hsl(44 90% 55% / 0.32);
+  --sans: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --r: 4px;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+}
+:root[data-theme="dark"] {
+  --paper: hsl(222 16% 11%);
+  --surface: hsl(222 14% 14.5%);
+  --sunken: hsl(222 14% 9%);
+  --hairline: hsl(222 9% 24%);
+  --rule-strong: hsl(222 7% 46%);
+  --ink: hsl(40 14% 89%);
+  --ink-muted: hsl(40 6% 70%);
+  --ink-faint: hsl(40 5% 60%);
+  --ink-blue: hsl(224 55% 78%);
+  --ink-blue-soft: hsl(224 24% 24%);
+  --on-ink-blue: hsl(222 16% 11%);
+  --amber: hsl(34 70% 70%);
+  --amber-soft: hsl(30 30% 20%);
+  --sage: hsl(148 32% 68%);
+  --sage-soft: hsl(150 18% 19%);
+  --ochre: hsl(40 62% 68%);
+  --ochre-soft: hsl(38 28% 20%);
+  --rust: hsl(18 60% 70%);
+  --rust-soft: hsl(16 26% 21%);
+  --wine: hsl(350 50% 74%);
+  --wine-soft: hsl(350 20% 21%);
+  --highlighter: hsl(44 80% 50% / 0.22);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 72px; -webkit-text-size-adjust: 100%; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, *::before, *::after { transition: none !important; animation: none !important; } }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font: 400 16px/1.6 var(--sans); font-feature-settings: "ss01";
+  transition: background .3s var(--ease), color .3s var(--ease);
+}
+a { color: var(--ink-blue); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+a:hover { text-decoration-thickness: 2px; }
+:focus-visible { outline: 2px solid var(--ink-blue); outline-offset: 2px; border-radius: 2px; }
+code, .mono { font-family: var(--mono); font-size: .9em; font-variant-numeric: tabular-nums; }
+code { background: var(--sunken); padding: 1px 5px; border-radius: 2px; }
+p { margin: 0 0 1em; max-width: 68ch; }
+ul, ol { padding-left: 1.2em; max-width: 68ch; }
+li { margin: .3em 0; }
+mark { background: var(--highlighter); color: inherit; padding: 0 2px; border-radius: 2px; }
+
+/* Top bar */
+.top {
+  position: sticky; top: 0; z-index: 10; background: var(--surface);
+  border-bottom: 1px solid var(--hairline);
+}
+.top-inner { max-width: 1120px; margin: 0 auto; padding: 0 16px; height: 56px; display: flex; align-items: center; gap: 20px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -.01em; color: var(--ink); text-decoration: none; white-space: nowrap; }
+.brand-mark { width: 22px; height: 22px; border: 1.5px solid var(--ink-blue); border-radius: 3px; display: grid; place-items: center; }
+.brand-mark::after { content: ""; width: 10px; height: 2px; background: var(--ink-blue); box-shadow: 0 -4px 0 var(--ink-blue), 0 4px 0 var(--ink-blue); }
+.toc { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; flex: 1; }
+.toc::-webkit-scrollbar { display: none; }
+.toc a {
+  font-size: 13px; font-weight: 500; color: var(--ink-muted); text-decoration: none;
+  padding: 6px 10px; border-radius: var(--r); white-space: nowrap; transition: background .15s, color .15s;
+}
+.toc a:hover { background: var(--sunken); color: var(--ink); }
+.toc a.active { background: var(--ink-blue-soft); color: var(--ink-blue); }
+.theme {
+  height: 32px; padding: 0 12px; border: 1px solid var(--hairline); border-radius: var(--r);
+  background: var(--surface); color: var(--ink); font: 500 13px var(--sans); cursor: pointer; white-space: nowrap;
+  transition: background .15s, border-color .15s;
+}
+.theme:hover { background: var(--sunken); border-color: var(--rule-strong); }
+
+/* Layout */
+main { max-width: 1120px; margin: 0 auto; padding: 0 16px 96px; }
+section { padding: 72px 0 8px; }
+.eyebrow { font: 500 12px/1.5 var(--mono); letter-spacing: .02em; color: var(--ink-faint); margin: 0 0 10px; }
+h1, h2, h3 { letter-spacing: -.015em; line-height: 1.2; margin: 0; }
+h2 { font-size: clamp(26px, 3.4vw, 34px); font-weight: 600; padding-bottom: 14px; border-bottom: 2px solid var(--ink); margin-bottom: 24px; max-width: none; }
+h3 { font-size: 19px; font-weight: 600; margin: 32px 0 10px; }
+.t4 { font-size: 15px; font-weight: 600; margin: 0 0 6px; }
+.lede { font-size: 18px; color: var(--ink-muted); max-width: 64ch; }
+
+/* Hero */
+.hero { padding: 72px 0 24px; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 56px; align-items: end; }
+.hero h1 { font-size: clamp(36px, 6vw, 64px); font-weight: 700; letter-spacing: -.035em; line-height: 1.02; margin-bottom: 20px; }
+.hero h1 span { color: var(--ink-blue); }
+.hero .lede { font-size: clamp(17px, 1.6vw, 19px); }
+.hero-note { font-size: 13px; color: var(--ink-faint); margin-top: 16px; }
+.facts { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--rule-strong); }
+.fact { padding: 18px 4px 18px 0; border-bottom: 1px solid var(--hairline); }
+.fact:nth-child(odd) { padding-right: 16px; border-right: 1px solid var(--hairline); }
+.fact:nth-child(even) { padding-left: 16px; }
+.fact b { display: block; font: 600 34px/1 var(--sans); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.fact span { font-size: 13px; color: var(--ink-muted); }
+
+/* Cards and grids */
+.grid { display: grid; gap: 16px; }
+.g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.card {
+  background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r); padding: 18px 20px;
+  transition: border-color .2s var(--ease), transform .2s var(--ease);
+}
+.card:hover { border-color: var(--rule-strong); }
+.card p { font-size: 15px; color: var(--ink-muted); margin: 0; }
+.card .k { font: 500 12px var(--mono); color: var(--ink-faint); display: block; margin-bottom: 8px; }
+
+/* Pills */
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: var(--r); font: 500 12px var(--sans); white-space: nowrap; vertical-align: 2px; }
+.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.p-sage { background: var(--sage-soft); color: var(--sage); }
+.p-ochre { background: var(--ochre-soft); color: var(--ochre); }
+.p-rust { background: var(--rust-soft); color: var(--rust); }
+.p-wine { background: var(--wine-soft); color: var(--wine); }
+.p-blue { background: var(--ink-blue-soft); color: var(--ink-blue); }
+.p-amber { background: var(--amber-soft); color: var(--amber); }
+.p-neutral { background: var(--sunken); color: var(--ink-muted); }
+
+/* Document chain */
+.chain { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin: 28px 0 8px; }
+.doc {
+  position: relative; background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r);
+  padding: 16px; margin-right: 28px; min-height: 148px;
+}
+.doc:last-child { margin-right: 0; }
+.doc:not(:last-child)::after {
+  content: "→"; position: absolute; right: -24px; top: 50%; transform: translateY(-50%);
+  color: var(--rule-strong); font-size: 18px;
+}
+.doc .lines { margin: 10px 0 12px; display: grid; gap: 5px; }
+.doc .lines i { display: block; height: 4px; background: var(--hairline); border-radius: 2px; }
+.doc .lines i:nth-child(2) { width: 72%; } .doc .lines i:nth-child(3) { width: 84%; }
+.doc small { font-size: 13px; color: var(--ink-muted); display: block; line-height: 1.45; }
+.doc .who { font: 500 12px var(--mono); color: var(--ink-faint); text-transform: uppercase; letter-spacing: .05em; }
+.breaks { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.break { border-left: 2px solid var(--rust); padding: 2px 0 2px 12px; font-size: 14px; color: var(--ink-muted); }
+.break b { color: var(--ink); font-weight: 600; display: block; }
+
+/* Flow diagram */
+figure { margin: 28px 0; }
+.flow-wrap { background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r); padding: 20px; overflow-x: auto; }
+.flow { display: block; min-width: 860px; width: 100%; height: auto; }
+.flow text { font-family: var(--sans); fill: var(--ink); }
+.flow .t-sm { font-size: 12px; fill: var(--ink-muted); }
+.flow .t-lab { font: 500 12px var(--mono); fill: var(--ink-faint); letter-spacing: .05em; }
+.flow .box { fill: var(--paper); stroke: var(--hairline); }
+.flow .box-key { fill: var(--surface); stroke: var(--rule-strong); }
+.flow .box-ai { fill: var(--ink-blue-soft); stroke: var(--ink-blue); }
+.flow .box-human { fill: var(--sage-soft); stroke: var(--sage); }
+.flow .ln { stroke: var(--rule-strong); stroke-width: 1.5; fill: none; }
+.flow .ln-ai { stroke: var(--ink-blue); stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; }
+.flow .ln-no { stroke: var(--rust); stroke-width: 1.5; fill: none; stroke-dasharray: 2 4; }
+.flow .head { fill: var(--rule-strong); } .flow .head-ai { fill: var(--ink-blue); }
+.flow .no { font: 600 12px var(--sans); fill: var(--rust); }
+figcaption { font-size: 13px; color: var(--ink-faint); margin-top: 10px; max-width: 80ch; }
+
+/* Stages */
+.stages { border-top: 1px solid var(--rule-strong); }
+.stage { border-bottom: 1px solid var(--hairline); }
+.stage summary {
+  list-style: none; cursor: pointer; display: grid; grid-template-columns: 40px 88px minmax(0, 1fr) auto 20px; gap: 12px; align-items: center;
+  padding: 13px 8px; border-radius: var(--r); transition: background .15s;
+}
+.stage summary::-webkit-details-marker { display: none; }
+.stage summary:hover { background: var(--surface); }
+.stage .n { font: 500 13px var(--mono); color: var(--ink-faint); }
+.stage .grp { font: 500 12px var(--mono); color: var(--ink-faint); text-transform: uppercase; letter-spacing: .05em; }
+.stage .nm { font-weight: 600; }
+.stage .chev { width: 8px; height: 8px; border-right: 1.5px solid var(--ink-faint); border-bottom: 1.5px solid var(--ink-faint); transform: rotate(45deg); transition: transform .2s var(--ease); justify-self: center; margin-top: -4px; }
+.stage[open] .chev { transform: rotate(225deg); margin-top: 4px; }
+.stage .body { padding: 0 8px 18px 152px; display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 24px; animation: drop .25s var(--ease); }
+.stage .body p { margin: 0; color: var(--ink-muted); font-size: 15px; }
+.io { font-size: 13px; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-content: start; border-left: 1px solid var(--rule-strong); padding-left: 14px; }
+.io dt { font: 500 12px var(--mono); color: var(--ink-faint); text-transform: uppercase; letter-spacing: .05em; padding-top: 2px; }
+.io dd { margin: 0; color: var(--ink); }
+@keyframes drop { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+/* Tables */
+.table-wrap { overflow-x: auto; border: 1px solid var(--hairline); border-radius: var(--r); background: var(--surface); margin: 20px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; font: 600 12px var(--sans); color: var(--ink-muted); background: var(--sunken); padding: 10px 14px; border-bottom: 1px solid var(--hairline); white-space: nowrap; }
+td { padding: 12px 14px; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+tbody tr { transition: background .15s; }
+tbody tr:hover { background: var(--paper); }
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+td .sub { display: block; color: var(--ink-faint); font-size: 13px; }
+
+/* Score meter */
+.meter { margin: 28px 0 8px; }
+.meter-bar { display: grid; grid-template-columns: 20fr 30fr 51fr; height: 40px; border-radius: var(--r); overflow: hidden; border: 1px solid var(--hairline); }
+.meter-bar div { display: flex; align-items: center; padding: 0 12px; font: 600 13px var(--sans); }
+.m-low { background: var(--sage-soft); color: var(--sage); }
+.m-med { background: var(--ochre-soft); color: var(--ochre); border-left: 1px solid var(--surface); }
+.m-high { background: var(--rust-soft); color: var(--rust); border-left: 1px solid var(--surface); }
+.meter-scale { display: grid; grid-template-columns: 20fr 30fr 51fr; font: 500 12px var(--mono); color: var(--ink-faint); margin-top: 6px; }
+.meter-scale span:last-child { display: flex; justify-content: space-between; }
+
+/* Lead card (mirrors the app) */
+.lead { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r); margin: 24px 0; }
+.lead > div { padding: 20px 22px; }
+.lead .claim { border-right: 2px solid var(--rule-strong); }
+.lead .claim p { font-size: 15px; color: var(--ink); margin: 10px 0 0; }
+.ledger { display: grid; grid-template-columns: auto 1fr; gap: 0; font-size: 14px; margin-top: 10px; }
+.ledger dt, .ledger dd { padding: 7px 0; border-bottom: 1px solid var(--hairline); margin: 0; }
+.ledger dt { color: var(--ink-faint); font-size: 13px; padding-right: 16px; }
+.ledger dd { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+.ledger dt:last-of-type, .ledger dd:last-of-type { border-bottom: 0; }
+
+/* Team */
+.team { display: grid; grid-template-columns: 1fr; gap: 16px; }
+.sup { background: var(--ink-blue-soft); border: 1px solid var(--ink-blue); border-radius: var(--r); padding: 18px 20px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; align-items: baseline; }
+.sup p { margin: 4px 0 0; color: var(--ink); font-size: 15px; }
+.spec .t4 { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.spec ul { margin: 10px 0 0; padding-left: 1.1em; font-size: 14px; color: var(--ink-muted); }
+.guard { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border-top: 1px solid var(--rule-strong); margin-top: 28px; }
+.guard > div { padding: 16px 16px 16px 0; border-bottom: 1px solid var(--hairline); }
+.guard > div + div { padding-left: 16px; border-left: 1px solid var(--hairline); }
+.guard b { display: block; margin-bottom: 4px; font-weight: 600; }
+.guard span { font-size: 14px; color: var(--ink-muted); }
+
+/* Results */
+.dots-block { background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r); padding: 20px 22px; }
+.dots { display: grid; grid-template-columns: repeat(15, 1fr); gap: 6px; margin: 14px 0; max-width: 420px; }
+.dot { aspect-ratio: 1; border-radius: 50%; border: 1.5px solid transparent; transition: transform .2s var(--ease); }
+.dot:hover { transform: scale(1.3); }
+.d-rule { background: var(--sage); }
+.d-ai { background: var(--ink-blue); }
+.d-miss { background: transparent; border-color: var(--rust); }
+.d-clear { background: var(--sage-soft); border-color: var(--sage); }
+.d-fa { background: var(--ochre); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--ink-muted); }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.legend .dot { width: 12px; height: 12px; display: inline-block; }
+.big { font: 600 40px/1 var(--sans); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.big small { font-size: 18px; color: var(--ink-faint); font-weight: 500; letter-spacing: 0; }
+
+/* Callout */
+.note { border: 1px solid var(--hairline); background: var(--surface); padding: 14px 18px; border-radius: var(--r); margin: 24px 0; font-size: 15px; }
+.note p { margin: 0; max-width: none; }
+.note.warn { background: var(--ochre-soft); border-color: transparent; }
+
+/* Glossary */
+.gloss { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 40px; border-top: 1px solid var(--rule-strong); }
+.gloss div { padding: 12px 0; border-bottom: 1px solid var(--hairline); display: grid; grid-template-columns: 150px 1fr; gap: 12px; font-size: 14px; }
+.gloss dt { font-weight: 600; }
+.gloss dd { margin: 0; color: var(--ink-muted); }
+
+/* Repo map */
+.tree { font: 400 13px/1.75 var(--mono); background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r); padding: 18px 20px; overflow-x: auto; white-space: pre; color: var(--ink); }
+.tree .c { color: var(--ink-faint); }
+
+footer { max-width: 1120px; margin: 0 auto; padding: 28px 16px 48px; border-top: 1px solid var(--hairline); font-size: 13px; color: var(--ink-faint); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+
+/* Reveal */
+.reveal { opacity: 0; transform: translateY(10px); transition: opacity .6s var(--ease), transform .6s var(--ease); }
+.reveal.in { opacity: 1; transform: none; }
+.no-js .reveal { opacity: 1; transform: none; }
+
+/* Responsive */
+@media (max-width: 900px) {
+  .hero { grid-template-columns: 1fr; gap: 32px; padding-top: 48px; }
+  .g3, .g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .guard { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .guard > div:nth-child(3) { padding-left: 0; border-left: 0; }
+  .stage .body { padding-left: 8px; grid-template-columns: 1fr; gap: 14px; }
+  .stage summary { grid-template-columns: 32px minmax(0, 1fr) auto 20px; }
+  .stage .grp { display: none; }
+}
+@media (max-width: 640px) {
+  body { font-size: 15px; }
+  section { padding-top: 56px; }
+  .toc { display: none; }
+  .top-inner { justify-content: space-between; }
+  .g2, .g3, .g4, .gloss, .lead { grid-template-columns: 1fr; }
+  .lead .claim { border-right: 0; border-bottom: 2px solid var(--rule-strong); }
+  .chain, .breaks { grid-template-columns: 1fr; }
+  .doc { margin-right: 0; margin-bottom: 28px; min-height: 0; }
+  .doc:not(:last-child)::after { content: "↓"; right: 50%; top: auto; bottom: -26px; transform: translateX(50%); }
+  .guard { grid-template-columns: 1fr; }
+  .guard > div + div { padding-left: 0; border-left: 0; }
+  .gloss div { grid-template-columns: 1fr; gap: 2px; }
+  .stage summary .tag { display: none; }
+  .facts { grid-template-columns: 1fr 1fr; }
+  .fact b { font-size: 28px; }
+  .meter-bar div { font-size: 12px; padding: 0 6px; }
+}
+</style>
+</head>
+<body class="no-js">
+
+<header class="top">
+  <div class="top-inner">
+    <a class="brand" href="#top" aria-label="VeriDoc, back to top"><span class="brand-mark" aria-hidden="true"></span>VeriDoc</a>
+    <nav class="toc" aria-label="Sections">
+      <a href="#problem">The problem</a>
+      <a href="#how">How it works</a>
+      <a href="#rules">Rules &amp; score</a>
+      <a href="#ai">AI team</a>
+      <a href="#example">Example</a>
+      <a href="#people">People</a>
+      <a href="#results">Results</a>
+      <a href="#aws">On AWS</a>
+      <a href="#limits">Limits</a>
+      <a href="#glossary">Glossary</a>
+    </nav>
+    <button class="theme" id="theme" type="button" aria-pressed="false">Dark</button>
+  </div>
+</header>
+
+<main id="top">
+
+  <div class="hero">
+    <div>
+      <p class="eyebrow">Trade-finance document fraud detection · prototype</p>
+      <h1>Catch fraud in the <span>gaps between</span> documents.</h1>
+      <p class="lede">VeriDoc reads a company's whole loan application (bank statements, invoices, orders, shipping papers, tax forms and accounts), checks every document against the others and against official records, and tells an analyst exactly what looks wrong and where. A team of AI agents looks for what the fixed rules cannot, but code checks every claim they make, and a person always makes the decision.</p>
+      <p class="hero-note">Built for Green Link Digital Bank (GLDB). Synthetic data only; not for production use.</p>
+    </div>
+    <div class="facts" aria-label="Key figures">
+      <div class="fact"><b>48</b><span>rule checks on every application</span></div>
+      <div class="fact"><b>12</b><span>pipeline stages, each one shown</span></div>
+      <div class="fact"><b>4</b><span>AI specialists and a Supervisor</span></div>
+      <div class="fact"><b>0 / 30</b><span>honest applications flagged in a blind test</span></div>
+    </div>
+  </div>
+
+  <!-- 1. Problem -->
+  <section id="problem" class="reveal">
+    <p class="eyebrow">The problem</p>
+    <h2>Each document looks fine. The fraud is in how they disagree.</h2>
+    <p class="lede">A bank lends against trade: the company has sold goods, or is buying them, and needs money until it is paid. To prove the trade is real, it sends a pack of documents. Every genuine trade leaves the same trail, and every link in that trail can be faked.</p>
+
+    <div class="chain" role="list" aria-label="The paper trail of one trade">
+      <div class="doc" role="listitem"><span class="who">1 · Buyer</span><h3 class="t4">Purchase order</h3><div class="lines" aria-hidden="true"><i></i><i></i><i></i></div><small>The buyer asks for goods at an agreed price.</small></div>
+      <div class="doc" role="listitem"><span class="who">2 · Carrier</span><h3 class="t4">Bill of lading / delivery order</h3><div class="lines" aria-hidden="true"><i></i><i></i><i></i></div><small>Proof the goods actually moved.</small></div>
+      <div class="doc" role="listitem"><span class="who">3 · Seller</span><h3 class="t4">Invoice</h3><div class="lines" aria-hidden="true"><i></i><i></i><i></i></div><small>The bill for what was ordered and shipped.</small></div>
+      <div class="doc" role="listitem"><span class="who">4 · Bank</span><h3 class="t4">Payment on the statement</h3><div class="lines" aria-hidden="true"><i></i><i></i><i></i></div><small>The buyer's money arriving to settle the invoice.</small></div>
+    </div>
+    <div class="breaks">
+      <div class="break"><b>Order never issued</b>The invoice names an order that does not exist.</div>
+      <div class="break"><b>Goods not shipped</b>The invoice bills more than was carried.</div>
+      <div class="break"><b>Overbilled</b>The invoice charges more than the order and the payment.</div>
+      <div class="break"><b>Wrong payer</b>The sale is paid by a company with no part in it.</div>
+    </div>
+
+    <h3>Around the trade, more can be wrong</h3>
+    <div class="grid g3">
+      <div class="card"><span class="k">The statement</span><h3 class="t4">Edited bank figures</h3><p>A credit is raised and the PDF saved again, so revenue looks bigger than it was.</p></div>
+      <div class="card"><span class="k">The company</span><h3 class="t4">Who it says it is</h3><p>Forms disagree with the official register on a director or address; the firm is struck off; a shareholder is sanctioned.</p></div>
+      <div class="card"><span class="k">The money</span><h3 class="t4">Circular flows</h3><p>Money paid to a supplier comes back as a "customer receipt"; a supplier is secretly run by the applicant's own director.</p></div>
+    </div>
+    <div class="note"><p>A human analyst catches these by reading everything and cross-checking it by hand, which is slow, and easy to get wrong on the fiftieth application of the week. VeriDoc does the cross-checking and shows its working, so the analyst can spend their time on judgement.</p></div>
+  </section>
+
+  <!-- 2. How it works -->
+  <section id="how" class="reveal">
+    <p class="eyebrow">How it works</p>
+    <h2>Read, check, decide, explain, record.</h2>
+    <p class="lede">An application goes through twelve stages in five steps. The fixed rules alone set the risk score and the route. The AI team runs alongside them and can only add verified leads for the analyst; it can never move the score.</p>
+
+    <figure>
+      <div class="flow-wrap">
+        <svg class="flow" viewBox="0 0 1040 300" role="img" aria-labelledby="flow-t flow-d">
+          <title id="flow-t">VeriDoc pipeline</title>
+          <desc id="flow-d">Documents are read, then checked by 48 rules. The rules feed the score and route. In parallel an AI team investigates; code verifies each lead, and verified leads go to the investigation summary but never to the score. The analyst decides, and everything is written to an append-only audit log.</desc>
+          <defs>
+            <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+            <marker id="ah-ai" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head-ai" d="M0,0 L10,5 L0,10 z"/></marker>
+          </defs>
+          <text class="t-lab" x="20" y="22">INPUT</text>
+          <text class="t-lab" x="150" y="22">READ</text>
+          <text class="t-lab" x="330" y="22">CHECK</text>
+          <text class="t-lab" x="510" y="22">DECIDE</text>
+          <text class="t-lab" x="690" y="22">EXPLAIN</text>
+          <text class="t-lab" x="870" y="22">PEOPLE &amp; RECORD</text>
+
+          <rect class="box" x="20" y="40" width="100" height="84" rx="4"/>
+          <text x="32" y="70" font-weight="600" font-size="14">Documents</text>
+          <text class="t-sm" x="32" y="90">PDFs and</text>
+          <text class="t-sm" x="32" y="106">workbooks</text>
+
+          <rect class="box-key" x="150" y="40" width="150" height="84" rx="4"/>
+          <text x="162" y="66" font-weight="600" font-size="14">Read</text>
+          <text class="t-sm" x="162" y="86">OCR, fingerprint, prompt</text>
+          <text class="t-sm" x="162" y="101">screen, extract fields,</text>
+          <text class="t-sm" x="162" y="116">fetch ACRA &amp; IRAS</text>
+
+          <rect class="box-key" x="330" y="40" width="150" height="84" rx="4"/>
+          <text x="342" y="66" font-weight="600" font-size="14">48 rule checks</text>
+          <text class="t-sm" x="342" y="86">Fixed tests over every</text>
+          <text class="t-sm" x="342" y="101">field and file; each</text>
+          <text class="t-sm" x="342" y="116">finding names its rule</text>
+
+          <rect class="box-key" x="510" y="40" width="150" height="84" rx="4"/>
+          <text x="522" y="66" font-weight="600" font-size="14">Score &amp; route</text>
+          <text class="t-sm" x="522" y="86">Points per finding,</text>
+          <text class="t-sm" x="522" y="101">readiness, hard flags,</text>
+          <text class="t-sm" x="522" y="116">review path</text>
+
+          <rect class="box-key" x="690" y="40" width="150" height="84" rx="4"/>
+          <text x="702" y="66" font-weight="600" font-size="14">Investigation</text>
+          <text class="t-sm" x="702" y="86">Problem types, queue,</text>
+          <text class="t-sm" x="702" y="101">transaction chains,</text>
+          <text class="t-sm" x="702" y="116">timeline</text>
+
+          <rect class="box-human" x="870" y="40" width="150" height="84" rx="4"/>
+          <text x="882" y="66" font-weight="600" font-size="14">Analyst decides</text>
+          <text class="t-sm" x="882" y="86">Approve, decline or</text>
+          <text class="t-sm" x="882" y="101">ask for more; MLRO</text>
+          <text class="t-sm" x="882" y="116">signs off enhanced</text>
+
+          <path class="ln" d="M120 82 H146" marker-end="url(#ah)"/>
+          <path class="ln" d="M300 82 H326" marker-end="url(#ah)"/>
+          <path class="ln" d="M480 82 H506" marker-end="url(#ah)"/>
+          <path class="ln" d="M660 82 H686" marker-end="url(#ah)"/>
+          <path class="ln" d="M840 82 H866" marker-end="url(#ah)"/>
+
+          <!-- AI lane -->
+          <rect class="box-ai" x="330" y="190" width="150" height="76" rx="4"/>
+          <text x="342" y="216" font-weight="600" font-size="14">AI team</text>
+          <text class="t-sm" x="342" y="236">Supervisor + four</text>
+          <text class="t-sm" x="342" y="251">specialists, read-only</text>
+
+          <rect class="box-key" x="510" y="190" width="150" height="76" rx="4"/>
+          <text x="522" y="216" font-weight="600" font-size="14">Code verifies</text>
+          <text class="t-sm" x="522" y="236">each lead against</text>
+          <text class="t-sm" x="522" y="251">the documents</text>
+
+          <path class="ln-ai" d="M405 124 V186" marker-end="url(#ah-ai)"/>
+          <path class="ln-ai" d="M480 228 H506" marker-end="url(#ah-ai)"/>
+          <path class="ln-ai" d="M660 228 H765 V128" marker-end="url(#ah-ai)"/>
+          <text class="t-sm" x="672" y="246">verified leads only</text>
+          <path class="ln-no" d="M585 190 V130"/>
+          <text class="no" x="592" y="166">✕ never changes the score</text>
+
+          <rect class="box" x="870" y="190" width="150" height="76" rx="4"/>
+          <text x="882" y="216" font-weight="600" font-size="14">Audit log</text>
+          <text class="t-sm" x="882" y="236">Append-only: every</text>
+          <text class="t-sm" x="882" y="251">stage and action</text>
+          <path class="ln" d="M945 124 V186" marker-end="url(#ah)"/>
+        </svg>
+      </div>
+      <figcaption>Solid lines are the rule path that decides the route. Dashed blue is the AI path: it can only add verified leads to what the analyst sees.</figcaption>
+    </figure>
+
+    <h3>The twelve stages</h3>
+    <p>Each stage has its own page in the app, beside the document viewer, and the arrow keys step through them. Open any stage to see what it does.</p>
+    <div class="stages" id="stages"></div>
+  </section>
+
+  <!-- 3. Rules -->
+  <section id="rules" class="reveal">
+    <p class="eyebrow">Rules &amp; score</p>
+    <h2>Fixed rules decide the risk. No AI touches the score.</h2>
+    <p class="lede">Every rule is a plain, deterministic test: the same documents always give the same findings. Each finding records what was expected, what was observed, and the exact quote and page it came from, so the analyst can click it and see the line boxed on the document.</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Rule group</th><th style="text-align:right">Checks</th><th>What it looks for</th></tr></thead>
+        <tbody>
+          <tr><td><b>Document integrity</b></td><td class="num">6</td><td>Do the bank balances add up row by row? Are dates, totals and periods consistent inside each document?</td></tr>
+          <tr><td><b>Forensics</b></td><td class="num">5</td><td>Was the PDF edited and saved again? Is there hidden or white text? Do fonts change mid-line? Does what the page shows differ from what the file stores?</td></tr>
+          <tr><td><b>Cross-document</b></td><td class="num">13</td><td>Does each invoice match its order, shipment and payment? Who paid? Do names and identities agree across forms?</td></tr>
+          <tr><td><b>Registry &amp; screening</b></td><td class="num">6</td><td>Is the company in ACRA and live? Do the accounts match what was filed? Are any names on the UN sanctions lists or in FATF high-risk countries?</td></tr>
+          <tr><td><b>Timeline</b></td><td class="num">2</td><td>Is anything dated before its order, or before the company existed?</td></tr>
+          <tr><td><b>Compliance &amp; completeness</b></td><td class="num">16</td><td>Are the required documents here? Are the FATCA/CRS tax forms filled in correctly?</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>From findings to a score</h3>
+    <p>Only fraud findings score. Each maps to a named signal worth fixed points (a medium finding is 15), and the points add up to a score out of 100. Missing documents never add risk; they make the application <em>incomplete</em> instead, because "unfinished" and "suspicious" are different problems.</p>
+    <div class="meter" aria-label="Score bands">
+      <div class="meter-bar"><div class="m-low">Low</div><div class="m-med">Medium</div><div class="m-high">High</div></div>
+      <div class="meter-scale"><span>0</span><span>20</span><span><span>50</span><span>100</span></span></div>
+    </div>
+
+    <h3>From a score to a route</h3>
+    <div class="grid g3">
+      <div class="card"><span class="pill p-sage">Fast track</span><p style="margin-top:10px">Low score, complete application. A light check; 5% are still sampled for quality assurance.</p></div>
+      <div class="card"><span class="pill p-ochre">Standard review</span><p style="margin-top:10px">Medium score, or incomplete, or the documents were hard to read. An analyst works the case.</p></div>
+      <div class="card"><span class="pill p-wine">Enhanced review</span><p style="margin-top:10px">High score or a hard flag. Enhanced due diligence, and the MLRO must sign off before approval.</p></div>
+    </div>
+    <div class="note warn"><p><b>Hard flags</b> force enhanced review whatever the score: a sanctions match, a company that is not in the register, hidden text aimed at automated review, or a prompt attack hidden in a document. The rule is "most cautious wins": a signal can raise the route but never lower it.</p></div>
+  </section>
+
+  <!-- 4. AI team -->
+  <section id="ai" class="reveal">
+    <p class="eyebrow">The AI team</p>
+    <h2>Looking where rules cannot, under strict supervision.</h2>
+    <p class="lede">Some fraud is a pattern, not a broken rule: money that goes out and comes back, a supplier that shares a director with the applicant. A team of AI agents on Amazon Bedrock looks for these, using read-only tools over the case. They propose; code checks; people decide.</p>
+
+    <div class="team">
+      <div class="sup">
+        <div><h3 class="t4">Supervisor <span class="pill p-amber">Claude Sonnet 4.6</span></h3><p>Reads the rule findings, writes a brief for each specialist, then reconciles their verified leads into a case memo.</p></div>
+      </div>
+      <div class="grid g4">
+        <div class="card spec"><h3 class="t4">Transaction</h3><span class="pill p-amber">Haiku 4.5</span><ul><li>Third-party payments</li><li>Round trips</li><li>Split payments</li></ul></div>
+        <div class="card spec"><h3 class="t4">KYC</h3><span class="pill p-amber">Haiku 4.5</span><ul><li>Undisclosed related parties</li><li>Business that does not fit the company</li></ul></div>
+        <div class="card spec"><h3 class="t4">Forensics</h3><span class="pill p-amber">Haiku 4.5</span><ul><li>Inconsistencies across the documents</li></ul></div>
+        <div class="card spec"><h3 class="t4">Timeline</h3><span class="pill p-amber">Haiku 4.5</span><ul><li>Events in the wrong order</li><li>Dates before incorporation</li></ul></div>
+      </div>
+    </div>
+
+    <h3>Four safeguards</h3>
+    <div class="guard">
+      <div><b>Read-only</b><span>Agents can search and read the case. They cannot change a document, a finding or a route.</span></div>
+      <div><b>Isolated</b><span>Each specialist sees only its own brief and tool results; a lead citing a result it never received is refused.</span></div>
+      <div><b>Verified by code</b><span>Every lead is tested against the documents (verified, contradicted or unchecked) before an analyst sees it.</span></div>
+      <div><b>Log-only</b><span>A shadow scorer may <em>propose</em> a review. It is recorded beside the real route and never replaces it.</span></div>
+    </div>
+    <p style="margin-top:20px">Leads that use verdict words ("this is fraud") or cite nothing are withheld, and still shown in the trace so nothing is hidden. Text in a document that tries to instruct the AI is caught by a Bedrock guardrail before any model reads it.</p>
+  </section>
+
+  <!-- 5. Example -->
+  <section id="example" class="reveal">
+    <p class="eyebrow">A worked example</p>
+    <h2>A round trip the rules let through.</h2>
+    <p class="lede">In the <code>round_trip</code> demo pack every row of the bank statement looks normal on its own, so the rules score the case low and route it to fast track. The transaction specialist reads the whole statement and notices a pair.</p>
+
+    <div class="lead" aria-label="An AI lead and what code established">
+      <div class="claim">
+        <span class="pill p-blue">AI proposal · transaction specialist</span>
+        <p>A payment to a supplier appears to return from the same company as a customer receipt shortly afterwards. The money may be going round in a circle to make sales look bigger.</p>
+      </div>
+      <div>
+        <span class="pill p-sage">Code verified</span>
+        <dl class="ledger">
+          <dt>Paid out to supplier</dt><dd>SGD 114,000.00</dd>
+          <dt>Came back from it</dt><dd>SGD 111,150.00</dd>
+          <dt>Days between</dt><dd>13</dd>
+          <dt>Counterparty</dt><dd>same company, both rows</dd>
+          <dt>Source</dt><dd>bank statement, quoted rows</dd>
+        </dl>
+      </div>
+    </div>
+    <p>The analyst sees both columns: what the AI suggested, in its words, and what code established from the statement, as facts with sources. The score stays as the rules set it, but with the AI team on, a verified lead raises the case from fast track to standard review, so a person looks at it.</p>
+  </section>
+
+  <!-- 6. People -->
+  <section id="people" class="reveal">
+    <p class="eyebrow">People stay in charge</p>
+    <h2>The system routes and explains. People decide.</h2>
+    <div class="grid g3">
+      <div class="card"><span class="k">Analyst</span><h3 class="t4">Works the case</h3><p>Reads each finding on its page, follows the task queue, can override a check with a reason, and drafts a request for information to the applicant.</p></div>
+      <div class="card"><span class="k">MLRO</span><h3 class="t4">Signs off enhanced reviews</h3><p>An enhanced case cannot be approved until a different person, the Money Laundering Reporting Officer, records a decision. Declining is never held back.</p></div>
+      <div class="card"><span class="k">Auditor</span><h3 class="t4">Can replay any decision</h3><p>Every stage and action goes to an append-only log with file fingerprints and rule and policy versions, so a past route can be reproduced exactly.</p></div>
+    </div>
+    <h3>Five screens</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Screen</th><th>What it is for</th></tr></thead>
+        <tbody>
+          <tr><td><b>Cases</b></td><td>Every application, newest first, with its route, score and the kind of problem it shows.</td></tr>
+          <tr><td><b>New case</b></td><td>Start from one of twelve demo applicants, or upload your own documents.</td></tr>
+          <tr><td><b>Live run</b></td><td>Watch each stage run, including the AI team's tool calls as they happen.</td></tr>
+          <tr><td><b>Case workspace</b></td><td>One page per stage beside the document viewer; the forensic overlay boxes every finding on a page, coloured by severity.</td></tr>
+          <tr><td><b>Model &amp; controls</b></td><td>The evaluation, the blind test, rule versions, the signal library and AWS spend.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 7. Results -->
+  <section id="results" class="reveal">
+    <p class="eyebrow">How well it works</p>
+    <h2>Measured honestly, misses included.</h2>
+    <p class="lede">Testing on our own demo packs only proves the system catches what we planted. So we also ran a blind test: a separate AI model wrote 60 applicants from public fraud typologies, the system was frozen first, and it was scored against an answer key it never saw.</p>
+
+    <div class="grid g3" style="margin-top:24px">
+      <div class="card"><span class="k">Demo packs · 12 applicants</span><div class="big">15<small> / 15</small></div><p style="margin-top:6px">planted attacks caught; all 12 packs routed as expected.</p></div>
+      <div class="card"><span class="k">Blind test · rules alone</span><div class="big">20<small> / 30</small></div><p style="margin-top:6px">frauds sent for review, with <b>0 of 30</b> honest applications flagged.</p></div>
+      <div class="card"><span class="k">Blind test · with the AI team</span><div class="big">9<small> / 10</small></div><p style="margin-top:6px">of the rules' misses would reach review; 2 of 15 innocent look-alikes flagged.</p></div>
+    </div>
+
+    <div class="grid g2" style="margin-top:16px">
+      <div class="dots-block">
+        <h3 class="t4">30 fraudulent applicants</h3>
+        <div class="dots" id="dots-fraud" aria-label="20 caught by rules, 9 more caught with the AI team, 1 missed"></div>
+        <div class="legend"><span><i class="dot d-rule"></i>Caught by the rules (20)</span><span><i class="dot d-ai"></i>Caught with the AI team (9)</span><span><i class="dot d-miss"></i>Missed (1)</span></div>
+      </div>
+      <div class="dots-block">
+        <h3 class="t4">30 honest applicants</h3>
+        <div class="dots" id="dots-legit" aria-label="28 left clear, 2 look-alikes flagged by the AI team"></div>
+        <div class="legend"><span><i class="dot d-clear"></i>Left clear (28)</span><span><i class="dot d-fa"></i>Flagged by the AI team (2)</span></div>
+      </div>
+    </div>
+
+    <h3>Why the misses happened</h3>
+    <ul>
+      <li><b>5 orders never issued:</b> a rule found every one, but a single medium finding scores 15, just under the review threshold of 20. The AI team's shadow scorer proposed review for all five.</li>
+      <li><b>5 round trips:</b> no rule looks for this by design; it is the AI team's job. It found and code-verified 4; one (H-041) still went through and is not yet diagnosed.</li>
+      <li><b>2 false alarms:</b> the test's document generator reused the same two officer names across many companies, so the register really did show a shared, undeclared director. Code verified it correctly; it just was not planted.</li>
+    </ul>
+    <div class="note warn"><p>All data is synthetic and laid out in formats the parser was written for. These numbers show the design works on unseen cases; they are not a detection rate on real bank applications.</p></div>
+  </section>
+
+  <!-- 8. AWS -->
+  <section id="aws" class="reveal">
+    <p class="eyebrow">Built on AWS</p>
+    <h2>What runs where.</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Piece</th><th>Service</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td><b>AI team &amp; extraction</b></td><td><span class="pill p-amber">Amazon Bedrock</span></td><td>Claude Sonnet 4.6 (Supervisor) and Haiku 4.5 (specialists, shadow scorer); optional field extraction, where every quote must appear on the page.</td></tr>
+          <tr><td><b>Reading scans</b></td><td><span class="pill p-amber">Amazon Textract</span></td><td>Reads each page as it looks, to compare with what the PDF stores and catch pasted-over figures.</td></tr>
+          <tr><td><b>Prompt screen</b></td><td><span class="pill p-amber">Bedrock Guardrails</span></td><td>Finds instructions aimed at AI models hidden in documents, before any model reads them.</td></tr>
+          <tr><td><b>Hosting</b></td><td><span class="pill p-amber">EC2</span></td><td>One server in Singapore (ap-southeast-1), reached through a private tunnel with a shared sign-in.</td></tr>
+          <tr><td><b>Deploys</b></td><td><span class="pill p-amber">Systems Manager</span></td><td>GitHub Actions tests every change, then deploys <code>main</code> through a narrowly scoped role; no keys are stored.</td></tr>
+          <tr><td><b>Cost control</b></td><td><span class="pill p-amber">EventBridge · CloudWatch</span></td><td>The server stops at 1am Singapore time and after two idle hours.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Without AWS, everything still runs: the deterministic parser handles all twelve demo packs, and the whole test suite (about 1,600 tests) runs offline. Official records come from a mock ACRA and IRAS service standing in for the real APIs.</p>
+  </section>
+
+  <!-- 9. Limits -->
+  <section id="limits" class="reveal">
+    <p class="eyebrow">Limits &amp; next steps</p>
+    <h2>What this prototype is not, yet.</h2>
+    <div class="grid g2">
+      <div class="card"><h3 class="t4">Known limits</h3><ul style="font-size:14px;color:var(--ink-muted);margin:8px 0 0">
+        <li>Synthetic data only; real documents come in layouts the parser has not seen.</li>
+        <li>The Claude models use a global inference profile, so requests may be processed outside Singapore: fine for demo data, not for real applicants.</li>
+        <li>Analysts cannot yet record a decision on an AI lead itself.</li>
+        <li>One shared sign-in; no per-user accounts or production storage.</li>
+      </ul></div>
+      <div class="card"><h3 class="t4">Next steps</h3><ul style="font-size:14px;color:var(--ink-muted);margin:8px 0 0">
+        <li>A fresh AI team evaluation since the November changes, and a diagnosis of H-041.</li>
+        <li>Revisit how a lone "order never issued" finding scores.</li>
+        <li>Fix the test generator's reused officer names.</li>
+        <li>Production storage, per-user login, and a Singapore-only model.</li>
+      </ul></div>
+    </div>
+
+    <h3>Where things live in the code</h3>
+<div class="tree">gldb/              <span class="c"># the core package: read, check, score, route, explain</span>
+  checks.py        <span class="c"># the 48 rule checks</span>
+  scoring.py       <span class="c"># fixed points per signal, risk band</span>
+  routing.py       <span class="c"># review path policy, hard flags</span>
+  ai_team/         <span class="c"># Supervisor, specialists, tools, code verification, shadow scorer</span>
+  pipeline.py      <span class="c"># runs the twelve stages</span>
+  api.py           <span class="c"># FastAPI backend for the UI</span>
+  heldout.py       <span class="c"># the blind test: render, seal, run, score</span>
+frontend/          <span class="c"># React + TypeScript interface</span>
+mock_gov/          <span class="c"># mock ACRA and IRAS records service</span>
+data/packs/        <span class="c"># the twelve synthetic demo applicants</span>
+infra/             <span class="c"># CloudFormation templates</span>
+tests/             <span class="c"># the offline test suite</span></div>
+    <p style="margin-top:14px">For depth, see <a href="veridoc-architecture.html">the architecture page</a>, <a href="PROJECT_STATUS.md">PROJECT_STATUS.md</a> and the <a href="../README.md">README</a>.</p>
+  </section>
+
+  <!-- 10. Glossary -->
+  <section id="glossary" class="reveal">
+    <p class="eyebrow">Glossary</p>
+    <h2>Terms used above.</h2>
+    <dl class="gloss">
+      <div><dt>Trade finance</dt><dd>Loans that fund a company's buying or selling of goods until it is paid.</dd></div>
+      <div><dt>ACRA</dt><dd>Singapore's company register: directors, shareholders, address, status.</dd></div>
+      <div><dt>IRAS / NOA</dt><dd>Singapore's tax authority; a Notice of Assessment shows a person's assessed income.</dd></div>
+      <div><dt>UEN</dt><dd>A Singapore company's registration number.</dd></div>
+      <div><dt>FATCA / CRS</dt><dd>Tax-residence forms banks must collect for international tax reporting.</dd></div>
+      <div><dt>Bill of lading</dt><dd>The carrier's receipt for goods shipped by sea; a delivery order does the same locally.</dd></div>
+      <div><dt>KYC</dt><dd>Know your customer: checking who a company and its people really are.</dd></div>
+      <div><dt>MLRO</dt><dd>Money Laundering Reporting Officer, who owns the bank's anti-money-laundering decisions.</dd></div>
+      <div><dt>EDD</dt><dd>Enhanced due diligence: the deeper review behind the enhanced route.</dd></div>
+      <div><dt>FATF</dt><dd>The global anti-money-laundering body; it lists high-risk countries.</dd></div>
+      <div><dt>Round trip</dt><dd>Money sent out that comes back disguised as new income.</dd></div>
+      <div><dt>Related party</dt><dd>A counterparty linked to the applicant, such as through a shared director.</dd></div>
+      <div><dt>Hard flag</dt><dd>A finding serious enough to force enhanced review on its own.</dd></div>
+      <div><dt>Lead</dt><dd>An AI agent's proposed pattern, with citations, waiting to be verified by code.</dd></div>
+    </dl>
+  </section>
+</main>
+
+<footer>
+  <span>VeriDoc · a prototype for Green Link Digital Bank · synthetic data only</span>
+  <span>Rules 2026-11-07.1 · Policy 2026-10-25.1 · Written 2026-11-08</span>
+</footer>
+
+<script>
+(function () {
+  document.body.classList.remove("no-js");
+
+  // Stages
+  var stages = [
+    ["1","Read","OCR","Textract","Reads every page as it appears visually, independently of the text stored inside the PDF. The two readings are compared later to catch figures pasted over the original.","Uploaded PDFs","Page text, confidence and positions"],
+    ["2","Read","Intake","","Fingerprints each file with SHA-256, so the audit trail proves exactly which bytes were assessed, and works out what kind of document each one is.","Uploaded files","Typed, fingerprinted documents"],
+    ["3","Read","Prompt screen","Guardrails","A guardrail scans exactly the text a model would read, before any model reads it. A hit becomes a finding for the analyst rather than silently blocking the document.","Text a model would read","Prompt attacks per page"],
+    ["4","Read","Extract","Bedrock","Turns each document into structured fields. With the model on, every quote it returns must appear on the page or it is thrown away.","Page text","Fields with source quotes"],
+    ["5","Read","Official records","","Fetches ACRA's record of every company the documents name, and IRAS's notice for each guarantor, as the bank would itself. Documents are held to these, never to a copy the applicant supplies.","Registration and ID numbers","ACRA records, IRAS notices"],
+    ["6","Check","Rule checks","","48 fixed tests over the fields and raw files, run before any AI. Every finding names the check behind it.","Fields and files","Findings with quotes"],
+    ["7","Check","AI team","Bedrock","A Supervisor briefs four specialists, who investigate with read-only tools and report leads. Code verifies every lead; leads never change the score or the route.","Findings and fields","Verified leads, case memo"],
+    ["8","Decide","Score","","Only fraud findings score. Each maps to a named signal with fixed points, so every line of the score names the rule behind it.","Fraud findings","Score out of 100, risk band"],
+    ["9","Decide","Readiness","","Missing documents and form errors make a case incomplete. They never add risk points: completeness and risk are kept apart on purpose.","Completeness findings","Complete or incomplete"],
+    ["10","Decide","Route","","A versioned policy turns score, readiness and hard flags into a review path. A hard flag can raise the path but never lower it.","Score, readiness, flags","Review path"],
+    ["11","Explain","Investigation summary","","Problem types, the analyst's queue, each invoice's chain from order to payment, and a timeline, all built by code from the findings so they cannot disagree.","Findings and verified leads","Categories, tasks, chains, timeline"],
+    ["12","Record","Audit record","","The result is stored and one audit event records everything needed to reconstruct the decision later: versions, file fingerprints and evidence coverage.","Case result","Stored result, audit event"]
+  ];
+  var host = document.getElementById("stages");
+  stages.forEach(function (s) {
+    var d = document.createElement("details");
+    d.className = "stage";
+    var tag = s[3] ? '<span class="pill p-amber tag">' + s[3] + "</span>" : "<span></span>";
+    d.innerHTML =
+      '<summary><span class="n">' + s[0].padStart(2, "0") + '</span><span class="grp">' + s[1] +
+      '</span><span class="nm">' + s[2] + "</span>" + tag + '<span class="chev" aria-hidden="true"></span></summary>' +
+      '<div class="body"><p>' + s[4] + '</p><dl class="io"><dt>In</dt><dd>' + s[5] + "</dd><dt>Out</dt><dd>" + s[6] + "</dd></dl></div>";
+    host.appendChild(d);
+  });
+
+  // Dot grids
+  function fill(id, groups) {
+    var el = document.getElementById(id);
+    groups.forEach(function (g) {
+      for (var i = 0; i < g[1]; i++) { var d = document.createElement("i"); d.className = "dot " + g[0]; d.title = g[2]; el.appendChild(d); }
+    });
+  }
+  fill("dots-fraud", [["d-rule", 20, "Caught by the rules"], ["d-ai", 9, "Caught with the AI team"], ["d-miss", 1, "Missed"]]);
+  fill("dots-legit", [["d-clear", 28, "Left clear"], ["d-fa", 2, "Flagged by the AI team"]]);
+
+  // Theme
+  var btn = document.getElementById("theme"), root = document.documentElement;
+  function setTheme(t) {
+    root.setAttribute("data-theme", t);
+    btn.textContent = t === "dark" ? "Light" : "Dark";
+    btn.setAttribute("aria-pressed", String(t === "dark"));
+    try { localStorage.setItem("veridoc-explained-theme", t); } catch (e) {}
+  }
+  var saved = null; try { saved = localStorage.getItem("veridoc-explained-theme"); } catch (e) {}
+  setTheme(saved === "dark" ? "dark" : "light");
+  btn.addEventListener("click", function () { setTheme(root.getAttribute("data-theme") === "dark" ? "light" : "dark"); });
+
+  // Reveal and active section
+  var links = {};
+  document.querySelectorAll(".toc a").forEach(function (a) { links[a.getAttribute("href").slice(1)] = a; });
+  if ("IntersectionObserver" in window) {
+    var rev = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); rev.unobserve(e.target); } });
+    }, { threshold: 0.06 });
+    document.querySelectorAll(".reveal").forEach(function (s) { rev.observe(s); });
+    var spy = new IntersectionObserver(function (es) {
+      es.forEach(function (e) {
+        if (e.isIntersecting && links[e.target.id]) {
+          Object.keys(links).forEach(function (k) { links[k].classList.remove("active"); });
+          links[e.target.id].classList.add("active");
+        }
+      });
+    }, { rootMargin: "-40% 0px -55% 0px" });
+    document.querySelectorAll("section[id]").forEach(function (s) { spy.observe(s); });
+  } else {
+    document.querySelectorAll(".reveal").forEach(function (s) { s.classList.add("in"); });
+  }
+})();
+</script>
+</body>
+</html>

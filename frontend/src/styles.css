@@ -956,6 +956,9 @@ a, .link { text-underline-offset: 3px; }
   letter-spacing: 0.04em;
 }
 .cases-more { justify-self: start; margin-top: 8px; }
+.heldout-toggle { justify-self: start; margin-bottom: 12px; }
+.heldout-toggle svg { transition: transform .2s ease; }
+.heldout-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
 
 /* Investigation summary */
 .summary { display: grid; gap: 16px; }

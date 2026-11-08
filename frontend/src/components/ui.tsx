@@ -69,6 +69,7 @@ const PATHS = {
   search: "M7 2.5a4.5 4.5 0 100 9 4.5 4.5 0 000-9z M10.4 10.4L14 14",
   left: "M10 3L5 8l5 5",
   right: "M6 3l5 5-5 5",
+  down: "M3 6l5 5 5-5",
   external: "M9 3h4v4M13 3L7 9M11 9.5V13H3V5h3.5",
 } as const;
 

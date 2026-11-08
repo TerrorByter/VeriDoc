@@ -275,6 +275,38 @@ td .sub { display: block; color: var(--ink-faint); font-size: 13px; }
 .note p { margin: 0; max-width: none; }
 .note.warn { background: var(--ochre-soft); border-color: transparent; }
 
+/* Roadmap */
+.phases { list-style: none; padding: 0; margin: 28px 0 32px; max-width: none; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; counter-reset: none; }
+.phases li { position: relative; margin: 0; padding: 0 16px 0 0; display: grid; gap: 4px; align-content: start; }
+.phases li::before { content: ""; position: absolute; top: 15px; left: 34px; right: 0; height: 1px; background: var(--rule-strong); }
+.phases li:last-child::before { display: none; }
+.phases .ph-n {
+  width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; position: relative; z-index: 1;
+  font: 500 13px var(--mono); color: var(--ink-blue); background: var(--surface); border: 1.5px solid var(--ink-blue); margin-bottom: 8px;
+}
+.phases li.now .ph-n { background: var(--ink-blue); color: var(--on-ink-blue); }
+.phases b { font-size: 15px; font-weight: 600; }
+.phases span:last-child { font-size: 13px; color: var(--ink-muted); }
+.road { position: relative; padding-left: 48px; }
+.road::before { content: ""; position: absolute; left: 15px; top: 20px; bottom: 20px; width: 1px; background: var(--rule-strong); }
+.stop { position: relative; margin-bottom: 16px; }
+.stop .dot {
+  position: absolute; left: -48px; top: 18px; width: 31px; height: 31px; border-radius: 50%; display: grid; place-items: center;
+  font: 500 13px var(--mono); color: var(--ink-blue); background: var(--paper); border: 1.5px solid var(--ink-blue);
+}
+.stop.now .dot { background: var(--ink-blue); color: var(--on-ink-blue); }
+.stop .card { padding: 20px 22px; }
+.stop .card:hover { border-color: var(--ink-blue); }
+.ph-k { font: 500 12px var(--mono); color: var(--ink-faint); margin: 0 0 4px; }
+.stop .t4 { font-size: 18px; margin-bottom: 4px; }
+.stop .goal { color: var(--ink); font-size: 15px; margin: 0 0 10px; }
+.stop ul { margin: 0 0 12px; font-size: 14px; color: var(--ink-muted); max-width: 78ch; }
+.stop li b { color: var(--ink); font-weight: 600; }
+.why { font-size: 14px; color: var(--ink-muted); background: var(--sunken); border-radius: var(--r); padding: 10px 12px; margin: 0 0 12px; max-width: none; }
+.why b { display: block; color: var(--ink); font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+.gate { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 14px; margin: 0; max-width: none; }
+.stop .card p:not(.why):not(.gate):not(.ph-k):not(.goal) { color: var(--ink-muted); }
+
 /* Glossary */
 .gloss { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 40px; border-top: 1px solid var(--rule-strong); }
 .gloss div { padding: 12px 0; border-bottom: 1px solid var(--hairline); display: grid; grid-template-columns: 150px 1fr; gap: 12px; font-size: 14px; }
@@ -314,6 +346,11 @@ footer { max-width: 1120px; margin: 0 auto; padding: 28px 16px 48px; border-top:
   .doc:not(:last-child)::after { content: "↓"; right: 50%; top: auto; bottom: -26px; transform: translateX(50%); }
   .guard { grid-template-columns: 1fr; }
   .guard > div + div { padding-left: 0; border-left: 0; }
+  .phases { display: none; }
+  .road { padding-left: 40px; }
+  .stop .dot { left: -40px; width: 27px; height: 27px; }
+  .road::before { left: 13px; }
+  .stop .card { padding: 16px; }
   .gloss div { grid-template-columns: 1fr; gap: 2px; }
   .stage summary .tag { display: none; }
   .facts { grid-template-columns: 1fr 1fr; }
@@ -337,6 +374,7 @@ footer { max-width: 1120px; margin: 0 auto; padding: 28px 16px 48px; border-top:
       <a href="#results">Results</a>
       <a href="#aws">On AWS</a>
       <a href="#limits">Limits</a>
+      <a href="#roadmap">Roadmap</a>
       <a href="#glossary">Glossary</a>
     </nav>
     <button class="theme" id="theme" type="button" aria-pressed="false">Dark</button>
@@ -653,22 +691,15 @@ footer { max-width: 1120px; margin: 0 auto; padding: 28px 16px 48px; border-top:
 
   <!-- 9. Limits -->
   <section id="limits" class="reveal">
-    <p class="eyebrow">Limits &amp; next steps</p>
+    <p class="eyebrow">Limits</p>
     <h2>What this prototype is not, yet.</h2>
-    <div class="grid g2">
-      <div class="card"><h3 class="t4">Known limits</h3><ul style="font-size:14px;color:var(--ink-muted);margin:8px 0 0">
-        <li>Synthetic data only; real documents come in layouts the parser has not seen.</li>
-        <li>The Claude models use a global inference profile, so requests may be processed outside Singapore: fine for demo data, not for real applicants.</li>
-        <li>Analysts cannot yet record a decision on an AI lead itself.</li>
-        <li>One shared sign-in; no per-user accounts or production storage.</li>
-      </ul></div>
-      <div class="card"><h3 class="t4">Next steps</h3><ul style="font-size:14px;color:var(--ink-muted);margin:8px 0 0">
-        <li>A fresh AI team evaluation since the November changes, and a diagnosis of H-041.</li>
-        <li>Revisit how a lone "order never issued" finding scores.</li>
-        <li>Fix the test generator's reused officer names.</li>
-        <li>Production storage, per-user login, and a Singapore-only model.</li>
-      </ul></div>
-    </div>
+    <div class="card"><h3 class="t4">Known limits</h3><ul style="font-size:14px;color:var(--ink-muted);margin:8px 0 0">
+      <li>Synthetic data only; real documents come in layouts the parser has not seen, and photos or screenshots of documents are not handled.</li>
+      <li>The Claude models use a global inference profile, so requests may be processed outside Singapore: fine for demo data, not for real applicants.</li>
+      <li>Analysts cannot yet record a decision on an AI lead itself.</li>
+      <li>One shared sign-in, local files for storage and an in-memory job tracker: not multi-user, not tamper-proof.</li>
+    </ul></div>
+    <p style="margin-top:16px">Each of these has a place in the <a href="#roadmap">road to production</a> below.</p>
 
     <h3>Where things live in the code</h3>
 <div class="tree">gldb/              <span class="c"># the core package: read, check, score, route, explain</span>
@@ -685,6 +716,112 @@ data/packs/        <span class="c"># the twelve synthetic demo applicants</span>
 infra/             <span class="c"># CloudFormation templates</span>
 tests/             <span class="c"># the offline test suite</span></div>
     <p style="margin-top:14px">For depth, see <a href="veridoc-architecture.html">the architecture page</a>, <a href="PROJECT_STATUS.md">PROJECT_STATUS.md</a> and the <a href="../README.md">README</a>.</p>
+  </section>
+
+  <!-- Roadmap -->
+  <section id="roadmap" class="reveal">
+    <p class="eyebrow">Road to production</p>
+    <h2>From prototype to a bank's live system.</h2>
+    <p class="lede">Five phases, in the order they depend on each other. Each ends at a gate the bank can check before the next one starts. Durations depend on the bank's own processes, so none are given.</p>
+
+    <ol class="phases" aria-label="The five phases at a glance">
+      <li class="now"><span class="ph-n">0</span><b>Finish the prototype</b><span>fix what the blind test found</span></li>
+      <li><span class="ph-n">1</span><b>Production platform</b><span>secure, Singapore-only, per-person login</span></li>
+      <li><span class="ph-n">2</span><b>Real documents</b><span>scans, photos, live registries</span></li>
+      <li><span class="ph-n">3</span><b>Validation</b><span>independent testing and sign-off</span></li>
+      <li><span class="ph-n">4</span><b>Pilot and rollout</b><span>shadow, then assist, then live</span></li>
+    </ol>
+
+    <div class="road">
+      <article class="stop now">
+        <span class="dot" aria-hidden="true">0</span>
+        <div class="card">
+          <p class="ph-k">Phase 0 · now</p>
+          <h3 class="t4">Finish the prototype</h3>
+          <p class="goal">Fix what the blind test and our own reviews exposed.</p>
+          <ul>
+            <li>Re-run the AI team's evaluation (about US$3), since the saved one predates the November rule changes; find out why it missed H-041.</li>
+            <li>Let a lone "order never issued" finding reach review: today it scores 15, just under the threshold of 20.</li>
+            <li>Stop the test generator reusing officer names, the cause of both false alarms, then run a fresh blind test.</li>
+            <li>Let analysts record a decision on each AI lead, not only on rule findings.</li>
+            <li>Produce the risk report in the shape the sponsor asked for: key findings, risks with evidence, follow-up actions, severity from Low to Critical.</li>
+          </ul>
+          <p class="gate"><span class="pill p-sage">Done when</span>a new blind test is run and every miss is fixed or explained.</p>
+        </div>
+      </article>
+
+      <article class="stop">
+        <span class="dot" aria-hidden="true">1</span>
+        <div class="card">
+          <p class="ph-k">Phase 1</p>
+          <h3 class="t4">A production-grade platform</h3>
+          <p class="goal">Replace the one-server setup with something a bank's technology risk team can approve.</p>
+          <ul>
+            <li><b>Data stays in Singapore:</b> enable Claude Sonnet 5 in ap-southeast-1, with a small code change (newer models reject the temperature and forced tool choice we send).</li>
+            <li><b>A login per person:</b> Cognito or the bank's single sign-on, with analyst, MLRO and admin roles, replacing the shared password and typed-in names.</li>
+            <li><b>Storage that holds up:</b> encrypted S3 for uploads, DynamoDB for cases, and S3 Object Lock so the audit log cannot be altered.</li>
+            <li><b>Reliable processing:</b> SQS or Step Functions in place of the in-memory job tracker, which loses progress on a restart.</li>
+            <li><b>Private network:</b> no public tunnel; the app sits inside the bank's network or behind a load balancer with a web application firewall.</li>
+            <li><b>Operations:</b> monitoring and alerts, backups, separate test and production environments, and a faster test run.</li>
+          </ul>
+          <p class="why"><b>Why banks do this</b> MAS's technology risk and outsourcing guidelines expect access control, a tamper-evident audit trail and a known data location before customer data touches a system.</p>
+          <p class="gate"><span class="pill p-sage">Done when</span>a security review and penetration test pass with no high findings.</p>
+        </div>
+      </article>
+
+      <article class="stop">
+        <span class="dot" aria-hidden="true">2</span>
+        <div class="card">
+          <p class="ph-k">Phase 2</p>
+          <h3 class="t4">Real documents and real data sources</h3>
+          <p class="goal">Handle what actually arrives: the sponsor says PDFs, scans, screenshots and photos.</p>
+          <ul>
+            <li>Read scans and photos with Textract AnalyzeDocument and AnalyzeExpense (tested on 28 October, not yet built).</li>
+            <li>Add image forensics: re-saving traces, copied-and-pasted areas, pasted signatures and stamps.</li>
+            <li>Replace the mock ACRA and IRAS service with the real ACRA API and Myinfo Business.</li>
+            <li>Add a commercial screening provider for sanctions, politically exposed persons and adverse news, beside the MAS and UN lists.</li>
+            <li>Test the parser on anonymised historical applications from the bank and on a hand-tampered set.</li>
+          </ul>
+          <p class="gate"><span class="pill p-sage">Done when</span>extraction accuracy and tamper detection are measured on real documents, not synthetic ones.</p>
+        </div>
+      </article>
+
+      <article class="stop">
+        <span class="dot" aria-hidden="true">3</span>
+        <div class="card">
+          <p class="ph-k">Phase 3</p>
+          <h3 class="t4">Validation and governance</h3>
+          <p class="goal">Earn approval from the bank's model risk and compliance teams.</p>
+          <ul>
+            <li><b>Independent validation:</b> someone outside the build team re-tests the system against a pre-registered plan, as the blind test did.</li>
+            <li><b>Thresholds the bank owns:</b> the sponsor says none are fixed in practice, so ours stay in configuration and the bank signs off its own.</li>
+            <li><b>Data protection and fair use of AI:</b> a PDPA impact assessment and a review against MAS's FEAT principles (fairness, ethics, accountability, transparency).</li>
+            <li><b>Records:</b> a model inventory entry and change control; rule and policy versions already let any past decision be replayed.</li>
+          </ul>
+          <p class="why"><b>Why banks do this</b> Any model that affects a decision is validated independently and has documented limits before it goes live, the same way credit models are.</p>
+          <p class="gate"><span class="pill p-sage">Done when</span>model risk, compliance and the MLRO sign off the system and its limits.</p>
+        </div>
+      </article>
+
+      <article class="stop">
+        <span class="dot" aria-hidden="true">4</span>
+        <div class="card">
+          <p class="ph-k">Phase 4</p>
+          <h3 class="t4">Pilot, then rollout</h3>
+          <p class="goal">Prove it on live applications without putting them at risk.</p>
+          <ul>
+            <li><b>Shadow mode:</b> VeriDoc runs on live applications while analysts decide exactly as today; its routes are compared with theirs.</li>
+            <li><b>Assist mode:</b> analysts see its findings as they work; measure time saved, frauds caught, false alarms and how often each check is overridden.</li>
+            <li><b>Go-live gates</b> agreed in advance: the catch rate, false-alarm rate and time saved that must be met.</li>
+            <li><b>After launch:</b> watch for drift, feed override statistics back into the rules, and keep sanctions and FATF lists updated on a schedule.</li>
+          </ul>
+          <p class="why"><b>Why banks do this</b> A new model runs as a challenger beside the current process and is promoted only on evidence, the pattern VeriDoc's shadow scorer already follows.</p>
+          <p class="gate"><span class="pill p-sage">Done when</span>the pilot meets the agreed gates and the bank approves live use.</p>
+        </div>
+      </article>
+    </div>
+
+    <div class="note"><p><b>What does not change on the way:</b> the rules set the score and the route, the AI only proposes and code verifies it, and a person decides, with MLRO sign-off for enhanced reviews.</p></div>
   </section>
 
   <!-- 10. Glossary -->

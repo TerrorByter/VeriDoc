@@ -225,7 +225,13 @@ def test_hub_and_spoke_isolation(clean: CaseData) -> None:
     # kyc's lead cites transaction's result, so it is refused when recorded; nor does it reach transaction
     assert "A register entry is shared" not in _received(fake.requests["transaction"])
     (refused,) = [c for c in team.tool_calls if c.tool == "record_lead"]
-    assert refused.error and refused.summary == f"error: cites a tool result it did not receive: {transaction_id}"
+    # The specialists run concurrently, so ids are issued in arrival order. The refusal names the
+    # first cited id kyc did not receive: transaction's, unless transaction ran last (R03), when
+    # it is kyc's own record_lead (R02), which is a call, not a result
+    (lookup_id,) = own["kyc"] - {refused.call_id}
+    unreceived = next(c for c in ("R01", "R02", "R03") if c != lookup_id)
+    assert unreceived in (transaction_id, refused.call_id)
+    assert refused.error and refused.summary == f"error: cites a tool result it did not receive: {unreceived}"
     assert team.leads == []
 
 

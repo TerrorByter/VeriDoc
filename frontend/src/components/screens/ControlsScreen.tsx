@@ -139,31 +139,99 @@ function Evaluation({ report, children }: { report: EvaluationReport; children: 
 
 const SEVERITIES: Severity[] = ["low", "medium", "high", "critical"];
 
-const OUTCOME_LABEL: Record<HeldoutReport["packs"][number]["outcome"], string> = {
-  caught: "Caught",
-  missed: "Missed",
-  clear: "Clear",
-  false_alarm: "False alarm",
-  error: "Error",
-};
+type HeldoutPack = HeldoutReport["packs"][number];
 
-const OUTCOME_TONE: Record<HeldoutReport["packs"][number]["outcome"], "low" | "crit" | "med" | "neutral"> = {
-  caught: "low",
-  missed: "crit",
-  clear: "low",
-  false_alarm: "crit",
-  error: "neutral",
-};
+/** What the AI team's log-only gate did with a pack, in words */
+function aiVerdict(p: HeldoutPack): string {
+  if (p.gate_runs === 0) return p.outcome === "caught" ? "Not needed: the rules sent it to review" : "Not run";
+  if (p.gate_review_runs === 0) return "Fast track";
+  return p.verified_leads.length > 0 ? "Standard review, on a code-verified lead" : "Standard review, the shadow scorer proposed it";
+}
 
-/** The blind held-out test: the labels were written by someone who did not build the checks, sealed before the
- * run, and revealed only to score it. This is the detection-rate claim the demo packs cannot make. */
+/** The pack's result once the AI team's log-only route is counted, so a catch the AI team made is not shown as a miss */
+function overall(p: HeldoutPack): { label: string; tone: "low" | "med" | "crit" | "neutral" } {
+  const aiReview = p.gate_review_runs > 0;
+  if (p.outcome === "error") return { label: "Error", tone: "neutral" };
+  if (p.outcome === "caught") return { label: "Caught by the rules", tone: "low" };
+  if (p.outcome === "missed") return aiReview ? { label: "Caught with the AI team", tone: "med" } : { label: "Missed", tone: "crit" };
+  if (p.outcome === "false_alarm") return { label: "False alarm", tone: "crit" };
+  return aiReview ? { label: "False alarm, AI team", tone: "crit" } : { label: "Clear", tone: "low" };
+}
+
+/** Why the rules sent a fraudulent pack through: they found something and scored it too low, or no rule looks */
+function whyMissed(p: HeldoutPack): string {
+  return p.risk_findings > 0
+    ? `A rule found it, but the score stayed ${p.band}, under the review threshold`
+    : "No rule looks for this pattern: it is left to the AI team";
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** One line per fraud type the rules sent through: what the rules did, then what the AI team did */
+function MissReasons({ packs, remarks }: { packs: HeldoutPack[]; remarks: Record<string, string> }) {
+  const missed = packs.filter((p) => p.label === "fraud" && p.outcome === "missed");
+  const aiAlarms = packs.filter((p) => p.label === "legitimate" && p.outcome === "clear" && p.gate_review_runs > 0);
+  const types = [...new Set(missed.map((p) => p.typology ?? "unknown"))];
+  if (missed.length === 0 && aiAlarms.length === 0) return null;
+  return (
+    <ul className="reasons small">
+      {types.map((t) => {
+        const group = missed.filter((p) => (p.typology ?? "unknown") === t);
+        const found = group.filter((p) => p.risk_findings > 0).length;
+        const verified = group.filter((p) => p.gate_review_runs > 0 && p.verified_leads.length > 0).length;
+        const shadow = group.filter((p) => p.gate_review_runs > 0 && p.verified_leads.length === 0).length;
+        const ran = group.filter((p) => p.gate_runs > 0).length;
+        const still = group.filter((p) => p.gate_runs > 0 && p.gate_review_runs === 0);
+        const rules = found === group.length
+          ? `a rule found every one, but its finding alone scored under the review threshold, so ${group.length === 1 ? "it" : "each"} stayed on fast track`
+          : found === 0
+            ? "no rule looks for this pattern, by design: it is the AI team's case"
+            : `a rule found ${found} but scored ${found === 1 ? "it" : "them"} under the review threshold, and nothing found the rest`;
+        const how = [
+          verified > 0 && `${verified} on a lead code verified`,
+          shadow > 0 && `${shadow} because the shadow scorer proposed review`,
+        ].filter(Boolean).join(", ");
+        const ai = ran === 0
+          ? "The AI team did not run on them."
+          : `With the AI team, ${verified + shadow} of ${group.length} would reach review${how ? ` (${how})` : ""}`
+            + `${still.length > 0 ? `; ${plural(still.length, "pack")} still went through` : ""}.`;
+        return (
+          <li key={t}>
+            <strong>{group.length} <span className="mono">{t}</span></strong>: {rules}.{" "}
+            {ai}
+            {still.map((p) => remarks[p.pack] && <span key={p.pack} className="muted block">{p.scenario_id}: {remarks[p.pack]}</span>)}
+          </li>
+        );
+      })}
+      {aiAlarms.length > 0 && (
+        <li>
+          <strong>{plural(aiAlarms.length, "legitimate pack")} flagged by the AI team</strong>{" "}
+          ({aiAlarms.map((p) => p.scenario_id).join(", ")}): the rules cleared {aiAlarms.length === 1 ? "it" : "them"}, and
+          the AI team&apos;s route would send {aiAlarms.length === 1 ? "it" : "them"} to review.
+          {[...new Set(aiAlarms.map((p) => remarks[p.pack]).filter(Boolean))].map((r) => (
+            <span key={r} className="muted block">{r}</span>
+          ))}
+        </li>
+      )}
+    </ul>
+  );
+}
+
+/** Fraud first, then legitimate; within each, grouped by what the pack carries */
+function byKind(a: HeldoutPack, b: HeldoutPack): number {
+  const kind = (p: HeldoutPack) => p.typology ?? p.quirk ?? "";
+  return a.label === b.label ? kind(a).localeCompare(kind(b)) : a.label === "fraud" ? -1 : 1;
+}
+
 function Heldout({ report }: { report: HeldoutReport }) {
   const pilot = report.kind === "pilot";
+  const remarks = report.remarks ?? {};
   // The AI team's log-only route, split so a catch and a false alarm are never one number
   const aiRan = report.packs.filter((p) => p.gate_runs > 0);
   const rulesMissed = aiRan.filter((p) => p.label === "fraud" && p.outcome === "missed");
   const honest = aiRan.filter((p) => p.label === "legitimate");
   const raised = (packs: typeof aiRan) => packs.filter((p) => p.gate_review_runs > 0).length;
+  const rows = [...report.packs].sort(byKind);
   return (
     <>
       {pilot && (
@@ -197,12 +265,16 @@ function Heldout({ report }: { report: HeldoutReport }) {
             )}
           </div>
           <p className="muted small">
-            The AI team ran on {aiRan.length} of {report.packs.length} packs; the table shows "not run" for the rest.
-            Its route is the log-only gate&apos;s: a code-verified lead, or the shadow scorer proposing review, raises
-            fast track to standard review. It is not applied; the rules&apos; route stands.
+            The AI team ran on the {aiRan.length} packs where it could change the outcome: the frauds the rules sent
+            through and the innocent look-alikes. It was not run on frauds the rules already sent to review, or on the
+            plain clean packs. Its route is the log-only gate&apos;s: a code-verified lead, or the shadow scorer
+            proposing review, raises fast track to standard review. It is not applied; the rules&apos; route stands.
           </p>
         </Section>
       )}
+      <Section title="Why the misses happened" aside="Worked out from the results, with the team's notes after the labels were revealed">
+        <MissReasons packs={report.packs} remarks={remarks} />
+      </Section>
       <Section title="Every pack, misses included" aside="The label is revealed here; the run never saw it">
         <div className="table-wrap">
           <table className="data">
@@ -211,27 +283,36 @@ function Heldout({ report }: { report: HeldoutReport }) {
                 <th scope="col">Pack</th>
                 <th scope="col">Label</th>
                 <th scope="col">What it carries</th>
-                <th scope="col">Route</th>
-                <th scope="col">Result</th>
+                <th scope="col">Rules alone</th>
                 <th scope="col">With the AI team</th>
+                <th scope="col">Outcome</th>
               </tr>
             </thead>
             <tbody>
-              {report.packs.map((p) => (
-                <tr key={p.pack}>
-                  <td className="mono">{p.pack}<span className="muted small block">{p.company}</span></td>
-                  <td>{p.label}</td>
-                  <td className="mono">{p.typology ?? p.quirk ?? "—"}</td>
-                  <td>{pathLabel(p.path)}</td>
-                  <td><Pill tone={OUTCOME_TONE[p.outcome]}>{OUTCOME_LABEL[p.outcome]}</Pill></td>
-                  <td>
-                    {p.gate_runs > 0 && p.gate_route ? pathLabel(p.gate_route) : <span className="muted">not run</span>}
-                    {p.verified_leads.length > 0 && (
-                      <span className="muted small block">verified: {p.verified_leads.join(", ")}</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {rows.map((p) => {
+                const result = overall(p);
+                return (
+                  <tr key={p.pack}>
+                    <td className="mono">{p.pack}<span className="muted small block">{p.scenario_id} · {p.company}</span></td>
+                    <td>{p.label}</td>
+                    <td className="mono">{p.typology ?? p.quirk ?? "—"}</td>
+                    <td>
+                      {pathLabel(p.path)}
+                      {p.outcome === "missed" && <span className="muted small block">{whyMissed(p)}</span>}
+                    </td>
+                    <td>
+                      <span className={p.gate_runs === 0 ? "muted" : undefined}>{aiVerdict(p)}</span>
+                      {p.verified_leads.length > 0 && (
+                        <span className="muted small block">verified: {p.verified_leads.join(", ")}</span>
+                      )}
+                    </td>
+                    <td>
+                      <Pill tone={result.tone}>{result.label}</Pill>
+                      {remarks[p.pack] && <span className="muted small block">{remarks[p.pack]}</span>}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

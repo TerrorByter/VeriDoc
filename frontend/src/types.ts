@@ -714,6 +714,8 @@ export interface HeldoutReport {
   gate_runs: number;
   verified_lead_runs: number;
   packs: HeldoutPackResult[];
+  /** The team's analysis after the labels were revealed, by pack id; never used in scoring */
+  remarks: Record<string, string>;
 }
 
 /** One thing the applicant is asked for, on one document */

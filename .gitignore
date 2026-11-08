@@ -43,3 +43,8 @@ docs/PROJECT_BRIEF.md
 # Impeccable install (per-machine) and its review screenshots
 .claude/
 .impeccable/review/
+
+# Working notes and design-tool state (kept locally, not part of the project)
+VeriDoc_Architecture_Upgrade_Brief.md
+docs/mockups/
+.impeccable/

@@ -1477,5 +1477,11 @@
       "error": null,
       "outcome": "clear"
     }
-  ]
+  ],
+  "remarks": {
+    "P942942EE5C": "The AI team ran once and recorded no round-trip lead, and the shadow scorer kept fast track. Not yet diagnosed.",
+    "PC828A714BE": "The test's renderer gave many generated companies the same two officers, so the registry really shows one of the applicant's officers at a company it trades with, undeclared. Code verified that correctly; the look-alike did not plant it. By the pre-registered rule it counts as a false alarm.",
+    "P66E904B043": "The test's renderer gave many generated companies the same two officers, so the registry really shows one of the applicant's officers at a company it trades with, undeclared. Code verified that correctly; the look-alike did not plant it. By the pre-registered rule it counts as a false alarm.",
+    "P82CBFC8899": "The round trip was found and verified. The related-party lead comes from the renderer's reused officer names, not from the planted fraud."
+  }
 }

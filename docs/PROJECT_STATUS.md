@@ -20,7 +20,7 @@ OCR -> Intake -> Prompt screen -> Extract -> Official records -> Rule checks
 | Prompt screen | A Bedrock guardrail checks each page for instructions aimed at AI models (optional); a hit is a hard flag | `gldb/prompt_screen.py`, `infra/guardrail.yaml` |
 | Extract | Structured fields: a deterministic parser (`stub`) or Bedrock (`llm`). The bank statement, forms and workbook are always read deterministically and never sent to a model | `gldb/extract*.py`, `gldb/form_maps.py` |
 | Official records | Fetches the applicant's ACRA record and each guarantor's IRAS Notice of Assessment from the mock service (as a bank would from ACRA and Myinfo) | `gldb/official.py`, `mock_gov/` |
-| Rule checks | 47 deterministic checks in six rule groups (section 2), each emitting Evidence | `gldb/checks.py` |
+| Rule checks | 48 deterministic checks in six rule groups (section 2), each emitting Evidence | `gldb/checks.py` |
 | Score | Rule-based score and band from fraud signals only; no AI sets the score | `gldb/scoring.py`, `gldb/signal_library.py` |
 | Readiness | Compliance and completeness findings decide whether the application is complete | `gldb/scoring.py` |
 | Route | Fast track, standard review or enhanced review (with enhanced due diligence), from the band, hard flags, extraction confidence and readiness; a QA sample of fast-track cases still gets a review | `gldb/routing.py` |
@@ -62,7 +62,7 @@ A Supervisor (Claude Sonnet 4.6) plans and briefs four specialists (Claude Haiku
 
 Nothing the team produces changes the score or the route. The shadow scorer (Claude Haiku 4.5) proposes a route from the case and the leads; it is compared with the rule route and a log-only gate records what it would have changed.
 
-Live runs (October 2026, on the test packs): the planted third-party payment in `third_party_payment` was found and verified by code in the run that went right, and on `innocent_split` no false flag was raised. Both packs predate the rule changes below; `related_party` and `round_trip`, now the team's showcase, have not yet run live. A case costs roughly US$0.20-0.30 of Bedrock.
+Live runs: in October 2026 the team found the planted third-party payment in `third_party_payment` (code verified it) and raised no false flag on `innocent_split`; both predate the rule changes below. In November it ran on the demo packs on the server (Run evaluation, 3 November, before the split-payment and disclosure changes) and on 25 packs of the blind test, where it found 4 of 5 round trips (section 6). A case costs roughly US$0.20-0.30 of Bedrock.
 
 The third-party payment was the team's least reliable catch: finding it means checking every sale's invoice against the credit that paid it, and specialists working to a step limit sampled a few invoices instead (run 6 searched INV-1001 and never INV-1002). Code reads the payer from the statement exactly, so it is now a rule, `XDOC_THIRD_PARTY_PAYER` (November 2026). A sale paid by someone other than its buyer is a high finding that sends the case for review; a payer the application discloses (a payment agent, a group company) is recorded as info. When the AI team raises the same payment, its lead names the rule's finding and confirms it: it is not a second flag, and the agent eval does not count it as noise. The same reasoning moved the split payment into the rules: `XDOC_INVOICE_BANK` used to flag an invoice its buyer paid in instalments (no single credit matched it), and code in the AI step explained the flag without changing the route. The rule now adds the parts up itself: two or more credits naming the invoice, each from its buyer, within the match window and together making the total, are recorded as info, and the case is fast-tracked. Anything less (a third party, a payer it cannot read, a sum short or over, a part out of time) is still a high finding.
 
@@ -86,6 +86,7 @@ No pack yet plants a `business_mismatch` (a trade at odds with the company's reg
 - **Bedrock (Converse API):** one wrapper, `gldb/llm_client.py`. Extraction forces the model to call a tool with the target JSON schema at temperature 0; every quote the model returns must appear verbatim in the visible text or it is dropped; hidden text never reaches a model. Usage logs record token counts only, never text.
 - **Textract:** `DetectDocumentText`, one page per call, 5 workers by default (the Singapore quota is 10 per second).
 - **Guardrails:** the prompt screen's guardrail, defined in `infra/guardrail.yaml`.
+- **Hosting:** one EC2 server in ap-southeast-1 runs the backend, the mock ACRA and IRAS service and the built UI, reached at https://veridoc.tail4bd12e.ts.net through Tailscale Funnel and a Caddy proxy that asks for one shared sign-in. GitHub Actions deploys `main` after the tests pass, and can start the server and run the evaluation, through an OIDC role limited to two fixed Systems Manager commands (`infra/github-deploy.yaml`). The server stops at 1am Singapore time and after two idle hours (`infra/server-schedule.yaml`).
 - **Configuration:** `.env` (gitignored). Credentials come from `aws login --profile <name>`, never from the repo. See the README section "Connecting AWS".
 - **Where data is processed:** Textract and the guardrail run in ap-southeast-1. The Claude models are called through `global.` cross-Region profiles, so a request may be processed outside Singapore: acceptable for synthetic data, not for real applicants. The only Claude model Bedrock runs in Singapore itself, Claude Sonnet 5, is not yet enabled for the project's account (AWS Sales gates it); neither are the other Claude 5-generation models.
 
@@ -177,7 +178,7 @@ see why the AI team missed H-041.
 
 `uvicorn mock_gov.app:app --port 8001`, `uvicorn gldb.api:app --reload`, and `cd frontend && npm install && npm run dev` (UI on http://localhost:5173).
 
-Screens: **Cases**; **New case** (a demo pack or an upload, each document in its own slot); a **live run** showing each stage as it runs; the **case workspace**, twelve stage pages (OCR, Intake, Prompt screen, Extract, Official records, Rule checks, Agents, Score, Readiness, Route, Investigation, Audit record) beside a document viewer; and **Model & controls** (evaluation, capabilities, signal library, spend). The viewer highlights a finding on its page, and its forensic overlay boxes every finding on a page at once, coloured by severity.
+Screens: **Cases**; **New case** (a demo pack or an upload, each document in its own slot); a **live run** showing each stage as it runs; the **case workspace**, twelve stage pages (OCR, Intake, Prompt screen, Extract, Official records, Rule checks, Agents, Score, Readiness, Route, Investigation, Audit record) beside a document viewer; and **Model & controls** (evaluation, the blind test, capabilities, signal library, spend). The viewer highlights a finding on its page, and its forensic overlay boxes every finding on a page at once, coloured by severity.
 
 The analyst confirms or dismisses each flag (a dismissal needs a reason code), can request information, escalate, approve or decline. An enhanced-review case cannot be approved until the MLRO, a different person from the analyst who escalated, has reviewed it. The API returns masked Evidence only, never the raw extracted pack.
 
@@ -190,10 +191,11 @@ The analyst confirms or dismisses each flag (a dismissal needs a reason code), c
 - Thresholds (amount tolerance, statement recency, score bands, name-match similarity) are our assumptions: the sponsor says none are fixed in practice. They live in `gldb/config.py` and are labelled as such.
 - Detection is validated only on synthetic packs; mixed-font detection in particular may false-alarm on real bank PDFs, and name screening flags about 1.25% of common two-word names.
 - The Claude calls may be processed outside Singapore (section 5).
-- The AI team is live-tested on two test packs only (`third_party_payment` and `innocent_split`), neither of which is now an AI-only case.
-- Purchase orders and bills of lading are still the plain text layout; a styled invoice is read from its text layer, not yet from a scan of it.
+- The AI team's evaluation on the demo packs predates the November rule changes, and its blind-test run covered 25 packs once each; the team is not deterministic, so these are single samples.
+- The analyst confirms or dismisses rule findings, not AI leads: a lead is a proposal with no decision recorded against it.
+- The test packs' trade documents are still the plain text layout, and the styled demo documents are read from their text layer, not yet from a scan of them.
 - Images, photos and screenshots of documents (which the sponsor says arrive in practice) are not handled; there is no image forensics.
-- No authentication: people are identified by the name they enter. Storage is local files (uploads, cases, audit log), so it is not multi-user or tamper-proof. `data/cases/<id>/result.json` keeps the full extracted pack, unmasked, on local disk (not exposed by the API).
+- One shared sign-in guards the hosted server; inside the app people are identified by the name they enter. Storage is local files (uploads, cases, audit log), so it is not multi-user or tamper-proof. `data/cases/<id>/result.json` keeps the full extracted pack, unmasked, on local disk (not exposed by the API).
 - The frontend has no unit tests; it is type-checked, built and checked in a browser by hand.
 
 ## 10. What is next
@@ -201,12 +203,12 @@ The analyst confirms or dismisses each flag (a dismissal needs a reason code), c
 Highest value first.
 
 1. **Model access.** Ask AWS (a Service Quotas case for `L-B46CFAB8`) to enable Claude Sonnet 5 in ap-southeast-1, which gives in-Singapore processing; the code then needs a small change, since newer models reject the temperature and forced tool choice it sends.
-2. **Live AI-team runs on the demo packs**, `invoice_mismatch` first, to check the team on purchases as well as sales.
+2. **A fresh AI-team evaluation** on the demo packs (Actions > Run evaluation, about US$3), since the saved one predates the November rule changes; then see why the team missed blind-test pack H-041.
 3. **Explaining the score:** each check's severity, points and whether it forces enhanced review, shown in one register.
 4. **Images and scans:** photographed and screenshotted documents, styled invoices from scans (or Textract `AnalyzeExpense`), and image forensics (error-level analysis, copy-move, signatures) tuned on a hand-made tamper set.
-5. **Document polish:** purchase orders and bills of lading in the styled layout of the invoices.
+5. **Blind-test follow-ups:** let a single missing-order finding reach review, and draw unique officer and company names in the renderer (section 6), then measure on a new set.
 6. **Risk report** in the shape the sponsor described: key findings, risks with evidence, follow-up actions.
-7. **Hosting, storage and login (only if the sponsor wants a live demo):** one container on App Runner or ECS with an IAM role, S3 for uploads, DynamoDB for cases, S3 Object Lock for the audit log, Cognito for login.
+7. **Production storage and login (the prototype is hosted on one server today):** S3 for uploads, DynamoDB for cases, S3 Object Lock for the audit log, Cognito for a login per person.
 8. **Technical report** (a deliverable): architecture, the AI team's design, detection logic, evaluation results, and each rule group's contribution.
 
 ### Tasks for teammates (no coding needed)
@@ -224,11 +226,13 @@ gldb/                Backend package (stages in section 1, rule groups in sectio
   ai_team/           The AI team: tools, agent loop, prompts, lead checks, shadow scorer
 mock_gov/            Mock ACRA and IRAS service
 frontend/            React + TypeScript (Vite) UI
-infra/               The prompt screen's guardrail (CloudFormation)
+infra/               CloudFormation: the guardrail, GitHub's deploy role, the server's stop schedule
+.github/workflows/   CI and deploy, Start server, Run evaluation
 data/packs/          Demo packs and their ground truth
 data/mock_gov/       The mock service's records
 data/reference/      Sanctions designations, the bank's own names, FATF high-risk countries
 data/templates/      The team's sample documents and the official blank forms (read-only)
+data/heldout/        The blind test heldout-v1: sheet, key, seal, results, report
 tests/               Offline pytest suite; tests/fixtures/packs holds the test packs
 .kiro/steering/      Product, structure and tech rules the code follows
 docs/                This document and the design notes in docs/superpowers/ (historical)

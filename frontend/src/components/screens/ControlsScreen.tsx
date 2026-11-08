@@ -4,7 +4,7 @@ import { duration, PATH_LABEL, usd, when } from "../../catalogue";
 import type { AgentEvalRow, Capability, Controls, EvaluationReport, HeldoutReport, ReviewPath, ScoringPolicy, Severity, SignalFamily } from "../../types";
 import { interval, wilson } from "../../stats";
 import { Metric, Section } from "../stages/common";
-import { Empty, ErrorNote, Pill } from "../ui";
+import { Empty, ErrorNote, Icon, Pill } from "../ui";
 
 const CAPABILITY_LABEL: Record<Capability["name"], string> = {
   ocr: "OCR",
@@ -232,6 +232,8 @@ function Heldout({ report }: { report: HeldoutReport }) {
   const honest = aiRan.filter((p) => p.label === "legitimate");
   const raised = (packs: typeof aiRan) => packs.filter((p) => p.gate_review_runs > 0).length;
   const rows = [...report.packs].sort(byKind);
+  // Folded by default: the reasons above summarise it, and it is long
+  const [packsOpen, setPacksOpen] = useState(false);
   return (
     <>
       {pilot && (
@@ -276,7 +278,12 @@ function Heldout({ report }: { report: HeldoutReport }) {
         <MissReasons packs={report.packs} remarks={remarks} />
       </Section>
       <Section title="Every pack, misses included" aside="The label is revealed here; the run never saw it">
-        <div className="table-wrap">
+        <button type="button" className="btn ghost small heldout-toggle" aria-expanded={packsOpen}
+                aria-controls="heldout-packs" onClick={() => setPacksOpen(!packsOpen)}>
+          <Icon name="down" size={14} />
+          {packsOpen ? "Hide the packs" : `View all ${rows.length} packs`}
+        </button>
+        {packsOpen && <div className="table-wrap" id="heldout-packs">
           <table className="data">
             <thead>
               <tr>
@@ -315,7 +322,7 @@ function Heldout({ report }: { report: HeldoutReport }) {
               })}
             </tbody>
           </table>
-        </div>
+        </div>}
       </Section>
     </>
   );

@@ -29,7 +29,7 @@ OCR -> Intake -> Prompt screen -> Extract -> Official records -> Rule checks
 | Investigation | Transaction chains (invoice, order, shipment, payment), a timeline, and a queue of what to resolve and what resolving it would change | `gldb/reconciliation.py`, `gldb/timeline.py`, `gldb/investigation.py` |
 | Audit record | Append-only JSONL log of pipeline runs and every person's action | `gldb/audit.py` |
 
-### Design principles (from `.kiro/steering/`)
+### Design principles
 1. Deterministic Python for anything computable. Models are used for extraction, for the AI team's investigation and for the shadow score; none of them sets the score or the route.
 2. Every finding is an `Evidence` object; nothing exists outside Evidence.
 3. The score is rule-based and only fraud signals feed it. Compliance and completeness findings drive a separate Application Readiness status.
@@ -234,6 +234,5 @@ data/reference/      Sanctions designations, the bank's own names, FATF high-ris
 data/templates/      The team's sample documents and the official blank forms (read-only)
 data/heldout/        The blind test heldout-v1: sheet, key, seal, results, report
 tests/               Offline pytest suite; tests/fixtures/packs holds the test packs
-.kiro/steering/      Product, structure and tech rules the code follows
-docs/                This document and the design notes in docs/superpowers/ (historical)
+docs/                This status, the architecture and explainer pages, the blind-test plan and author guide
 ```
